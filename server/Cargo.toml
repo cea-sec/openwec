@@ -1,0 +1,45 @@
+[package]
+name = "server"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "openwecd"
+path = "src/main.rs"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+common = { path = "../common" }
+env_logger = "0.9.1"
+anyhow = "1.0.59"
+base64 = "0.13.0"
+buf-read-ext = "0.4.0"
+http = "0.2.8"
+httparse = "1.7.1"
+hyper = { version = "0.14.20", features = ["full"] }
+itoa = "1.0.3"
+libgssapi = { version = "0.6.3", features = ["iov"] }
+log = "0.4.17"
+mime = "0.3.16"
+quick-xml = "0.25.0"
+roxmltree = "0.15.0"
+tokio = { version = "1.20.1", features = ["full"] }
+rdkafka = { version = "0.28.0", features = ["zstd", "libz", "external-lz4"] }
+regex = "1.6.0"
+lazy_static = "1.4.0"
+uuid = { version = "1.1.2", features = ["v4", "fast-rng"] }
+serde = { version = "1.0.147", features = ["derive"] }
+serde_json = "1.0.87"
+async-trait = "0.1.58"
+chrono = "0.4.22"
+clap = { version = "4.0.29", features = ["cargo"] }
+futures-util = "0.3.25"
+xmlparser = "0.13.5"
+itertools = "0.10.5"
+futures = "0.3.27"
+bitreader = "0.3.6"
+
+
+[dev-dependencies]
+hex = "0.4.3"

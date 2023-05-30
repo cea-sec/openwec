@@ -1,0 +1,153 @@
+#######################
+##  Server settings  ##
+#######################
+
+[server]
+# [Optional]
+# Set server logging verbosity
+# This parameter is overwritten by --verbosity argument and
+# the OPENWEC_LOG environment variable.
+# Default value is warn
+# verbosity = "warn"
+
+# [Optional]
+# Set subscriptions refresh interval
+# Subscriptions are stored in the database. When you edit them using the cli,
+# you only modify the database.
+# The server retrieves its subscriptions from the database and cache
+# them in memory. The in-memory subscriptions are refreshed at a fixed
+# interval: `db_sync_interval`.
+# Default value is 5 seconds.
+# db_sync_interval = 5
+
+# [Optional]
+# Set heartbeat cache flush interval
+# Heartbeat messages are cached in memory before being stored in database
+# to improve performances.
+# A flush operation saves all cached heartbeats in database at a fixed
+# interval: `flush_heartbeats_interval`
+# Default value is 5 seconds.
+# flush_heartbeats_interval = 5
+
+# [Optional]
+# Set node name
+# This may be used by outputs. Unset by default.
+# node_name = unsef
+
+##########################
+##  Databases settings  ##
+##########################
+
+# Two database backends are currently supported: SQLite and Postgres.
+# Note that Postgres implementation is made to work well with CockroachDB.
+
+[database]
+# [Required]
+# Database type: SQLite | Postgres
+# type = "SQLite"
+
+## SQLite configuration
+
+# SQLite DB path
+# The SQLite DB will be created and initialised if it does not already exist.
+# path = "/var/db/openwec/openwec.sqlite"
+
+## End of SQLite
+
+## Postgres configuration
+
+# [Required]
+# Postgres database Hostname
+# host = "localhost"
+
+# [Required]
+# Postgres database port
+# port = 5432 
+
+# [Required]
+# Postgres database name. It must already exist and user <postgres.user> should
+# have all permissions on it.
+# dbname = "openwec"
+
+# [Required]
+# Postgres database user. It must already exist and have all permissions
+# on <postgres.dbname>.
+# user = "openwec"
+
+# [Required]
+# Postgres database user password
+# password = ""
+
+# [Optional]
+# Postgres SSL mode. Possibles values are:
+# - Disable: Do not use TLS
+# - Prefer: Attempt to connect with TLS but allow sessions without
+# - Require: Require the use of TLS
+# ssl_mode = "Prefer"
+
+# [Optional]
+# Custom SSL CA certificate file
+# When ssl_mode is Prefer or Require, you may want to use a specific CA
+# certificate file instead of the ones trusted by your system (default).
+# ca_file = unset
+
+# [Optional]
+# Max chunk size
+# When performing bulk insert queries, this is the maximum number of
+# entries that will be inserted in one query.
+# max_chunk_size = 500
+
+## End of Postgres configuration
+
+###########################
+##  Collectors settings  ##
+###########################
+
+# You may define multiple collect servers.
+# Each collector must listen on a different (address, port) pair.
+# All collectors share the same database.
+# This is useful if you want to support both Kerberos and TLS authentication
+# (TLS authentication is not yet supported).
+
+# This defines one collector
+[[collectors]]
+# [Required]
+# Local Hostname
+# Clients will contact this hostname to send their events
+# hostname = "openwec.mydomain.local"
+
+# [Required]
+# Server listen address
+# listen_address = "127.0.0.1"
+
+# [Optional]
+# Server listenning port
+# If missing in config, default value is 5985
+# listen_port = 5985
+
+# [Optional]
+# Maximum content size allowed in client messages.
+# If missing in config, default value is 512000 (which should be safe)
+# max_content_length = 512000
+
+# Authentication settings for this collector
+# For now, the only available authentication method is Kerberos.
+[collectors.authentication]
+# [Required]
+# Authentication method: Kerberos
+# type = "Kerberos"
+
+## Kerberos configuration
+
+# [Required]
+# Service Principal Name of the openwec account
+# Should be something like "HTTP/openwec.mydomain.local@MYDOMAIN.LOCAL"
+# service_principal_name = ""
+
+# [Required]
+# Keytab file that contains secrets of the openwec account.
+# It must contain an entry for the principal <kerberos.service_principal_name>.
+# It may contains other entries, which won't be used by openwec.
+# keytab = "/etc/krb5.keytab"
+
+## End of Kerberos configuration
