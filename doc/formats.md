@@ -36,6 +36,9 @@ openwec_data := {
     "TimeReceived": date,
     /* Principal of the Windows client */
     "Principal": string,
+    /* OpenWEC node that received the event.
+      Only present if server.node_name configuration setting is set */
+    "Node": string,
     "Subscription": {
         "Name": string,
         "Version": string,
@@ -175,6 +178,7 @@ processing_error_data := {
     "IpAddress": "192.168.58.100",
     "TimeReceived": "2022-12-14T17:07:03.331+01:00",
     "Principal": "WIN10$@WINDOMAIN.LOCAL",
+    "Node": "main",
     "Subscription": {
       "Uuid": "8B18D83D-2964-4F35-AC3B-6F4E6FFA727B",
       "Version": "AD0D118F-31EF-4111-A0CA-D87249747278",
