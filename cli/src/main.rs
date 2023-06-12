@@ -57,6 +57,14 @@ async fn main() {
                     .arg(
                         arg!(--"read-existing-events" "Subscription retrieves already existing events in addition to new ones")
                     )
+                    .arg(
+                        arg!(--"content-format" <CONTENT_FORMAT> "If set to Raw, retrieve only the \
+                        EventData part of events. If set to RenderedText, retrieve the \
+                        RenderingInfo part as well. RenderingInfo increases the size of the events \
+                        but can help with analysis.")
+                        .value_parser(["Raw", "RenderedText"])
+                        .default_value("Raw")
+                    )
                 )
                 .subcommand(
                     Command::new("edit")
@@ -153,6 +161,14 @@ async fn main() {
                     )
                     .arg(
                         arg!(--"disable" "Disable the subscription")
+                    )
+                    .arg(
+                        arg!(--"content-format" <CONTENT_FORMAT> "If set to Raw, retrieve only the \
+                        EventData part of events. If set to RenderedText, retrieve the \
+                        RenderingInfo part as well. RenderingInfo increases the size of the events \
+                        but can help with analysis.")
+                        .value_parser(["Raw", "RenderedText"])
+                        .default_value("Raw")
                     )
                     .group(ArgGroup::new("subscription_status").args(["enable", "disable"]).required(false))
                 )

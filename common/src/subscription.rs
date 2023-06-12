@@ -207,6 +207,7 @@ pub struct SubscriptionData {
     max_envelope_size: u32,
     enabled: bool,
     read_existing_events: bool,
+    content_format: String,
     #[serde(default)]
     outputs: Vec<SubscriptionOutput>,
 }
@@ -242,6 +243,7 @@ impl Display for SubscriptionData {
         )?;
         writeln!(f, "\tMax envelope size: {} bytes", self.max_envelope_size())?;
         writeln!(f, "\tReadExistingEvents: {}", self.read_existing_events)?;
+        writeln!(f, "\tContent format: {}", self.content_format)?;
         if self.outputs().is_empty() {
             writeln!(f, "\tOutputs: None")?;
         } else {
@@ -269,6 +271,7 @@ impl SubscriptionData {
             max_envelope_size: 512_000,
             enabled: true,
             read_existing_events: false,
+            content_format: String::from("Raw"),
             outputs: Vec::new(),
         }
     }
@@ -284,6 +287,7 @@ impl SubscriptionData {
         max_envelope_size: Option<&u32>,
         enabled: bool,
         read_existing_events: bool,
+        content_format: &str,
         outputs: Option<Vec<SubscriptionOutput>>,
     ) -> Self {
         SubscriptionData {
@@ -299,6 +303,7 @@ impl SubscriptionData {
             max_envelope_size: *max_envelope_size.unwrap_or(&512_000),
             enabled,
             read_existing_events,
+            content_format: content_format.to_owned(),
             outputs: outputs.unwrap_or_default(),
         }
     }
@@ -316,6 +321,7 @@ impl SubscriptionData {
         max_envelope_size: u32,
         enabled: bool,
         read_existing_events: bool,
+        content_format: String,
         outputs: Vec<SubscriptionOutput>,
     ) -> Self {
         SubscriptionData {
@@ -331,6 +337,7 @@ impl SubscriptionData {
             max_envelope_size,
             enabled,
             read_existing_events,
+            content_format,
             outputs,
         }
     }
@@ -469,6 +476,15 @@ impl SubscriptionData {
 
     pub fn set_read_existing_events(&mut self, read_existing_events: bool) {
         self.read_existing_events = read_existing_events;
+        self.update_version();
+    }
+
+    pub fn content_format(&self) -> &str {
+        self.content_format.as_ref()
+    }
+
+    pub fn set_content_format(&mut self, content_format: String) {
+        self.content_format = content_format;
         self.update_version();
     }
 

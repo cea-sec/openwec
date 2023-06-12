@@ -310,6 +310,10 @@ async fn edit(db: &Db, matches: &ArgMatches) -> Result<()> {
         debug!("Update enable from {} to true", subscription.enabled());
         subscription.set_enabled(false);
     }
+    if let Some(content_format) = matches.get_one::<String>("content-format") {
+        debug!("Update ContentFormat from {} to {}", subscription.content_format(), content_format);
+        subscription.set_content_format(content_format.to_owned());
+    }
     info!(
         "Saving subscription {} ({})",
         subscription.name(),
@@ -347,6 +351,7 @@ async fn new(db: &Db, matches: &ArgMatches) -> Result<()> {
         *matches
             .get_one::<bool>("read-existing-events")
             .expect("defaulted by clap"),
+        matches.get_one::<String>("content-format").expect("Required by clap"),
         None,
     );
     debug!(

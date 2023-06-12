@@ -126,10 +126,9 @@ async fn handle_enumerate(
             "Compression".to_string(),
             OptionSetValue::String("SLDC".to_string()),
         );
-        // TODO: Make content format an option
         options.insert(
             "ContentFormat".to_string(),
-            OptionSetValue::String("RenderedText".to_string()),
+            OptionSetValue::String(subscription_data.content_format().to_string()),
         );
         options.insert(
             "IgnoreChannelError".to_string(),
