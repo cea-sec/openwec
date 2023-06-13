@@ -22,7 +22,19 @@ jobs:
         sudo apt-get install -y --no-install-recommends \
         libkrb5-dev \
         libssl-dev
+    - name: Install a Postgres database (CockroachDB)
+      run: |
+        git clone https://github.com/cockroachlabs-field/docker-examples.git
+        cd docker-examples/example-nginx/
+        sh up.sh
     - name: Build
       run: cargo build --verbose
     - name: Run tests
-      run: cargo test --verbose -- --skip postgres
+      run: |
+        # Env var to connect to the Postgres docker
+        export POSTGRES_HOST="localhost"
+        export POSTGRES_PORT="26257"
+        export POSTGRES_USER="root"
+        export POSTGRES_PASSWORD=""
+        export POSTGRES_DBNAME="test"
+        cargo test --verbose
