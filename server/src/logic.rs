@@ -299,6 +299,7 @@ async fn handle_events(
             request_data.remote_addr(),
             request_data.principal(),
             server.node_name().cloned(),
+            &subscription,
         ));
 
         // Build event strings for all formats
@@ -308,7 +309,7 @@ async fn handle_events(
             for raw in events.iter() {
                 content.push(
                     format
-                        .format(subscription.clone(), request_data, raw.clone())
+                        .format(&metadata, raw.clone())
                         .with_context(|| format!("Failed to format event with {:?}", format))?,
                 );
             }
