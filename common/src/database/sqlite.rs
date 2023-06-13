@@ -200,6 +200,7 @@ fn row_to_subscription(row: &Row) -> Result<SubscriptionData, rusqlite::Error> {
         row.get("enabled")?,
         row.get("read_existing_events")?,
         content_format,
+        row.get("ignore_channel_error")?,
         outputs,
     ))
 }
@@ -569,12 +570,10 @@ impl Database for SQLiteDatabase {
                 conn.execute(
                     r#"INSERT INTO subscriptions (uuid, version, name, uri, query,
                     heartbeat_interval, connection_retry_count, connection_retry_interval,
-                    max_time, max_envelope_size, enabled, read_existing_events, content_format,
-                    outputs)
+                    max_time, max_envelope_size, enabled, read_existing_events, content_format, ignore_channel_error, outputs)
                     VALUES (:uuid, :version, :name, :uri, :query,
                         :heartbeat_interval, :connection_retry_count, :connection_retry_interval,
-                        :max_time, :max_envelope_size, :enabled, :read_existing_events,
-                        :content_format, :outputs)
+                        :max_time, :max_envelope_size, :enabled, :read_existing_events, :content_format, :ignore_channel_error, :outputs)
                     ON CONFLICT (uuid) DO UPDATE SET 
                         version = excluded.version,
                         name = excluded.name,
@@ -588,6 +587,7 @@ impl Database for SQLiteDatabase {
                         enabled = excluded.enabled,
                         read_existing_events = excluded.read_existing_events,
                         content_format = excluded.content_format,
+                        ignore_channel_error = excluded.ignore_channel_error,
                         outputs = excluded.outputs"#,
                     named_params! {
                         ":uuid": subscription.uuid(),
@@ -603,6 +603,7 @@ impl Database for SQLiteDatabase {
                         ":enabled": subscription.enabled(),
                         ":read_existing_events": subscription.read_existing_events(),
                         ":content_format": subscription.content_format().to_string(),
+                        ":ignore_channel_error": subscription.ignore_channel_error(),
                         ":outputs": serde_json::to_string(subscription.outputs())?,
                     },
                 )

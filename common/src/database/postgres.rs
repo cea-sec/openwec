@@ -5,19 +5,19 @@
 // permission notice:
 //
 //       The MIT License (MIT)
-//       
+//
 //       Copyright (c) 2015 Skyler Lipthay
-//       
+//
 //       Permission is hereby granted, free of charge, to any person obtaining a copy
 //       of this software and associated documentation files (the "Software"), to deal
 //       in the Software without restriction, including without limitation the rights
 //       to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
 //       copies of the Software, and to permit persons to whom the Software is
 //       furnished to do so, subject to the following conditions:
-//       
+//
 //       The above copyright notice and this permission notice shall be included in all
 //       copies or substantial portions of the Software.
-//       
+//
 //       THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 //       IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
 //       FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
@@ -246,6 +246,7 @@ fn row_to_subscription(row: &Row) -> Result<SubscriptionData> {
         row.try_get("enabled")?,
         row.try_get("read_existing_events")?,
         ContentFormat::from_str(row.try_get("content_format")?)?,
+        row.try_get("ignore_channel_error")?,
         outputs,
     ))
 }
@@ -633,9 +634,8 @@ impl Database for PostgresDatabase {
             .execute(
                 r#"INSERT INTO subscriptions (uuid, version, name, uri, query,
                     heartbeat_interval, connection_retry_count, connection_retry_interval,
-                    max_time, max_envelope_size, enabled, read_existing_events, content_format,
-                    outputs)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+                    max_time, max_envelope_size, enabled, read_existing_events, content_format, ignore_channel_error, outputs)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
                     ON CONFLICT (uuid) DO UPDATE SET 
                         version = excluded.version,
                         name = excluded.name,
@@ -649,6 +649,7 @@ impl Database for PostgresDatabase {
                         enabled = excluded.enabled,
                         read_existing_events = excluded.read_existing_events,
                         content_format = excluded.content_format,
+                        ignore_channel_error = excluded.ignore_channel_error,
                         outputs = excluded.outputs"#,
                 &[
                     &subscription.uuid(),
@@ -664,6 +665,7 @@ impl Database for PostgresDatabase {
                     &subscription.enabled(),
                     &subscription.read_existing_events(),
                     &subscription.content_format().to_string(),
+                    &subscription.ignore_channel_error(),
                     &serde_json::to_string(subscription.outputs())?.as_str(),
                 ],
             )

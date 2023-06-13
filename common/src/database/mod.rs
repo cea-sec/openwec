@@ -164,6 +164,7 @@ pub mod tests {
             false,
             false,
             ContentFormat::Raw,
+            true,
             None,
         );
         db.store_subscription(subscription.clone()).await?;
@@ -175,6 +176,7 @@ pub mod tests {
         assert_eq!(toto.enabled(), false);
         assert_eq!(toto.read_existing_events(), false);
         assert_eq!(toto.content_format(), &ContentFormat::Raw);
+        assert_eq!(toto.ignore_channel_error(), true);
 
         let toto2 = db.get_subscription_by_identifier("toto").await?.unwrap();
         assert_eq!(toto, &toto2);
@@ -203,6 +205,7 @@ pub mod tests {
             true,
             true,
             ContentFormat::RenderedText,
+            false,
             Some(vec![
                 SubscriptionOutput::Files(
                     SubscriptionOutputFormat::Json,
@@ -227,6 +230,7 @@ pub mod tests {
         assert_eq!(tata.enabled(), true);
         assert_eq!(tata.read_existing_events(), true);
         assert_eq!(tata.content_format(), &ContentFormat::RenderedText);
+        assert_eq!(tata.ignore_channel_error(), false);
         assert_eq!(
             tata.outputs(),
             vec![
@@ -248,6 +252,7 @@ pub mod tests {
         tata.set_max_time(25000);
         tata.set_read_existing_events(false);
         tata.set_content_format(ContentFormat::Raw);
+        tata.set_ignore_channel_error(true);
         db.store_subscription(tata.clone()).await?;
 
         ensure!(db.get_subscriptions().await?.len() == 2);
@@ -259,6 +264,7 @@ pub mod tests {
         assert_eq!(tata2.max_time(), 25000);
         assert_eq!(tata2.read_existing_events(), false);
         assert_eq!(tata2.content_format(), &ContentFormat::Raw);
+        assert_eq!(tata2.ignore_channel_error(), true);
         assert!(tata2.version() != tata_save.version());
 
         db.delete_subscription(toto4.uuid()).await?;
@@ -292,8 +298,8 @@ pub mod tests {
             false,
             false,
             ContentFormat::Raw,
+            false,
             None,
-
         );
         db.store_subscription(subscription_tutu.clone()).await?;
         let subscription_titi = SubscriptionData::new(
@@ -308,6 +314,7 @@ pub mod tests {
             false,
             false,
             ContentFormat::RenderedText,
+            true,
             None,
         );
         db.store_subscription(subscription_titi.clone()).await?;
@@ -525,6 +532,7 @@ pub mod tests {
             false,
             false,
             ContentFormat::Raw,
+            true,
             None,
         );
 
@@ -646,6 +654,7 @@ pub mod tests {
             false,
             false,
             ContentFormat::RenderedText,
+            false,
             None,
         );
 
@@ -790,6 +799,7 @@ pub mod tests {
             false,
             false,
             ContentFormat::Raw,
+            true,
             None,
         );
 
@@ -1019,6 +1029,7 @@ pub mod tests {
             false,
             false,
             ContentFormat::Raw,
+            false,
             None,
         );
 

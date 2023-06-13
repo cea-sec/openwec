@@ -233,6 +233,7 @@ pub struct SubscriptionData {
     enabled: bool,
     read_existing_events: bool,
     content_format: ContentFormat,
+    ignore_channel_error: bool,
     #[serde(default)]
     outputs: Vec<SubscriptionOutput>,
 }
@@ -268,7 +269,8 @@ impl Display for SubscriptionData {
         )?;
         writeln!(f, "\tMax envelope size: {} bytes", self.max_envelope_size())?;
         writeln!(f, "\tReadExistingEvents: {}", self.read_existing_events)?;
-        writeln!(f, "\tContent format: {}", self.content_format.to_string())?;
+        writeln!(f, "\tContent format: {}", self.content_format().to_string())?;
+        writeln!(f, "\tIgnore channel error: {}", self.ignore_channel_error())?;
         if self.outputs().is_empty() {
             writeln!(f, "\tOutputs: None")?;
         } else {
@@ -297,6 +299,7 @@ impl SubscriptionData {
             enabled: true,
             read_existing_events: false,
             content_format: ContentFormat::Raw,
+            ignore_channel_error: true,
             outputs: Vec::new(),
         }
     }
@@ -313,6 +316,7 @@ impl SubscriptionData {
         enabled: bool,
         read_existing_events: bool,
         content_format: ContentFormat,
+        ignore_channel_error: bool,
         outputs: Option<Vec<SubscriptionOutput>>,
     ) -> Self {
         SubscriptionData {
@@ -328,7 +332,8 @@ impl SubscriptionData {
             max_envelope_size: *max_envelope_size.unwrap_or(&512_000),
             enabled,
             read_existing_events,
-            content_format: content_format.to_owned(),
+            content_format,
+            ignore_channel_error,
             outputs: outputs.unwrap_or_default(),
         }
     }
@@ -347,6 +352,7 @@ impl SubscriptionData {
         enabled: bool,
         read_existing_events: bool,
         content_format: ContentFormat,
+        ignore_channel_error: bool,
         outputs: Vec<SubscriptionOutput>,
     ) -> Self {
         SubscriptionData {
@@ -363,6 +369,7 @@ impl SubscriptionData {
             enabled,
             read_existing_events,
             content_format,
+            ignore_channel_error,
             outputs,
         }
     }
@@ -510,6 +517,15 @@ impl SubscriptionData {
 
     pub fn set_content_format(&mut self, content_format: ContentFormat) {
         self.content_format = content_format;
+        self.update_version();
+    }
+
+    pub fn ignore_channel_error(&self) -> bool {
+        self.ignore_channel_error
+    }
+
+    pub fn set_ignore_channel_error(&mut self, ignore_channel_error: bool) {
+        self.ignore_channel_error = ignore_channel_error;
         self.update_version();
     }
 

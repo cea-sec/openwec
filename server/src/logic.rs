@@ -132,7 +132,7 @@ async fn handle_enumerate(
         );
         options.insert(
             "IgnoreChannelError".to_string(),
-            OptionSetValue::Boolean(true),
+            OptionSetValue::Boolean(subscription_data.ignore_channel_error()),
         );
         options.insert("CDATA".to_string(), OptionSetValue::Boolean(true));
 

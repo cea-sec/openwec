@@ -320,6 +320,14 @@ async fn edit(db: &Db, matches: &ArgMatches) -> Result<()> {
         );
         subscription.set_content_format(content_format_t);
     }
+    if let Some(ignore_channel_error) = matches.get_one::<bool>("ignore-channel-error") {
+        debug!(
+            "Update ignore_channel_error from {} to {}",
+            subscription.ignore_channel_error(),
+            ignore_channel_error,
+        );
+        subscription.set_ignore_channel_error(*ignore_channel_error);
+    }
     info!(
         "Saving subscription {} ({})",
         subscription.name(),
@@ -364,6 +372,9 @@ async fn new(db: &Db, matches: &ArgMatches) -> Result<()> {
             .get_one::<bool>("read-existing-events")
             .expect("defaulted by clap"),
         content_format,
+        *matches
+            .get_one::<bool>("ignore-channel-error")
+            .expect("Defaulted by clap"),
         None,
     );
     debug!(
@@ -486,7 +497,6 @@ fn import_windows(mut reader: BufReader<File>) -> Result<Vec<SubscriptionData>> 
             let content_format = ContentFormat::from_str(node.text().unwrap())?;
             data.set_content_format(content_format);
         }
-
     }
 
     Ok(vec![data])
