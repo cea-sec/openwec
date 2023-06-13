@@ -40,7 +40,7 @@ use crate::bookmark::BookmarkData;
 use crate::database::Database;
 use crate::heartbeat::{HeartbeatData, HeartbeatsCache};
 use crate::subscription::{
-    SubscriptionData, SubscriptionMachine, SubscriptionMachineState, SubscriptionStatsCounters,
+    SubscriptionData, SubscriptionMachine, SubscriptionMachineState, SubscriptionStatsCounters, ContentFormat,
 };
 
 use super::schema::{Migration, MigrationBase, Version};
@@ -185,6 +185,7 @@ fn row_to_subscription(row: &Row) -> Result<SubscriptionData, rusqlite::Error> {
             ));
         }
     };
+    let content_format = ContentFormat::from_str(row.get::<&str, String>("content_format")?.as_ref()).map_err(|_| rusqlite::Error::InvalidColumnType(12, "content_format".to_owned(), Type::Text))?;
     Ok(SubscriptionData::from(
         row.get("uuid")?,
         row.get("version")?,
@@ -198,7 +199,7 @@ fn row_to_subscription(row: &Row) -> Result<SubscriptionData, rusqlite::Error> {
         row.get("max_envelope_size")?,
         row.get("enabled")?,
         row.get("read_existing_events")?,
-        row.get("content_format")?,
+        content_format,
         outputs,
     ))
 }
@@ -601,7 +602,7 @@ impl Database for SQLiteDatabase {
                         ":max_envelope_size": subscription.max_envelope_size(),
                         ":enabled": subscription.enabled(),
                         ":read_existing_events": subscription.read_existing_events(),
-                        ":content_format": subscription.content_format(),
+                        ":content_format": subscription.content_format().to_string(),
                         ":outputs": serde_json::to_string(subscription.outputs())?,
                     },
                 )

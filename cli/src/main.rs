@@ -60,7 +60,7 @@ async fn main() {
                     .arg(
                         arg!(--"content-format" <CONTENT_FORMAT> "If set to Raw, retrieve only the \
                         EventData part of events. If set to RenderedText, retrieve the \
-                        RenderingInfo part as well. RenderingInfo increases the size of the events \
+                        RenderingInfo part as well. RenderingInfo increases the size of events \
                         but can help with analysis.")
                         .value_parser(["Raw", "RenderedText"])
                         .default_value("Raw")
@@ -165,10 +165,9 @@ async fn main() {
                     .arg(
                         arg!(--"content-format" <CONTENT_FORMAT> "If set to Raw, retrieve only the \
                         EventData part of events. If set to RenderedText, retrieve the \
-                        RenderingInfo part as well. RenderingInfo increases the size of the events \
+                        RenderingInfo part as well. RenderingInfo increases the size of events \
                         but can help with analysis.")
                         .value_parser(["Raw", "RenderedText"])
-                        .default_value("Raw")
                     )
                     .group(ArgGroup::new("subscription_status").args(["enable", "disable"]).required(false))
                 )

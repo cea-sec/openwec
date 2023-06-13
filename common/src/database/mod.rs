@@ -124,7 +124,9 @@ pub mod tests {
 
     use crate::{
         heartbeat::{HeartbeatKey, HeartbeatValue},
-        subscription::{FileConfiguration, SubscriptionOutput, SubscriptionOutputFormat},
+        subscription::{
+            ContentFormat, FileConfiguration, SubscriptionOutput, SubscriptionOutputFormat,
+        },
     };
 
     use super::{schema::Migrator, *};
@@ -161,7 +163,7 @@ pub mod tests {
             None,
             false,
             false,
-            "RenderedText",
+            ContentFormat::Raw,
             None,
         );
         db.store_subscription(subscription.clone()).await?;
@@ -172,7 +174,7 @@ pub mod tests {
         assert_eq!(toto.query(), "query",);
         assert_eq!(toto.enabled(), false);
         assert_eq!(toto.read_existing_events(), false);
-        assert_eq!(toto.content_format(), "RenderedText");
+        assert_eq!(toto.content_format(), &ContentFormat::Raw);
 
         let toto2 = db.get_subscription_by_identifier("toto").await?.unwrap();
         assert_eq!(toto, &toto2);
@@ -200,7 +202,7 @@ pub mod tests {
             None,
             true,
             true,
-            "Raw",
+            ContentFormat::RenderedText,
             Some(vec![
                 SubscriptionOutput::Files(
                     SubscriptionOutputFormat::Json,
@@ -224,7 +226,7 @@ pub mod tests {
         assert_eq!(tata.query(), "query2",);
         assert_eq!(tata.enabled(), true);
         assert_eq!(tata.read_existing_events(), true);
-        assert_eq!(tata.content_format(), "Raw");
+        assert_eq!(tata.content_format(), &ContentFormat::RenderedText);
         assert_eq!(
             tata.outputs(),
             vec![
@@ -245,7 +247,7 @@ pub mod tests {
         tata.set_name("titi".to_string());
         tata.set_max_time(25000);
         tata.set_read_existing_events(false);
-        tata.set_content_format("RenderedText".to_string());
+        tata.set_content_format(ContentFormat::Raw);
         db.store_subscription(tata.clone()).await?;
 
         ensure!(db.get_subscriptions().await?.len() == 2);
@@ -256,7 +258,7 @@ pub mod tests {
         assert_eq!(tata2.name(), "titi");
         assert_eq!(tata2.max_time(), 25000);
         assert_eq!(tata2.read_existing_events(), false);
-        assert_eq!(tata2.content_format(), "RenderedText");
+        assert_eq!(tata2.content_format(), &ContentFormat::Raw);
         assert!(tata2.version() != tata_save.version());
 
         db.delete_subscription(toto4.uuid()).await?;
@@ -279,11 +281,34 @@ pub mod tests {
     pub async fn test_bookmarks(db: Arc<dyn Database>) -> Result<()> {
         setup_db(db.clone()).await?;
         let subscription_tutu = SubscriptionData::new(
-            "tutu", None, "query", None, None, None, None, None, false, false, "Raw", None,
+            "tutu",
+            None,
+            "query",
+            None,
+            None,
+            None,
+            None,
+            None,
+            false,
+            false,
+            ContentFormat::Raw,
+            None,
+
         );
         db.store_subscription(subscription_tutu.clone()).await?;
         let subscription_titi = SubscriptionData::new(
-            "titi", None, "query", None, None, None, None, None, false, false, "Raw", None,
+            "titi",
+            None,
+            "query",
+            None,
+            None,
+            None,
+            None,
+            None,
+            false,
+            false,
+            ContentFormat::RenderedText,
+            None,
         );
         db.store_subscription(subscription_titi.clone()).await?;
 
@@ -489,7 +514,18 @@ pub mod tests {
         assert!(db.get_heartbeats().await?.is_empty());
 
         let subscription_tutu = SubscriptionData::new(
-            "tutu", None, "query", None, None, None, None, None, false, false, "Raw", None,
+            "tutu",
+            None,
+            "query",
+            None,
+            None,
+            None,
+            None,
+            None,
+            false,
+            false,
+            ContentFormat::Raw,
+            None,
         );
 
         db.store_subscription(subscription_tutu.clone()).await?;
@@ -599,7 +635,18 @@ pub mod tests {
         setup_db(db.clone()).await?;
 
         let subscription_tutu = SubscriptionData::new(
-            "tutu", None, "query", None, None, None, None, None, false, false, "Raw", None,
+            "tutu",
+            None,
+            "query",
+            None,
+            None,
+            None,
+            None,
+            None,
+            false,
+            false,
+            ContentFormat::RenderedText,
+            None,
         );
 
         db.store_subscription(subscription_tutu.clone()).await?;
@@ -732,7 +779,18 @@ pub mod tests {
         );
 
         let subscription_tutu = SubscriptionData::new(
-            "tutu", None, "query", None, None, None, None, None, false, false, "Raw", None,
+            "tutu",
+            None,
+            "query",
+            None,
+            None,
+            None,
+            None,
+            None,
+            false,
+            false,
+            ContentFormat::Raw,
+            None,
         );
 
         db.store_subscription(subscription_tutu.clone()).await?;
@@ -950,7 +1008,18 @@ pub mod tests {
 
         // Create another subscription
         let subscription_tata = SubscriptionData::new(
-            "tata", None, "query", None, None, None, None, None, false, false, "Raw", None,
+            "tata",
+            None,
+            "query",
+            None,
+            None,
+            None,
+            None,
+            None,
+            false,
+            false,
+            ContentFormat::Raw,
+            None,
         );
 
         db.store_subscription(subscription_tata.clone()).await?;
