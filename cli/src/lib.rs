@@ -28,7 +28,7 @@ pub async fn run(matches: ArgMatches, help_str: StyledStr) -> Result<()> {
     // Check that database schema is up to date
     match schema_is_up_to_date(db.clone()).await.context("Failed to check schema version") {
         Ok(true) => (),
-        Ok(false) => bail!("Schema needs to be updated. Please check migration guide and then run `openwec db upgrade`"),
+        Ok(false) => bail!("Schema needs to be updated. Please read the changelog and then run `openwec db upgrade`"),
         Err(err) => bail!("{:?}.\nHelp: You may need to run `openwec db init` to setup your database.", err),
     };
 

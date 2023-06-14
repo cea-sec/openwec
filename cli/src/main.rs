@@ -65,6 +65,9 @@ async fn main() {
                         .value_parser(["Raw", "RenderedText"])
                         .default_value("Raw")
                     )
+                    .arg(
+                        arg!(--"ignore-channel-error" <BOOL> "Configure clients to ignore filtering errors or not. Defaults to true").value_parser(value_parser!(bool)).default_value("true")
+                    )
                 )
                 .subcommand(
                     Command::new("edit")
@@ -162,6 +165,7 @@ async fn main() {
                     .arg(
                         arg!(--"disable" "Disable the subscription")
                     )
+                    .group(ArgGroup::new("subscription_status").args(["enable", "disable"]).required(false))
                     .arg(
                         arg!(--"content-format" <CONTENT_FORMAT> "If set to Raw, retrieve only the \
                         EventData part of events. If set to RenderedText, retrieve the \
@@ -169,7 +173,9 @@ async fn main() {
                         but can help with analysis.")
                         .value_parser(["Raw", "RenderedText"])
                     )
-                    .group(ArgGroup::new("subscription_status").args(["enable", "disable"]).required(false))
+                    .arg(
+                        arg!(--"ignore-channel-error" <BOOL> "Configure clients to ignore filtering errors or not.").value_parser(value_parser!(bool))
+                    )
                 )
                 .subcommand(
                     Command::new("show")

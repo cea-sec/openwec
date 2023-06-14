@@ -1,6 +1,7 @@
 use std::{
     collections::HashMap,
     fmt::{Display, Formatter},
+    str::FromStr,
 };
 
 use crate::utils::new_uuid;
@@ -197,18 +198,22 @@ pub enum ContentFormat {
     RenderedText,
 }
 
-impl ContentFormat {
-    pub fn to_string(&self) -> String {
+impl Display for ContentFormat {
+    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         match self {
-            ContentFormat::Raw => "Raw".to_owned(),
-            ContentFormat::RenderedText => "RenderedText".to_owned(),
+            ContentFormat::Raw => write!(f, "Raw"),
+            ContentFormat::RenderedText => write!(f, "RenderedText"),
         }
     }
+}
 
-    pub fn from_str(text: &str) -> Result<Self> {
-        if text == "Raw" {
+impl FromStr for ContentFormat {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if s == "Raw" {
             Ok(ContentFormat::Raw)
-        } else if text == "RenderedText" {
+        } else if s == "RenderedText" {
             Ok(ContentFormat::RenderedText)
         } else {
             bail!("Invalid ContentFormat string")
@@ -233,6 +238,7 @@ pub struct SubscriptionData {
     enabled: bool,
     read_existing_events: bool,
     content_format: ContentFormat,
+    ignore_channel_error: bool,
     #[serde(default)]
     outputs: Vec<SubscriptionOutput>,
 }
@@ -268,7 +274,8 @@ impl Display for SubscriptionData {
         )?;
         writeln!(f, "\tMax envelope size: {} bytes", self.max_envelope_size())?;
         writeln!(f, "\tReadExistingEvents: {}", self.read_existing_events)?;
-        writeln!(f, "\tContent format: {}", self.content_format.to_string())?;
+        writeln!(f, "\tContent format: {}", self.content_format())?;
+        writeln!(f, "\tIgnore channel error: {}", self.ignore_channel_error())?;
         if self.outputs().is_empty() {
             writeln!(f, "\tOutputs: None")?;
         } else {
@@ -297,6 +304,7 @@ impl SubscriptionData {
             enabled: true,
             read_existing_events: false,
             content_format: ContentFormat::Raw,
+            ignore_channel_error: true,
             outputs: Vec::new(),
         }
     }
@@ -313,6 +321,7 @@ impl SubscriptionData {
         enabled: bool,
         read_existing_events: bool,
         content_format: ContentFormat,
+        ignore_channel_error: bool,
         outputs: Option<Vec<SubscriptionOutput>>,
     ) -> Self {
         SubscriptionData {
@@ -328,7 +337,8 @@ impl SubscriptionData {
             max_envelope_size: *max_envelope_size.unwrap_or(&512_000),
             enabled,
             read_existing_events,
-            content_format: content_format.to_owned(),
+            content_format,
+            ignore_channel_error,
             outputs: outputs.unwrap_or_default(),
         }
     }
@@ -347,6 +357,7 @@ impl SubscriptionData {
         enabled: bool,
         read_existing_events: bool,
         content_format: ContentFormat,
+        ignore_channel_error: bool,
         outputs: Vec<SubscriptionOutput>,
     ) -> Self {
         SubscriptionData {
@@ -363,6 +374,7 @@ impl SubscriptionData {
             enabled,
             read_existing_events,
             content_format,
+            ignore_channel_error,
             outputs,
         }
     }
@@ -513,6 +525,15 @@ impl SubscriptionData {
         self.update_version();
     }
 
+    pub fn ignore_channel_error(&self) -> bool {
+        self.ignore_channel_error
+    }
+
+    pub fn set_ignore_channel_error(&mut self, ignore_channel_error: bool) {
+        self.ignore_channel_error = ignore_channel_error;
+        self.update_version();
+    }
+
     pub fn add_output(&mut self, output: SubscriptionOutput) {
         self.outputs.push(output);
         self.update_version();
@@ -556,12 +577,7 @@ impl SubscriptionData {
     }
 
     pub fn is_active(&self) -> bool {
-        self.enabled()
-            && self
-                .outputs()
-                .iter()
-                .find(|output| output.is_enabled())
-                .is_some()
+        self.enabled() && self.outputs().iter().any(|output| output.is_enabled())
     }
 }
 
