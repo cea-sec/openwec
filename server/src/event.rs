@@ -1,5 +1,5 @@
 use anyhow::{anyhow, bail, Context, Result};
-use chrono::{DateTime, Local};
+use chrono::{DateTime, Utc};
 use log::{info, trace};
 use roxmltree::{Document, Node};
 use serde::Serialize;
@@ -468,7 +468,7 @@ pub struct EventMetadata {
     addr: SocketAddr,
     principal: String,
     node_name: Option<String>,
-    time_received: DateTime<Local>,
+    time_received: DateTime<Utc>,
     subscription_uuid: String,
     subscription_version: String,
     subscription_name: String,
@@ -486,7 +486,7 @@ impl EventMetadata {
             addr: *addr,
             principal: principal.to_owned(),
             node_name,
-            time_received: Local::now(),
+            time_received: Utc::now(),
             subscription_uuid: subscription.data().uuid().to_owned(),
             subscription_version: subscription.data().version().to_owned(),
             subscription_name: subscription.data().name().to_owned(),
@@ -507,7 +507,7 @@ impl EventMetadata {
         self.node_name.as_ref()
     }
 
-    pub fn time_received(&self) -> DateTime<Local> {
+    pub fn time_received(&self) -> DateTime<Utc> {
         self.time_received
     }
 
@@ -863,7 +863,7 @@ mod tests {
                     "2022-11-07T17:08:27.169805+01:00",
                 )
                 .unwrap()
-                .with_timezone(&Local),
+                .with_timezone(&Utc),
                 subscription_name: "Test".to_string(),
                 subscription_uuid: "8B18D83D-2964-4F35-AC3B-6F4E6FFA727B".to_string(),
                 subscription_version: "AD0D118F-31EF-4111-A0CA-D87249747278".to_string(),
@@ -904,7 +904,7 @@ Type 1 is a full token with no privileges removed or groups disabled.  A full to
 Type 2 is an elevated token with no privileges removed or groups disabled.  An elevated token is used when User Account Control is enabled and the user chooses to start the program using Run as administrator.  An elevated token is also used when an application is configured to always require administrative privilege or to always require maximum privilege, and the user is a member of the Administrators group.
 
 Type 3 is a limited token with administrative privileges removed and administrative groups disabled.  The limited token is used when User Account Control is enabled, the application does not require administrative privilege, and the user does not choose to start the program using Run as administrator.</Message><Level>Information</Level><Task>Process Creation</Task><Opcode>Info</Opcode><Channel>Security</Channel><Provider>Microsoft Windows security auditing.</Provider><Keywords><Keyword>Audit Success</Keyword></Keywords></RenderingInfo></Event>"#;
-    const EVENT_4688_JSON: &str = r#"{"System":{"Provider":{"Name":"Microsoft-Windows-Security-Auditing","Guid":"{54849625-5478-4994-a5ba-3e3b0328c30d}"},"EventID":4688,"Version":2,"Level":0,"Task":13312,"Opcode":0,"Keywords":"0x8020000000000000","TimeCreated":"2022-12-14T16:06:51.0643605Z","EventRecordID":114689,"Correlation":{},"Execution":{"ProcessID":4,"ThreadID":196},"Channel":"Security","Computer":"win10.windomain.local"},"EventData":{"SubjectLogonId":"0x3e7","SubjectUserName":"WIN10$","SubjectDomainName":"WINDOMAIN","ParentProcessName":"C:\\Windows\\System32\\services.exe","MandatoryLabel":"S-1-16-16384","SubjectUserSid":"S-1-5-18","NewProcessName":"C:\\Program Files (x86)\\Microsoft\\EdgeUpdate\\MicrosoftEdgeUpdate.exe","TokenElevationType":"%%1936","TargetUserSid":"S-1-0-0","TargetDomainName":"-","CommandLine":"","TargetUserName":"-","NewProcessId":"0x3a8","TargetLogonId":"0x0","ProcessId":"0x240"},"RenderingInfo":{"Message":"A new process has been created.\n\nCreator Subject:\n\tSecurity ID:\t\tS-1-5-18\n\tAccount Name:\t\tWIN10$\n\tAccount Domain:\t\tWINDOMAIN\n\tLogon ID:\t\t0x3E7\n\nTarget Subject:\n\tSecurity ID:\t\tS-1-0-0\n\tAccount Name:\t\t-\n\tAccount Domain:\t\t-\n\tLogon ID:\t\t0x0\n\nProcess Information:\n\tNew Process ID:\t\t0x3a8\n\tNew Process Name:\tC:\\Program Files (x86)\\Microsoft\\EdgeUpdate\\MicrosoftEdgeUpdate.exe\n\tToken Elevation Type:\t%%1936\n\tMandatory Label:\t\tS-1-16-16384\n\tCreator Process ID:\t0x240\n\tCreator Process Name:\tC:\\Windows\\System32\\services.exe\n\tProcess Command Line:\t\n\nToken Elevation Type indicates the type of token that was assigned to the new process in accordance with User Account Control policy.\n\nType 1 is a full token with no privileges removed or groups disabled.  A full token is only used if User Account Control is disabled or if the user is the built-in Administrator account or a service account.\n\nType 2 is an elevated token with no privileges removed or groups disabled.  An elevated token is used when User Account Control is enabled and the user chooses to start the program using Run as administrator.  An elevated token is also used when an application is configured to always require administrative privilege or to always require maximum privilege, and the user is a member of the Administrators group.\n\nType 3 is a limited token with administrative privileges removed and administrative groups disabled.  The limited token is used when User Account Control is enabled, the application does not require administrative privilege, and the user does not choose to start the program using Run as administrator.","Level":"Information","Task":"Process Creation","Opcode":"Info","Channel":"Security","Provider":"Microsoft Windows security auditing.","Keywords":["Audit Success"],"Culture":"en-US"},"OpenWEC":{"IpAddress":"192.168.58.100","TimeReceived":"2022-12-14T17:07:03.331+01:00","Principal":"WIN10$@WINDOMAIN.LOCAL","Node":"openwec","Subscription":{"Uuid":"8B18D83D-2964-4F35-AC3B-6F4E6FFA727B","Version":"AD0D118F-31EF-4111-A0CA-D87249747278","Name":"Test","Uri":"/this/is/a/test"}}}"#;
+    const EVENT_4688_JSON: &str = r#"{"System":{"Provider":{"Name":"Microsoft-Windows-Security-Auditing","Guid":"{54849625-5478-4994-a5ba-3e3b0328c30d}"},"EventID":4688,"Version":2,"Level":0,"Task":13312,"Opcode":0,"Keywords":"0x8020000000000000","TimeCreated":"2022-12-14T16:06:51.0643605Z","EventRecordID":114689,"Correlation":{},"Execution":{"ProcessID":4,"ThreadID":196},"Channel":"Security","Computer":"win10.windomain.local"},"EventData":{"SubjectLogonId":"0x3e7","SubjectUserName":"WIN10$","SubjectDomainName":"WINDOMAIN","ParentProcessName":"C:\\Windows\\System32\\services.exe","MandatoryLabel":"S-1-16-16384","SubjectUserSid":"S-1-5-18","NewProcessName":"C:\\Program Files (x86)\\Microsoft\\EdgeUpdate\\MicrosoftEdgeUpdate.exe","TokenElevationType":"%%1936","TargetUserSid":"S-1-0-0","TargetDomainName":"-","CommandLine":"","TargetUserName":"-","NewProcessId":"0x3a8","TargetLogonId":"0x0","ProcessId":"0x240"},"RenderingInfo":{"Message":"A new process has been created.\n\nCreator Subject:\n\tSecurity ID:\t\tS-1-5-18\n\tAccount Name:\t\tWIN10$\n\tAccount Domain:\t\tWINDOMAIN\n\tLogon ID:\t\t0x3E7\n\nTarget Subject:\n\tSecurity ID:\t\tS-1-0-0\n\tAccount Name:\t\t-\n\tAccount Domain:\t\t-\n\tLogon ID:\t\t0x0\n\nProcess Information:\n\tNew Process ID:\t\t0x3a8\n\tNew Process Name:\tC:\\Program Files (x86)\\Microsoft\\EdgeUpdate\\MicrosoftEdgeUpdate.exe\n\tToken Elevation Type:\t%%1936\n\tMandatory Label:\t\tS-1-16-16384\n\tCreator Process ID:\t0x240\n\tCreator Process Name:\tC:\\Windows\\System32\\services.exe\n\tProcess Command Line:\t\n\nToken Elevation Type indicates the type of token that was assigned to the new process in accordance with User Account Control policy.\n\nType 1 is a full token with no privileges removed or groups disabled.  A full token is only used if User Account Control is disabled or if the user is the built-in Administrator account or a service account.\n\nType 2 is an elevated token with no privileges removed or groups disabled.  An elevated token is used when User Account Control is enabled and the user chooses to start the program using Run as administrator.  An elevated token is also used when an application is configured to always require administrative privilege or to always require maximum privilege, and the user is a member of the Administrators group.\n\nType 3 is a limited token with administrative privileges removed and administrative groups disabled.  The limited token is used when User Account Control is enabled, the application does not require administrative privilege, and the user does not choose to start the program using Run as administrator.","Level":"Information","Task":"Process Creation","Opcode":"Info","Channel":"Security","Provider":"Microsoft Windows security auditing.","Keywords":["Audit Success"],"Culture":"en-US"},"OpenWEC":{"IpAddress":"192.168.58.100","TimeReceived":"2022-12-14T16:07:03.331+00:00","Principal":"WIN10$@WINDOMAIN.LOCAL","Node":"openwec","Subscription":{"Uuid":"8B18D83D-2964-4F35-AC3B-6F4E6FFA727B","Version":"AD0D118F-31EF-4111-A0CA-D87249747278","Name":"Test","Uri":"/this/is/a/test"}}}"#;
 
     #[test]
     fn test_serialize_4688_event_data() {
@@ -917,7 +917,7 @@ Type 3 is a limited token with administrative privileges removed and administrat
                     "2022-12-14T17:07:03.331+01:00",
                 )
                 .unwrap()
-                .with_timezone(&Local),
+                .with_timezone(&Utc),
                 subscription_name: "Test".to_string(),
                 subscription_uuid: "8B18D83D-2964-4F35-AC3B-6F4E6FFA727B".to_string(),
                 subscription_version: "AD0D118F-31EF-4111-A0CA-D87249747278".to_string(),
@@ -947,7 +947,7 @@ Licensing Status=
 
 </Message><Level>Information</Level><Task></Task><Opcode></Opcode><Channel></Channel><Provider>Microsoft-Windows-Security-SPP</Provider><Keywords><Keyword>Classic</Keyword></Keywords></RenderingInfo></Event>
     "#;
-    const EVENT_1003_JSON: &str = r#"{"System":{"Provider":{"Name":"Microsoft-Windows-Security-SPP","Guid":"{E23B33B0-C8C9-472C-A5F9-F2BDFEA0F156}","EventSourceName":"Software Protection Platform Service"},"EventID":1003,"EventIDQualifiers":16384,"Version":0,"Level":4,"Task":0,"Opcode":0,"Keywords":"0x80000000000000","TimeCreated":"2022-12-14T16:05:59.7074374Z","EventRecordID":7603,"Correlation":{},"Execution":{"ProcessID":0,"ThreadID":0},"Channel":"Application","Computer":"win10.windomain.local"},"EventData":{"Data":["55c92734-d682-4d71-983e-d6ec3f16059f","\n1: 3f4c0546-36c6-46a8-a37f-be13cdd0cf25, 1, 1 [(0 [0xC004E003, 0, 0], [( 9 0xC004FC07 90 0)( 1 0x00000000)(?)( 2 0x00000000 0 0 msft:rm/algorithm/hwid/4.0 0x00000000 0)(?)( 9 0xC004FC07 90 0)( 10 0x00000000 msft:rm/algorithm/flags/1.0)(?)])(1 )(2 )(3 [0x00000000, 0, 0], [( 6 0xC004F009 0 0)( 1 0x00000000)( 6 0xC004F009 0 0)(?)(?)(?)( 10 0x00000000 msft:rm/algorithm/flags/1.0)( 11 0x00000000 0xC004FC07)])]\n\n"]},"RenderingInfo":{"Message":"The Software Protection service has completed licensing status check.\nApplication Id=55c92734-d682-4d71-983e-d6ec3f16059f\nLicensing Status=\n1: 3f4c0546-36c6-46a8-a37f-be13cdd0cf25, 1, 1 [(0 [0xC004E003, 0, 0], [( 9 0xC004FC07 90 0)( 1 0x00000000)(?)( 2 0x00000000 0 0 msft:rm/algorithm/hwid/4.0 0x00000000 0)(?)( 9 0xC004FC07 90 0)( 10 0x00000000 msft:rm/algorithm/flags/1.0)(?)])(1 )(2 )(3 [0x00000000, 0, 0], [( 6 0xC004F009 0 0)( 1 0x00000000)( 6 0xC004F009 0 0)(?)(?)(?)( 10 0x00000000 msft:rm/algorithm/flags/1.0)( 11 0x00000000 0xC004FC07)])]\n\n","Level":"Information","Provider":"Microsoft-Windows-Security-SPP","Keywords":["Classic"],"Culture":"en-US"},"OpenWEC":{"IpAddress":"192.168.58.100","TimeReceived":"2022-12-14T17:07:03.324+01:00","Principal":"WIN10$@WINDOMAIN.LOCAL","Node":"openwec","Subscription":{"Uuid":"8B18D83D-2964-4F35-AC3B-6F4E6FFA727B","Version":"AD0D118F-31EF-4111-A0CA-D87249747278","Name":"Test"}}}"#;
+    const EVENT_1003_JSON: &str = r#"{"System":{"Provider":{"Name":"Microsoft-Windows-Security-SPP","Guid":"{E23B33B0-C8C9-472C-A5F9-F2BDFEA0F156}","EventSourceName":"Software Protection Platform Service"},"EventID":1003,"EventIDQualifiers":16384,"Version":0,"Level":4,"Task":0,"Opcode":0,"Keywords":"0x80000000000000","TimeCreated":"2022-12-14T16:05:59.7074374Z","EventRecordID":7603,"Correlation":{},"Execution":{"ProcessID":0,"ThreadID":0},"Channel":"Application","Computer":"win10.windomain.local"},"EventData":{"Data":["55c92734-d682-4d71-983e-d6ec3f16059f","\n1: 3f4c0546-36c6-46a8-a37f-be13cdd0cf25, 1, 1 [(0 [0xC004E003, 0, 0], [( 9 0xC004FC07 90 0)( 1 0x00000000)(?)( 2 0x00000000 0 0 msft:rm/algorithm/hwid/4.0 0x00000000 0)(?)( 9 0xC004FC07 90 0)( 10 0x00000000 msft:rm/algorithm/flags/1.0)(?)])(1 )(2 )(3 [0x00000000, 0, 0], [( 6 0xC004F009 0 0)( 1 0x00000000)( 6 0xC004F009 0 0)(?)(?)(?)( 10 0x00000000 msft:rm/algorithm/flags/1.0)( 11 0x00000000 0xC004FC07)])]\n\n"]},"RenderingInfo":{"Message":"The Software Protection service has completed licensing status check.\nApplication Id=55c92734-d682-4d71-983e-d6ec3f16059f\nLicensing Status=\n1: 3f4c0546-36c6-46a8-a37f-be13cdd0cf25, 1, 1 [(0 [0xC004E003, 0, 0], [( 9 0xC004FC07 90 0)( 1 0x00000000)(?)( 2 0x00000000 0 0 msft:rm/algorithm/hwid/4.0 0x00000000 0)(?)( 9 0xC004FC07 90 0)( 10 0x00000000 msft:rm/algorithm/flags/1.0)(?)])(1 )(2 )(3 [0x00000000, 0, 0], [( 6 0xC004F009 0 0)( 1 0x00000000)( 6 0xC004F009 0 0)(?)(?)(?)( 10 0x00000000 msft:rm/algorithm/flags/1.0)( 11 0x00000000 0xC004FC07)])]\n\n","Level":"Information","Provider":"Microsoft-Windows-Security-SPP","Keywords":["Classic"],"Culture":"en-US"},"OpenWEC":{"IpAddress":"192.168.58.100","TimeReceived":"2022-12-14T16:07:03.324+00:00","Principal":"WIN10$@WINDOMAIN.LOCAL","Node":"openwec","Subscription":{"Uuid":"8B18D83D-2964-4F35-AC3B-6F4E6FFA727B","Version":"AD0D118F-31EF-4111-A0CA-D87249747278","Name":"Test"}}}"#;
 
     #[test]
     fn test_serialize_1003_event_data_unamed() {
@@ -960,7 +960,7 @@ Licensing Status=
                     "2022-12-14T17:07:03.324+01:00",
                 )
                 .unwrap()
-                .with_timezone(&Local),
+                .with_timezone(&Utc),
                 subscription_name: "Test".to_string(),
                 subscription_uuid: "8B18D83D-2964-4F35-AC3B-6F4E6FFA727B".to_string(),
                 subscription_version: "AD0D118F-31EF-4111-A0CA-D87249747278".to_string(),
@@ -986,7 +986,7 @@ This may lead to authentication problems. Make sure that this computer is connec
 
 ADDITIONAL INFO 
 If this computer is a domain controller for the specified domain, it sets up the secure session to the primary domain controller emulator in the specified domain. Otherwise, this computer sets up the secure session to any domain controller in the specified domain.</Message><Level>Error</Level><Task></Task><Opcode>Info</Opcode><Channel></Channel><Provider></Provider><Keywords><Keyword>Classic</Keyword></Keywords></RenderingInfo></Event>"#;
-    const EVENT_5719_JSON: &str = r#"{"System":{"Provider":{"Name":"NETLOGON"},"EventID":5719,"EventIDQualifiers":0,"Version":0,"Level":2,"Task":0,"Opcode":0,"Keywords":"0x80000000000000","TimeCreated":"2022-12-14T16:04:59.0817047Z","EventRecordID":9466,"Correlation":{},"Execution":{"ProcessID":0,"ThreadID":0},"Channel":"System","Computer":"win10.windomain.local"},"EventData":{"Data":["WINDOMAIN","%%1311"],"Binary":"5E0000C0"},"RenderingInfo":{"Message":"This computer was not able to set up a secure session with a domain controller in domain WINDOMAIN due to the following: \nWe can't sign you in with this credential because your domain isn't available. Make sure your device is connected to your organization's network and try again. If you previously signed in on this device with another credential, you can sign in with that credential. \nThis may lead to authentication problems. Make sure that this computer is connected to the network. If the problem persists, please contact your domain administrator.  \n\nADDITIONAL INFO \nIf this computer is a domain controller for the specified domain, it sets up the secure session to the primary domain controller emulator in the specified domain. Otherwise, this computer sets up the secure session to any domain controller in the specified domain.","Level":"Error","Opcode":"Info","Keywords":["Classic"],"Culture":"en-US"},"OpenWEC":{"IpAddress":"192.168.58.100","TimeReceived":"2022-12-14T17:07:02.919+01:00","Principal":"WIN10$@WINDOMAIN.LOCAL","Node":"openwec","Subscription":{"Uuid":"8B18D83D-2964-4F35-AC3B-6F4E6FFA727B","Version":"AD0D118F-31EF-4111-A0CA-D87249747278","Name":"Test","Uri":"/this/is/a/test"}}}"#;
+    const EVENT_5719_JSON: &str = r#"{"System":{"Provider":{"Name":"NETLOGON"},"EventID":5719,"EventIDQualifiers":0,"Version":0,"Level":2,"Task":0,"Opcode":0,"Keywords":"0x80000000000000","TimeCreated":"2022-12-14T16:04:59.0817047Z","EventRecordID":9466,"Correlation":{},"Execution":{"ProcessID":0,"ThreadID":0},"Channel":"System","Computer":"win10.windomain.local"},"EventData":{"Data":["WINDOMAIN","%%1311"],"Binary":"5E0000C0"},"RenderingInfo":{"Message":"This computer was not able to set up a secure session with a domain controller in domain WINDOMAIN due to the following: \nWe can't sign you in with this credential because your domain isn't available. Make sure your device is connected to your organization's network and try again. If you previously signed in on this device with another credential, you can sign in with that credential. \nThis may lead to authentication problems. Make sure that this computer is connected to the network. If the problem persists, please contact your domain administrator.  \n\nADDITIONAL INFO \nIf this computer is a domain controller for the specified domain, it sets up the secure session to the primary domain controller emulator in the specified domain. Otherwise, this computer sets up the secure session to any domain controller in the specified domain.","Level":"Error","Opcode":"Info","Keywords":["Classic"],"Culture":"en-US"},"OpenWEC":{"IpAddress":"192.168.58.100","TimeReceived":"2022-12-14T16:07:02.919+00:00","Principal":"WIN10$@WINDOMAIN.LOCAL","Node":"openwec","Subscription":{"Uuid":"8B18D83D-2964-4F35-AC3B-6F4E6FFA727B","Version":"AD0D118F-31EF-4111-A0CA-D87249747278","Name":"Test","Uri":"/this/is/a/test"}}}"#;
 
     #[test]
     fn test_serialize_5719_event_data_binary() {
@@ -999,7 +999,7 @@ If this computer is a domain controller for the specified domain, it sets up the
                     "2022-12-14T17:07:02.919+01:00",
                 )
                 .unwrap()
-                .with_timezone(&Local),
+                .with_timezone(&Utc),
                 subscription_name: "Test".to_string(),
                 subscription_uuid: "8B18D83D-2964-4F35-AC3B-6F4E6FFA727B".to_string(),
                 subscription_version: "AD0D118F-31EF-4111-A0CA-D87249747278".to_string(),
@@ -1020,7 +1020,7 @@ If this computer is a domain controller for the specified domain, it sets up the
     }
 
     const EVENT_6013: &str = r#"<Event xmlns='http://schemas.microsoft.com/win/2004/08/events/event'><System><Provider Name='EventLog'/><EventID Qualifiers='32768'>6013</EventID><Version>0</Version><Level>4</Level><Task>0</Task><Opcode>0</Opcode><Keywords>0x80000000000000</Keywords><TimeCreated SystemTime='2022-12-14T16:04:43.7965565Z'/><EventRecordID>9427</EventRecordID><Correlation/><Execution ProcessID='0' ThreadID='0'/><Channel>System</Channel><Computer>win10.windomain.local</Computer><Security/></System><EventData><Data></Data><Data></Data><Data></Data><Data></Data><Data>6</Data><Data>60</Data><Data>0 Coordinated Universal Time</Data><Binary>31002E003100000030000000570069006E0064006F0077007300200031003000200045006E007400650072007000720069007300650020004500760061006C0075006100740069006F006E000000310030002E0030002E003100390030003400330020004200750069006C0064002000310039003000340033002000200000004D0075006C0074006900700072006F0063006500730073006F007200200046007200650065000000310039003000340031002E00760062005F00720065006C0065006100730065002E003100390031003200300036002D00310034003000360000003600320031003400640066003100630000004E006F007400200041007600610069006C00610062006C00650000004E006F007400200041007600610069006C00610062006C00650000003900000031000000320030003400380000003400300039000000770069006E00310030002E00770069006E0064006F006D00610069006E002E006C006F00630061006C0000000000</Binary></EventData><RenderingInfo Culture='en-US'><Message>The system uptime is 6 seconds.</Message><Level>Information</Level><Task></Task><Opcode></Opcode><Channel></Channel><Provider></Provider><Keywords><Keyword>Classic</Keyword></Keywords></RenderingInfo></Event>"#;
-    const EVENT_6013_JSON: &str = r#"{"System":{"Provider":{"Name":"EventLog"},"EventID":6013,"EventIDQualifiers":32768,"Version":0,"Level":4,"Task":0,"Opcode":0,"Keywords":"0x80000000000000","TimeCreated":"2022-12-14T16:04:43.7965565Z","EventRecordID":9427,"Correlation":{},"Execution":{"ProcessID":0,"ThreadID":0},"Channel":"System","Computer":"win10.windomain.local"},"EventData":{"Data":["6","60","0 Coordinated Universal Time"],"Binary":"31002E003100000030000000570069006E0064006F0077007300200031003000200045006E007400650072007000720069007300650020004500760061006C0075006100740069006F006E000000310030002E0030002E003100390030003400330020004200750069006C0064002000310039003000340033002000200000004D0075006C0074006900700072006F0063006500730073006F007200200046007200650065000000310039003000340031002E00760062005F00720065006C0065006100730065002E003100390031003200300036002D00310034003000360000003600320031003400640066003100630000004E006F007400200041007600610069006C00610062006C00650000004E006F007400200041007600610069006C00610062006C00650000003900000031000000320030003400380000003400300039000000770069006E00310030002E00770069006E0064006F006D00610069006E002E006C006F00630061006C0000000000"},"RenderingInfo":{"Message":"The system uptime is 6 seconds.","Level":"Information","Keywords":["Classic"],"Culture":"en-US"},"OpenWEC":{"IpAddress":"192.168.58.100","TimeReceived":"2022-12-14T17:07:02.524+01:00","Principal":"WIN10$@WINDOMAIN.LOCAL","Subscription":{"Uuid":"8B18D83D-2964-4F35-AC3B-6F4E6FFA727B","Version":"AD0D118F-31EF-4111-A0CA-D87249747278","Name":"Test","Uri":"/this/is/a/test"}}}"#;
+    const EVENT_6013_JSON: &str = r#"{"System":{"Provider":{"Name":"EventLog"},"EventID":6013,"EventIDQualifiers":32768,"Version":0,"Level":4,"Task":0,"Opcode":0,"Keywords":"0x80000000000000","TimeCreated":"2022-12-14T16:04:43.7965565Z","EventRecordID":9427,"Correlation":{},"Execution":{"ProcessID":0,"ThreadID":0},"Channel":"System","Computer":"win10.windomain.local"},"EventData":{"Data":["6","60","0 Coordinated Universal Time"],"Binary":"31002E003100000030000000570069006E0064006F0077007300200031003000200045006E007400650072007000720069007300650020004500760061006C0075006100740069006F006E000000310030002E0030002E003100390030003400330020004200750069006C0064002000310039003000340033002000200000004D0075006C0074006900700072006F0063006500730073006F007200200046007200650065000000310039003000340031002E00760062005F00720065006C0065006100730065002E003100390031003200300036002D00310034003000360000003600320031003400640066003100630000004E006F007400200041007600610069006C00610062006C00650000004E006F007400200041007600610069006C00610062006C00650000003900000031000000320030003400380000003400300039000000770069006E00310030002E00770069006E0064006F006D00610069006E002E006C006F00630061006C0000000000"},"RenderingInfo":{"Message":"The system uptime is 6 seconds.","Level":"Information","Keywords":["Classic"],"Culture":"en-US"},"OpenWEC":{"IpAddress":"192.168.58.100","TimeReceived":"2022-12-14T16:07:02.524+00:00","Principal":"WIN10$@WINDOMAIN.LOCAL","Subscription":{"Uuid":"8B18D83D-2964-4F35-AC3B-6F4E6FFA727B","Version":"AD0D118F-31EF-4111-A0CA-D87249747278","Name":"Test","Uri":"/this/is/a/test"}}}"#;
 
     #[test]
     fn test_serialize_6013_event_data_unamed_empty() {
@@ -1033,7 +1033,7 @@ If this computer is a domain controller for the specified domain, it sets up the
                     "2022-12-14T17:07:02.524+01:00",
                 )
                 .unwrap()
-                .with_timezone(&Local),
+                .with_timezone(&Utc),
                 subscription_name: "Test".to_string(),
                 subscription_uuid: "8B18D83D-2964-4F35-AC3B-6F4E6FFA727B".to_string(),
                 subscription_version: "AD0D118F-31EF-4111-A0CA-D87249747278".to_string(),
@@ -1054,7 +1054,7 @@ If this computer is a domain controller for the specified domain, it sets up the
     }
 
     const EVENT_1100: &str = r#"<Event xmlns='http://schemas.microsoft.com/win/2004/08/events/event'><System><Provider Name='Microsoft-Windows-Eventlog' Guid='{fc65ddd8-d6ef-4962-83d5-6e5cfe9ce148}'/><EventID>1100</EventID><Version>0</Version><Level>4</Level><Task>103</Task><Opcode>0</Opcode><Keywords>0x4020000000000000</Keywords><TimeCreated SystemTime='2022-12-14T14:39:07.1686183Z'/><EventRecordID>114371</EventRecordID><Correlation/><Execution ProcessID='496' ThreadID='204'/><Channel>Security</Channel><Computer>win10.windomain.local</Computer><Security/></System><UserData><ServiceShutdown xmlns='http://manifests.microsoft.com/win/2004/08/windows/eventlog'></ServiceShutdown></UserData><RenderingInfo Culture='en-US'><Message>The event logging service has shut down.</Message><Level>Information</Level><Task>Service shutdown</Task><Opcode>Info</Opcode><Channel>Security</Channel><Provider>Microsoft-Windows-Eventlog</Provider><Keywords><Keyword>Audit Success</Keyword></Keywords></RenderingInfo></Event>"#;
-    const EVENT_1100_JSON: &str = r#"{"System":{"Provider":{"Name":"Microsoft-Windows-Eventlog","Guid":"{fc65ddd8-d6ef-4962-83d5-6e5cfe9ce148}"},"EventID":1100,"Version":0,"Level":4,"Task":103,"Opcode":0,"Keywords":"0x4020000000000000","TimeCreated":"2022-12-14T14:39:07.1686183Z","EventRecordID":114371,"Correlation":{},"Execution":{"ProcessID":496,"ThreadID":204},"Channel":"Security","Computer":"win10.windomain.local"},"UserData":"<ServiceShutdown xmlns='http://manifests.microsoft.com/win/2004/08/windows/eventlog'></ServiceShutdown>","RenderingInfo":{"Message":"The event logging service has shut down.","Level":"Information","Task":"Service shutdown","Opcode":"Info","Channel":"Security","Provider":"Microsoft-Windows-Eventlog","Keywords":["Audit Success"],"Culture":"en-US"},"OpenWEC":{"IpAddress":"192.168.58.100","TimeReceived":"2022-12-14T17:07:02.156+01:00","Principal":"WIN10$@WINDOMAIN.LOCAL","Node":"openwec","Subscription":{"Uuid":"8B18D83D-2964-4F35-AC3B-6F4E6FFA727B","Version":"AD0D118F-31EF-4111-A0CA-D87249747278","Name":"Test","Uri":"/this/is/a/test"}}}"#;
+    const EVENT_1100_JSON: &str = r#"{"System":{"Provider":{"Name":"Microsoft-Windows-Eventlog","Guid":"{fc65ddd8-d6ef-4962-83d5-6e5cfe9ce148}"},"EventID":1100,"Version":0,"Level":4,"Task":103,"Opcode":0,"Keywords":"0x4020000000000000","TimeCreated":"2022-12-14T14:39:07.1686183Z","EventRecordID":114371,"Correlation":{},"Execution":{"ProcessID":496,"ThreadID":204},"Channel":"Security","Computer":"win10.windomain.local"},"UserData":"<ServiceShutdown xmlns='http://manifests.microsoft.com/win/2004/08/windows/eventlog'></ServiceShutdown>","RenderingInfo":{"Message":"The event logging service has shut down.","Level":"Information","Task":"Service shutdown","Opcode":"Info","Channel":"Security","Provider":"Microsoft-Windows-Eventlog","Keywords":["Audit Success"],"Culture":"en-US"},"OpenWEC":{"IpAddress":"192.168.58.100","TimeReceived":"2022-12-14T16:07:02.156+00:00","Principal":"WIN10$@WINDOMAIN.LOCAL","Node":"openwec","Subscription":{"Uuid":"8B18D83D-2964-4F35-AC3B-6F4E6FFA727B","Version":"AD0D118F-31EF-4111-A0CA-D87249747278","Name":"Test","Uri":"/this/is/a/test"}}}"#;
 
     #[test]
     fn test_serialize_1100_user_data() {
@@ -1067,7 +1067,7 @@ If this computer is a domain controller for the specified domain, it sets up the
                     "2022-12-14T17:07:02.156+01:00",
                 )
                 .unwrap()
-                .with_timezone(&Local),
+                .with_timezone(&Utc),
                 subscription_name: "Test".to_string(),
                 subscription_uuid: "8B18D83D-2964-4F35-AC3B-6F4E6FFA727B".to_string(),
                 subscription_version: "AD0D118F-31EF-4111-A0CA-D87249747278".to_string(),
@@ -1088,7 +1088,7 @@ If this computer is a domain controller for the specified domain, it sets up the
     }
 
     const EVENT_111: &str = r#"<Event xmlns='http://schemas.microsoft.com/win/2004/08/events/event'><System><Provider Name='Microsoft-Windows-EventForwarder'/><EventID>111</EventID><TimeCreated SystemTime='2023-02-14T09:14:23.175Z'/><Computer>win10.windomain.local</Computer></System><SubscriptionBookmarkEvent><SubscriptionId></SubscriptionId></SubscriptionBookmarkEvent></Event>"#;
-    const EVENT_111_JSON: &str = r#"{"System":{"Provider":{"Name":"Microsoft-Windows-EventForwarder"},"EventID":111,"TimeCreated":"2023-02-14T09:14:23.175Z","Computer":"win10.windomain.local"},"RenderingInfo":{"Culture":""},"OpenWEC":{"IpAddress":"192.168.58.100","TimeReceived":"2022-12-14T17:07:02.156+01:00","Principal":"WIN10$@WINDOMAIN.LOCAL","Node":"other_node","Subscription":{"Uuid":"8B18D83D-2964-4F35-AC3B-6F4E6FFA727B","Version":"AD0D118F-31EF-4111-A0CA-D87249747278","Name":"Test","Uri":"/this/is/a/test"}}}"#;
+    const EVENT_111_JSON: &str = r#"{"System":{"Provider":{"Name":"Microsoft-Windows-EventForwarder"},"EventID":111,"TimeCreated":"2023-02-14T09:14:23.175Z","Computer":"win10.windomain.local"},"RenderingInfo":{"Culture":""},"OpenWEC":{"IpAddress":"192.168.58.100","TimeReceived":"2022-12-14T16:07:02.156+00:00","Principal":"WIN10$@WINDOMAIN.LOCAL","Node":"other_node","Subscription":{"Uuid":"8B18D83D-2964-4F35-AC3B-6F4E6FFA727B","Version":"AD0D118F-31EF-4111-A0CA-D87249747278","Name":"Test","Uri":"/this/is/a/test"}}}"#;
 
     #[test]
     fn test_serialize_111() {
@@ -1101,7 +1101,7 @@ If this computer is a domain controller for the specified domain, it sets up the
                     "2022-12-14T17:07:02.156+01:00",
                 )
                 .unwrap()
-                .with_timezone(&Local),
+                .with_timezone(&Utc),
                 subscription_name: "Test".to_string(),
                 subscription_uuid: "8B18D83D-2964-4F35-AC3B-6F4E6FFA727B".to_string(),
                 subscription_version: "AD0D118F-31EF-4111-A0CA-D87249747278".to_string(),
