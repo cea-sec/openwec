@@ -166,7 +166,7 @@ async fn authenticate(
                 .await
                 .map_err(|err| {
                     match err.root_cause().downcast_ref::<libgssapi::error::Error>() {
-                        Some(e) if e.major == MajorFlags::GSS_S_CONTEXT_EXPIRED => (),
+                        Some(e) if e.major.bits() == MajorFlags::GSS_S_CONTEXT_EXPIRED.bits() => (),
                         _ => warn!(
                             "Authentication failed for {}:{} ({}:{}): {:?}",
                             addr.ip(),
