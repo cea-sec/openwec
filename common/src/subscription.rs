@@ -1,6 +1,7 @@
 use std::{
     collections::HashMap,
     fmt::{Display, Formatter},
+    str::FromStr,
 };
 
 use crate::utils::new_uuid;
@@ -197,18 +198,22 @@ pub enum ContentFormat {
     RenderedText,
 }
 
-impl ContentFormat {
-    pub fn to_string(&self) -> String {
+impl Display for ContentFormat {
+    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         match self {
-            ContentFormat::Raw => "Raw".to_owned(),
-            ContentFormat::RenderedText => "RenderedText".to_owned(),
+            ContentFormat::Raw => write!(f, "Raw"),
+            ContentFormat::RenderedText => write!(f, "RenderedText"),
         }
     }
+}
 
-    pub fn from_str(text: &str) -> Result<Self> {
-        if text == "Raw" {
+impl FromStr for ContentFormat {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if s == "Raw" {
             Ok(ContentFormat::Raw)
-        } else if text == "RenderedText" {
+        } else if s == "RenderedText" {
             Ok(ContentFormat::RenderedText)
         } else {
             bail!("Invalid ContentFormat string")
@@ -269,7 +274,7 @@ impl Display for SubscriptionData {
         )?;
         writeln!(f, "\tMax envelope size: {} bytes", self.max_envelope_size())?;
         writeln!(f, "\tReadExistingEvents: {}", self.read_existing_events)?;
-        writeln!(f, "\tContent format: {}", self.content_format().to_string())?;
+        writeln!(f, "\tContent format: {}", self.content_format())?;
         writeln!(f, "\tIgnore channel error: {}", self.ignore_channel_error())?;
         if self.outputs().is_empty() {
             writeln!(f, "\tOutputs: None")?;
@@ -572,12 +577,7 @@ impl SubscriptionData {
     }
 
     pub fn is_active(&self) -> bool {
-        self.enabled()
-            && self
-                .outputs()
-                .iter()
-                .find(|output| output.is_enabled())
-                .is_some()
+        self.enabled() && self.outputs().iter().any(|output| output.is_enabled())
     }
 }
 

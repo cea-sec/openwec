@@ -33,6 +33,7 @@ use rusqlite::types::Type;
 use rusqlite::{named_params, params, Connection, OptionalExtension, Row};
 use std::collections::btree_map::Entry::Vacant;
 use std::collections::{BTreeMap, BTreeSet};
+use std::str::FromStr;
 use std::sync::Arc;
 use std::time::SystemTime;
 

@@ -11,6 +11,7 @@ use std::{
     collections::{HashMap, HashSet},
     fs::File,
     io::{BufReader, Read},
+    str::FromStr,
     time::SystemTime,
 };
 
@@ -312,7 +313,7 @@ async fn edit(db: &Db, matches: &ArgMatches) -> Result<()> {
     }
     if let Some(content_format) = matches.get_one::<String>("content-format") {
         let content_format_t =
-            ContentFormat::from_str(&content_format).context("Parse content-format argument")?;
+            ContentFormat::from_str(content_format).context("Parse content-format argument")?;
         debug!(
             "Update content_format from {} to {}",
             subscription.content_format().to_string(),

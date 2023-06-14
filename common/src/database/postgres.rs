@@ -44,6 +44,7 @@ use log::{error, warn};
 use openssl::ssl::{SslConnector, SslMethod};
 use postgres_openssl::MakeTlsConnector;
 use std::collections::btree_map::Entry::Vacant;
+use std::str::FromStr;
 use std::{
     collections::{BTreeMap, BTreeSet},
     sync::Arc,
