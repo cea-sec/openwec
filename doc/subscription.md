@@ -37,6 +37,7 @@ Subscriptions and their parameters are not defined in OpenWEC configuration file
 | `max_envelope_size` | No | 512000 | The maximum number of bytes in the SOAP envelope used to deliver the events. |
 | `enabled` | No | `False` | Whether the subscription is enabled or not. Not that a new subscription is **disabled** by default, and **can not** be enabled unless you configure at least one output. As a safe guard, subscriptions without outputs are ignored by openwec server. |
 | `read_existing_events` | No | `False` | If `True`, the event source should replay all possible events that match the filter and any events that subsequently occur for that event source.
+| `content_format` | No | `Raw` | This option determines whether rendering information are to be passed with events or not. `Raw` means that only event data will be passed without any rendering information, whereas `RenderedText` adds rendering information. |
 
 ## Subscription management
 
@@ -143,6 +144,7 @@ Subscription my-super-subscription
 	Max time without heartbeat/events: 600s
 	Max envelope size: 512000 bytes
 	ReadExistingEvents: false
+    ContentFormat: Raw
 	Outputs: None
 	Enabled: false
 
@@ -184,6 +186,7 @@ Subscription this-is-a-clone
 	Max time without heartbeat/events: 600s
 	Max envelope size: 512000 bytes
 	ReadExistingEvents: false
+    ContentFormat: Raw
 	Outputs: None
 	Enabled: false
 
@@ -212,7 +215,7 @@ These subscriptions can be imported in another openwec installation.
 
 ```
 $ openwec subscriptions export
-[{"uuid":"27D8CE0B-CAFE-44CA-9FE1-4B9D6EE45AE8","version":"3366A5BD-9E71-482E-9359-9505EA1F8400","name":"my-super-subscription","uri":"/new-uri","query":"<QueryList>\n    <Query Id=\"0\" Path=\"Application\">\n        <Select Path=\"Application\">*</Select>\n        <Select Path=\"Security\">*</Select>\n        <Select Path=\"Setup\">*</Select>\n        <Select Path=\"System\">*</Select>\n    </Query>\n</QueryList>\n","heartbeat_interval":600,"connection_retry_count":10,"connection_retry_interval":60,"max_time":600,"max_envelope_size":512000,"enabled":false,"read_existing_events":false,"outputs":[]},[...]]
+[{"uuid":"27D8CE0B-CAFE-44CA-9FE1-4B9D6EE45AE8","version":"3366A5BD-9E71-482E-9359-9505EA1F8400","name":"my-super-subscription","uri":"/new-uri","query":"<QueryList>\n    <Query Id=\"0\" Path=\"Application\">\n        <Select Path=\"Application\">*</Select>\n        <Select Path=\"Security\">*</Select>\n        <Select Path=\"Setup\">*</Select>\n        <Select Path=\"System\">*</Select>\n    </Query>\n</QueryList>\n","heartbeat_interval":600,"connection_retry_count":10,"connection_retry_interval":60,"max_time":600,"max_envelope_size":512000,"enabled":false,"read_existing_events":false,"content_format":"Raw","outputs":[]},[...]]
 ```
 
 ### `openwec subscriptions import`

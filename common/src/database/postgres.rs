@@ -31,7 +31,7 @@ use crate::bookmark::BookmarkData;
 use crate::heartbeat::{HeartbeatKey, HeartbeatsCache};
 use crate::settings::PostgresSslMode;
 use crate::subscription::{
-    SubscriptionMachine, SubscriptionMachineState, SubscriptionStatsCounters,
+    ContentFormat, SubscriptionMachine, SubscriptionMachineState, SubscriptionStatsCounters,
 };
 use crate::{
     database::Database, heartbeat::HeartbeatData, settings::Postgres,
@@ -245,6 +245,7 @@ fn row_to_subscription(row: &Row) -> Result<SubscriptionData> {
         max_envelope_size.try_into()?,
         row.try_get("enabled")?,
         row.try_get("read_existing_events")?,
+        ContentFormat::from_str(row.try_get("content_format")?)?,
         outputs,
     ))
 }
@@ -632,8 +633,9 @@ impl Database for PostgresDatabase {
             .execute(
                 r#"INSERT INTO subscriptions (uuid, version, name, uri, query,
                     heartbeat_interval, connection_retry_count, connection_retry_interval,
-                    max_time, max_envelope_size, enabled, read_existing_events, outputs)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+                    max_time, max_envelope_size, enabled, read_existing_events, content_format,
+                    outputs)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
                     ON CONFLICT (uuid) DO UPDATE SET 
                         version = excluded.version,
                         name = excluded.name,
@@ -646,6 +648,7 @@ impl Database for PostgresDatabase {
                         max_envelope_size = excluded.max_envelope_size,
                         enabled = excluded.enabled,
                         read_existing_events = excluded.read_existing_events,
+                        content_format = excluded.content_format,
                         outputs = excluded.outputs"#,
                 &[
                     &subscription.uuid(),
@@ -660,6 +663,7 @@ impl Database for PostgresDatabase {
                     &max_envelope_size,
                     &subscription.enabled(),
                     &subscription.read_existing_events(),
+                    &subscription.content_format().to_string(),
                     &serde_json::to_string(subscription.outputs())?.as_str(),
                 ],
             )

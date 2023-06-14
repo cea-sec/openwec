@@ -2,8 +2,8 @@ use common::{
     database::Db,
     encoding::decode_utf16le,
     subscription::{
-        FileConfiguration, KafkaConfiguration, SubscriptionData, SubscriptionMachineState,
-        SubscriptionOutput, SubscriptionOutputFormat, TcpConfiguration,
+        ContentFormat, FileConfiguration, KafkaConfiguration, SubscriptionData,
+        SubscriptionMachineState, SubscriptionOutput, SubscriptionOutputFormat, TcpConfiguration,
     },
 };
 use roxmltree::{Document, Node};
@@ -310,6 +310,16 @@ async fn edit(db: &Db, matches: &ArgMatches) -> Result<()> {
         debug!("Update enable from {} to true", subscription.enabled());
         subscription.set_enabled(false);
     }
+    if let Some(content_format) = matches.get_one::<String>("content-format") {
+        let content_format_t =
+            ContentFormat::from_str(&content_format).context("Parse content-format argument")?;
+        debug!(
+            "Update content_format from {} to {}",
+            subscription.content_format().to_string(),
+            content_format_t.to_string()
+        );
+        subscription.set_content_format(content_format_t);
+    }
     info!(
         "Saving subscription {} ({})",
         subscription.name(),
@@ -334,6 +344,12 @@ async fn new(db: &Db, matches: &ArgMatches) -> Result<()> {
         return Ok(());
     }
 
+    let content_format = ContentFormat::from_str(
+        matches
+            .get_one::<String>("content-format")
+            .expect("Defaulted by clap"),
+    )?;
+
     let subscription = SubscriptionData::new(
         matches.get_one::<String>("name").expect("Required by clap"),
         matches.get_one::<String>("uri").map(|e| e.as_str()),
@@ -347,6 +363,7 @@ async fn new(db: &Db, matches: &ArgMatches) -> Result<()> {
         *matches
             .get_one::<bool>("read-existing-events")
             .expect("defaulted by clap"),
+        content_format,
         None,
     );
     debug!(
@@ -465,7 +482,11 @@ fn import_windows(mut reader: BufReader<File>) -> Result<Vec<SubscriptionData>> 
             data.set_query(node.text().map(String::from).unwrap());
         } else if node.has_tag_name("ReadExistingEvents") && node.text().is_some() {
             data.set_read_existing_events(node.text().unwrap().parse()?);
+        } else if node.has_tag_name("ContentFormat") && node.text().is_some() {
+            let content_format = ContentFormat::from_str(node.text().unwrap())?;
+            data.set_content_format(content_format);
         }
+
     }
 
     Ok(vec![data])

@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Add OpenWEC node name (if configured) in JSON format output (#2)
+- Make ContentFormat configurable (#1)
 
 ## [0.1.0] - 2023-05-30
 

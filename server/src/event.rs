@@ -73,8 +73,8 @@ pub struct Event {
     system: System,
     #[serde(flatten, skip_serializing_if = "DataType::is_unknown")]
     data: DataType,
-    #[serde(rename = "RenderingInfo")]
-    rendering_info: RenderingInfo,
+    #[serde(rename = "RenderingInfo", skip_serializing_if = "Option::is_none")]
+    rendering_info: Option<RenderingInfo>,
     #[serde(rename = "OpenWEC")]
     additional: Additional,
 }
@@ -112,7 +112,7 @@ impl Event {
                     .context("Parsing failure in ProcessingErrorData")?
             } else if node.tag_name().name() == "RenderingInfo" {
                 event.rendering_info =
-                    RenderingInfo::from(&node).context("Parsing failure in RenderingInfo")?
+                    Some(RenderingInfo::from(&node).context("Parsing failure in RenderingInfo")?)
             } else if node.tag_name().name() == "SubscriptionBookmarkEvent" {
                 // Nothing to do, this node is present in the first received event (EventID 111)
             } else {
@@ -1088,7 +1088,7 @@ If this computer is a domain controller for the specified domain, it sets up the
     }
 
     const EVENT_111: &str = r#"<Event xmlns='http://schemas.microsoft.com/win/2004/08/events/event'><System><Provider Name='Microsoft-Windows-EventForwarder'/><EventID>111</EventID><TimeCreated SystemTime='2023-02-14T09:14:23.175Z'/><Computer>win10.windomain.local</Computer></System><SubscriptionBookmarkEvent><SubscriptionId></SubscriptionId></SubscriptionBookmarkEvent></Event>"#;
-    const EVENT_111_JSON: &str = r#"{"System":{"Provider":{"Name":"Microsoft-Windows-EventForwarder"},"EventID":111,"TimeCreated":"2023-02-14T09:14:23.175Z","Computer":"win10.windomain.local"},"RenderingInfo":{"Culture":""},"OpenWEC":{"IpAddress":"192.168.58.100","TimeReceived":"2022-12-14T16:07:02.156+00:00","Principal":"WIN10$@WINDOMAIN.LOCAL","Node":"other_node","Subscription":{"Uuid":"8B18D83D-2964-4F35-AC3B-6F4E6FFA727B","Version":"AD0D118F-31EF-4111-A0CA-D87249747278","Name":"Test","Uri":"/this/is/a/test"}}}"#;
+    const EVENT_111_JSON: &str = r#"{"System":{"Provider":{"Name":"Microsoft-Windows-EventForwarder"},"EventID":111,"TimeCreated":"2023-02-14T09:14:23.175Z","Computer":"win10.windomain.local"},"OpenWEC":{"IpAddress":"192.168.58.100","TimeReceived":"2022-12-14T16:07:02.156+00:00","Principal":"WIN10$@WINDOMAIN.LOCAL","Node":"other_node","Subscription":{"Uuid":"8B18D83D-2964-4F35-AC3B-6F4E6FFA727B","Version":"AD0D118F-31EF-4111-A0CA-D87249747278","Name":"Test","Uri":"/this/is/a/test"}}}"#;
 
     #[test]
     fn test_serialize_111() {

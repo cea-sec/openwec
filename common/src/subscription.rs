@@ -191,6 +191,31 @@ impl TryFrom<u8> for SubscriptionOutputFormat {
     }
 }
 
+#[derive(Debug, Serialize, Clone, Eq, PartialEq, Deserialize)]
+pub enum ContentFormat {
+    Raw,
+    RenderedText,
+}
+
+impl ContentFormat {
+    pub fn to_string(&self) -> String {
+        match self {
+            ContentFormat::Raw => "Raw".to_owned(),
+            ContentFormat::RenderedText => "RenderedText".to_owned(),
+        }
+    }
+
+    pub fn from_str(text: &str) -> Result<Self> {
+        if text == "Raw" {
+            Ok(ContentFormat::Raw)
+        } else if text == "RenderedText" {
+            Ok(ContentFormat::RenderedText)
+        } else {
+            bail!("Invalid ContentFormat string")
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Clone, Eq, Serialize, Deserialize)]
 pub struct SubscriptionData {
     #[serde(default = "new_uuid")]
@@ -207,6 +232,7 @@ pub struct SubscriptionData {
     max_envelope_size: u32,
     enabled: bool,
     read_existing_events: bool,
+    content_format: ContentFormat,
     #[serde(default)]
     outputs: Vec<SubscriptionOutput>,
 }
@@ -242,6 +268,7 @@ impl Display for SubscriptionData {
         )?;
         writeln!(f, "\tMax envelope size: {} bytes", self.max_envelope_size())?;
         writeln!(f, "\tReadExistingEvents: {}", self.read_existing_events)?;
+        writeln!(f, "\tContent format: {}", self.content_format.to_string())?;
         if self.outputs().is_empty() {
             writeln!(f, "\tOutputs: None")?;
         } else {
@@ -269,6 +296,7 @@ impl SubscriptionData {
             max_envelope_size: 512_000,
             enabled: true,
             read_existing_events: false,
+            content_format: ContentFormat::Raw,
             outputs: Vec::new(),
         }
     }
@@ -284,6 +312,7 @@ impl SubscriptionData {
         max_envelope_size: Option<&u32>,
         enabled: bool,
         read_existing_events: bool,
+        content_format: ContentFormat,
         outputs: Option<Vec<SubscriptionOutput>>,
     ) -> Self {
         SubscriptionData {
@@ -299,6 +328,7 @@ impl SubscriptionData {
             max_envelope_size: *max_envelope_size.unwrap_or(&512_000),
             enabled,
             read_existing_events,
+            content_format: content_format.to_owned(),
             outputs: outputs.unwrap_or_default(),
         }
     }
@@ -316,6 +346,7 @@ impl SubscriptionData {
         max_envelope_size: u32,
         enabled: bool,
         read_existing_events: bool,
+        content_format: ContentFormat,
         outputs: Vec<SubscriptionOutput>,
     ) -> Self {
         SubscriptionData {
@@ -331,6 +362,7 @@ impl SubscriptionData {
             max_envelope_size,
             enabled,
             read_existing_events,
+            content_format,
             outputs,
         }
     }
@@ -469,6 +501,15 @@ impl SubscriptionData {
 
     pub fn set_read_existing_events(&mut self, read_existing_events: bool) {
         self.read_existing_events = read_existing_events;
+        self.update_version();
+    }
+
+    pub fn content_format(&self) -> &ContentFormat {
+        &self.content_format
+    }
+
+    pub fn set_content_format(&mut self, content_format: ContentFormat) {
+        self.content_format = content_format;
         self.update_version();
     }
 
