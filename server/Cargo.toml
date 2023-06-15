@@ -11,7 +11,7 @@ path = "src/main.rs"
 
 [dependencies]
 common = { path = "../common" }
-env_logger = "0.9.1"
+env_logger = "0.10.0"
 anyhow = "1.0.59"
 base64 = "0.13.0"
 buf-read-ext = "0.4.0"
