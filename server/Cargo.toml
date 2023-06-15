@@ -23,7 +23,7 @@ libgssapi = { version = "0.6.3", features = ["iov"] }
 log = "0.4.17"
 mime = "0.3.16"
 quick-xml = "0.25.0"
-roxmltree = "0.15.0"
+roxmltree = "0.18.0"
 tokio = { version = "1.20.1", features = ["full"] }
 rdkafka = { version = "0.28.0", features = ["zstd", "libz", "external-lz4"] }
 regex = "1.6.0"
