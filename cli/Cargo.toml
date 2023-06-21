@@ -10,11 +10,11 @@ path = "src/main.rs"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-anyhow = "1.0.59"
-clap = { version = "4.0.14", features = ["cargo"] }
+anyhow = "1.0.71"
+clap = { version = "4.3.5", features = ["cargo"] }
 common = { path = "../common" }
 env_logger = "0.10.0"
-log = "0.4.17"
-serde_json = "1.0.87"
-tokio = { version = "1.22.0", features = ["full"] }
-roxmltree = "0.15.0"
+log = "0.4.19"
+serde_json = "1.0.97"
+tokio = { version = "1.28.2", features = ["full"] }
+roxmltree = "0.18.0"

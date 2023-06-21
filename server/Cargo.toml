@@ -12,33 +12,33 @@ path = "src/main.rs"
 [dependencies]
 common = { path = "../common" }
 env_logger = "0.10.0"
-anyhow = "1.0.59"
-base64 = "0.13.0"
+anyhow = "1.0.71"
+base64 = "0.21.2"
 buf-read-ext = "0.4.0"
-http = "0.2.8"
-httparse = "1.7.1"
-hyper = { version = "0.14.20", features = ["full"] }
-itoa = "1.0.3"
-libgssapi = { version = "0.6.3", features = ["iov"] }
-log = "0.4.17"
-mime = "0.3.16"
-quick-xml = "0.25.0"
-roxmltree = "0.15.0"
-tokio = { version = "1.20.1", features = ["full"] }
-rdkafka = { version = "0.28.0", features = ["zstd", "libz", "external-lz4"] }
-regex = "1.6.0"
+http = "0.2.9"
+httparse = "1.8.0"
+hyper = { version = "0.14.26", features = ["full"] }
+itoa = "1.0.6"
+libgssapi = { version = "0.6.4", features = ["iov"] }
+log = "0.4.19"
+mime = "0.3.17"
+quick-xml = "0.29.0"
+roxmltree = "0.18.0"
+tokio = { version = "1.28.2", features = ["full"] }
+rdkafka = { version = "0.32.2", features = ["zstd", "libz", "external-lz4"] }
+regex = "1.8.4"
 lazy_static = "1.4.0"
-uuid = { version = "1.1.2", features = ["v4", "fast-rng"] }
-serde = { version = "1.0.147", features = ["derive"] }
-serde_json = "1.0.87"
-async-trait = "0.1.58"
-chrono = "0.4.22"
-clap = { version = "4.0.29", features = ["cargo"] }
-futures-util = "0.3.25"
+uuid = { version = "1.3.4", features = ["v4", "fast-rng"] }
+serde = { version = "1.0.164", features = ["derive"] }
+serde_json = "1.0.97"
+async-trait = "0.1.68"
+chrono = { version  = "0.4.26", default-features = false, features = ["clock"] }
+clap = { version = "4.3.5", features = ["cargo"] }
+futures-util = "0.3.28"
 xmlparser = "0.13.5"
 itertools = "0.10.5"
-futures = "0.3.27"
-bitreader = "0.3.6"
+futures = "0.3.28"
+bitreader = "0.3.7"
 
 
 [dev-dependencies]
