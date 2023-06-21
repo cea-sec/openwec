@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add OpenWEC node name (if configured) in JSON format output (#2)
 - Make ContentFormat of subscriptions configurable (#1)
 - Add IgnoreChannelError option to subscriptions (#6)
+- Add Kerberos principals filter to subscriptions (#18)
 
 ## [0.1.0] - 2023-05-30
 

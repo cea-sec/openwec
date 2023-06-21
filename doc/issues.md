@@ -54,7 +54,7 @@ To support this, we would need to enable users to configure a list of Kerberos p
 
 ## Limit subscriptions to a subset of machines
 
-In Microsoft implementation, subscriptions can be set to a group of machines. The only "clean" way to do this is to parse the PAC contained in the Kerberos service ticket provided by the machine, but this does not seem to be supported by GSSAPI. We could alternatively limit a subscription to a list of Kerberos principals.
+The Microsoft implementation allows subscriptions to be set for a group of machines. The only "clean" way to do this is to parse the PAC contained in the machine's Kerberos service ticket, but this does not appear to be supported by GSSAPI. Alternatively, OpenWEC implements filters using the Kerberos principal names of machines, allowing you to allow or deny a set of principals to "see"/"use" a subscription.
 
 In any case, it won't work with an intermediate forwarder.
 

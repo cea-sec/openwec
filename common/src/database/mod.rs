@@ -125,12 +125,13 @@ pub mod tests {
     use crate::{
         heartbeat::{HeartbeatKey, HeartbeatValue},
         subscription::{
-            ContentFormat, FileConfiguration, SubscriptionOutput, SubscriptionOutputFormat,
+            ContentFormat, FileConfiguration, PrincsFilter, PrincsFilterOperation,
+            SubscriptionOutput, SubscriptionOutputFormat,
         },
     };
 
     use super::{schema::Migrator, *};
-    use std::{thread::sleep, time::Duration, time::SystemTime};
+    use std::{collections::HashSet, thread::sleep, time::Duration, time::SystemTime};
 
     async fn setup_db(db: Arc<dyn Database>) -> Result<()> {
         db.setup_schema().await?;
@@ -165,6 +166,7 @@ pub mod tests {
             false,
             ContentFormat::Raw,
             true,
+            PrincsFilter::empty(),
             None,
         );
         db.store_subscription(subscription.clone()).await?;
@@ -177,6 +179,9 @@ pub mod tests {
         assert_eq!(toto.read_existing_events(), false);
         assert_eq!(toto.content_format(), &ContentFormat::Raw);
         assert_eq!(toto.ignore_channel_error(), true);
+        assert_eq!(toto.princs_filter().operation(), None);
+        assert_eq!(toto.is_active(), false);
+        assert_eq!(toto.is_active_for("couscous"), false);
 
         let toto2 = db.get_subscription_by_identifier("toto").await?.unwrap();
         assert_eq!(toto, &toto2);
@@ -206,6 +211,10 @@ pub mod tests {
             true,
             ContentFormat::RenderedText,
             false,
+            PrincsFilter::from(
+                Some("Only".to_string()),
+                Some("couscous,boulette".to_string()),
+            )?,
             Some(vec![
                 SubscriptionOutput::Files(
                     SubscriptionOutputFormat::Json,
@@ -232,6 +241,15 @@ pub mod tests {
         assert_eq!(tata.content_format(), &ContentFormat::RenderedText);
         assert_eq!(tata.ignore_channel_error(), false);
         assert_eq!(
+            *tata.princs_filter().operation().unwrap(),
+            PrincsFilterOperation::Only
+        );
+        assert_eq!(
+            tata.princs_filter().princs(),
+            &HashSet::from(["couscous".to_string(), "boulette".to_string()])
+        );
+
+        assert_eq!(
             tata.outputs(),
             vec![
                 SubscriptionOutput::Files(
@@ -246,6 +264,11 @@ pub mod tests {
                 ),
             ]
         );
+        assert_eq!(tata.is_active(), true);
+        assert_eq!(tata.is_active_for("couscous"), true);
+        // Filter is case-sensitive
+        assert_eq!(tata.is_active_for("Couscous"), false);
+        assert_eq!(tata.is_active_for("semoule"), false);
 
         let tata_save = tata.clone();
         tata.set_name("titi".to_string());
@@ -253,10 +276,14 @@ pub mod tests {
         tata.set_read_existing_events(false);
         tata.set_content_format(ContentFormat::Raw);
         tata.set_ignore_channel_error(true);
+        let mut new_princs_filter = tata.princs_filter().clone();
+        new_princs_filter.add_princ("semoule")?;
+        tata.set_princs_filter(new_princs_filter);
+
         db.store_subscription(tata.clone()).await?;
 
         ensure!(db.get_subscriptions().await?.len() == 2);
-        let tata2 = db
+        let mut tata2 = db
             .get_subscription_by_identifier(tata.uuid())
             .await?
             .unwrap();
@@ -265,7 +292,62 @@ pub mod tests {
         assert_eq!(tata2.read_existing_events(), false);
         assert_eq!(tata2.content_format(), &ContentFormat::Raw);
         assert_eq!(tata2.ignore_channel_error(), true);
+        assert_eq!(
+            *tata2.princs_filter().operation().unwrap(),
+            PrincsFilterOperation::Only
+        );
+        assert_eq!(
+            tata2.princs_filter().princs(),
+            &HashSet::from([
+                "couscous".to_string(),
+                "boulette".to_string(),
+                "semoule".to_string()
+            ])
+        );
+        assert_eq!(tata2.is_active_for("couscous"), true);
+        assert_eq!(tata2.is_active_for("semoule"), true);
+
         assert!(tata2.version() != tata_save.version());
+
+        let mut new_princs_filter = tata2.princs_filter().clone();
+        new_princs_filter.delete_princ("couscous")?;
+        new_princs_filter.set_operation(Some(PrincsFilterOperation::Except));
+        tata2.set_princs_filter(new_princs_filter);
+
+        db.store_subscription(tata2).await?;
+
+        let mut tata2_clone = db
+            .get_subscription_by_identifier(tata.uuid())
+            .await?
+            .unwrap();
+        assert_eq!(
+            *tata2_clone.princs_filter().operation().unwrap(),
+            PrincsFilterOperation::Except
+        );
+        assert_eq!(
+            tata2_clone.princs_filter().princs(),
+            &HashSet::from(["boulette".to_string(), "semoule".to_string()])
+        );
+
+        assert_eq!(tata2_clone.is_active_for("couscous"), true);
+        assert_eq!(tata2_clone.is_active_for("semoule"), false);
+        assert_eq!(tata2_clone.is_active_for("boulette"), false);
+
+        let mut new_princs_filter = tata2_clone.princs_filter().clone();
+        new_princs_filter.set_operation(None);
+        tata2_clone.set_princs_filter(new_princs_filter);
+
+        db.store_subscription(tata2_clone).await?;
+
+        let tata2_clone_clone = db
+            .get_subscription_by_identifier(tata.uuid())
+            .await?
+            .unwrap();
+        assert_eq!(tata2_clone_clone.princs_filter().operation(), None);
+        assert_eq!(tata2_clone_clone.princs_filter().princs(), &HashSet::new());
+        assert_eq!(tata2_clone_clone.is_active_for("couscous"), true);
+        assert_eq!(tata2_clone_clone.is_active_for("semoule"), true);
+        assert_eq!(tata2_clone_clone.is_active_for("boulette"), true);
 
         db.delete_subscription(toto4.uuid()).await?;
         ensure!(
@@ -275,7 +357,7 @@ pub mod tests {
         assert!(db.get_subscriptions().await?.len() == 1);
 
         let tata3 = &db.get_subscriptions().await?[0];
-        assert_eq!(&tata, tata3, "toto");
+        assert_eq!(tata.uuid(), tata3.uuid());
 
         db.delete_subscription(tata.uuid()).await?;
         assert!(db.get_subscriptions().await?.is_empty());
@@ -299,6 +381,7 @@ pub mod tests {
             false,
             ContentFormat::Raw,
             false,
+            PrincsFilter::empty(),
             None,
         );
         db.store_subscription(subscription_tutu.clone()).await?;
@@ -315,6 +398,7 @@ pub mod tests {
             false,
             ContentFormat::RenderedText,
             true,
+            PrincsFilter::empty(),
             None,
         );
         db.store_subscription(subscription_titi.clone()).await?;
@@ -533,6 +617,7 @@ pub mod tests {
             false,
             ContentFormat::Raw,
             true,
+            PrincsFilter::empty(),
             None,
         );
 
@@ -655,6 +740,7 @@ pub mod tests {
             false,
             ContentFormat::RenderedText,
             false,
+            PrincsFilter::empty(),
             None,
         );
 
@@ -800,6 +886,7 @@ pub mod tests {
             false,
             ContentFormat::Raw,
             true,
+            PrincsFilter::empty(),
             None,
         );
 
@@ -1030,6 +1117,7 @@ pub mod tests {
             false,
             ContentFormat::Raw,
             false,
+            PrincsFilter::empty(),
             None,
         );
 
