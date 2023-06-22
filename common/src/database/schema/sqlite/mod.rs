@@ -10,6 +10,7 @@ use self::{
     _005_add_uri_field_in_subscriptions_table::AddUriFieldInSubscriptionsTable,
     _006_add_content_format_field_in_subscriptions_table::AddContentFormatFieldInSubscriptionsTable,
     _007_add_ignore_channel_error_field_in_subscriptions_table::AddIgnoreChannelErrorFieldInSubscriptionsTable,
+    _008_add_princs_filter_fields_in_subscriptions_table::AddPrincsFilterFieldsInSubscriptionsTable,
 };
 
 mod _001_create_subscriptions_table;
@@ -19,6 +20,7 @@ mod _004_add_last_event_seen_field_in_heartbeats_table;
 mod _005_add_uri_field_in_subscriptions_table;
 mod _006_add_content_format_field_in_subscriptions_table;
 mod _007_add_ignore_channel_error_field_in_subscriptions_table;
+mod _008_add_princs_filter_fields_in_subscriptions_table;
 
 pub fn register_migrations(sqlite_db: &mut SQLiteDatabase) {
     sqlite_db.register_migration(Arc::new(CreateSubscriptionsTable));
@@ -28,4 +30,5 @@ pub fn register_migrations(sqlite_db: &mut SQLiteDatabase) {
     sqlite_db.register_migration(Arc::new(AddUriFieldInSubscriptionsTable));
     sqlite_db.register_migration(Arc::new(AddContentFormatFieldInSubscriptionsTable));
     sqlite_db.register_migration(Arc::new(AddIgnoreChannelErrorFieldInSubscriptionsTable));
+    sqlite_db.register_migration(Arc::new(AddPrincsFilterFieldsInSubscriptionsTable));
 }

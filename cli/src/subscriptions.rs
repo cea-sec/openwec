@@ -2,8 +2,9 @@ use common::{
     database::Db,
     encoding::decode_utf16le,
     subscription::{
-        ContentFormat, FileConfiguration, KafkaConfiguration, SubscriptionData,
-        SubscriptionMachineState, SubscriptionOutput, SubscriptionOutputFormat, TcpConfiguration,
+        ContentFormat, FileConfiguration, KafkaConfiguration, PrincsFilter, PrincsFilterOperation,
+        SubscriptionData, SubscriptionMachineState, SubscriptionOutput, SubscriptionOutputFormat,
+        TcpConfiguration,
     },
 };
 use roxmltree::{Document, Node};
@@ -212,6 +213,9 @@ async fn edit(db: &Db, matches: &ArgMatches) -> Result<()> {
     if let Some(("outputs", matches)) = matches.subcommand() {
         outputs(&mut subscription, matches).await?;
     }
+    if let Some(("filter", matches)) = matches.subcommand() {
+        edit_filter(&mut subscription, matches).await?;
+    }
     if let Some(query) = matches.get_one::<String>("query") {
         let mut file = File::open(query)?;
         let mut new_query = String::new();
@@ -376,6 +380,7 @@ async fn new(db: &Db, matches: &ArgMatches) -> Result<()> {
         *matches
             .get_one::<bool>("ignore-channel-error")
             .expect("Defaulted by clap"),
+        PrincsFilter::empty(),
         None,
     );
     debug!(
@@ -517,6 +522,69 @@ async fn delete(db: &Db, matches: &ArgMatches) -> Result<()> {
     db.delete_subscription(subscription.uuid()).await
 }
 
+async fn edit_filter(subscription: &mut SubscriptionData, matches: &ArgMatches) -> Result<()> {
+    let mut filter = subscription.princs_filter().clone();
+    match matches.subcommand() {
+        Some(("set", matches)) => {
+            let op_str = matches
+                .get_one::<String>("operation")
+                .ok_or_else(|| anyhow!("Missing operation argument"))?;
+
+            let op_opt = PrincsFilterOperation::opt_from_str(op_str)?;
+            filter.set_operation(op_opt.clone());
+
+            if let Some(op) = op_opt {
+                let mut princs = HashSet::new();
+                if let Some(identifiers) = matches.get_many::<String>("principals") {
+                    for identifier in identifiers {
+                        princs.insert(identifier.clone());
+                    }
+                }
+                if op == PrincsFilterOperation::Only && princs.is_empty() {
+                    warn!("'{}' filter has been set without principals making this subscription apply to nothing.", op)
+                }
+                filter.set_princs(princs)?;
+            }
+        }
+        Some(("princs", matches)) => match matches.subcommand() {
+            Some(("add", matches)) => {
+                filter.add_princ(
+                    matches
+                        .get_one::<String>("principal")
+                        .ok_or_else(|| anyhow!("Missing principal"))?,
+                )?;
+            }
+            Some(("delete", matches)) => {
+                filter.delete_princ(
+                    matches
+                        .get_one::<String>("principal")
+                        .ok_or_else(|| anyhow!("Missing principal"))?,
+                )?;
+            }
+            Some(("set", matches)) => match matches.get_many::<String>("principals") {
+                Some(identifiers) => {
+                    let mut princs = HashSet::new();
+                    for identifier in identifiers {
+                        princs.insert(identifier.clone());
+                    }
+                    filter.set_princs(princs)?;
+                }
+                None => {
+                    bail!("No principals to set")
+                }
+            },
+            _ => {
+                bail!("Nothing to do");
+            }
+        },
+        _ => {
+            bail!("Nothing to do");
+        }
+    }
+    subscription.set_princs_filter(filter);
+
+    Ok(())
+}
 async fn outputs(subscription: &mut SubscriptionData, matches: &ArgMatches) -> Result<()> {
     info!(
         "Loading subscription {} ({})",

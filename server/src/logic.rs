@@ -111,6 +111,18 @@ async fn handle_enumerate(
             _ => (),
         }
 
+        // Skip subscriptions that filter out this principal
+        if !subscription_data.is_active_for(request_data.principal()) {
+            debug!(
+                "Skip subscription \"{}\" ({}) which principals filter {:?} rejects {}",
+                subscription_data.name(),
+                subscription_data.uuid(),
+                subscription_data.princs_filter(),
+                request_data.principal()
+            );
+            continue;
+        }
+
         debug!(
             "Include subscription \"{}\" ({})",
             subscription_data.name(),
@@ -224,7 +236,7 @@ async fn handle_heartbeat(
             Some(subscription) => subscription.to_owned(),
             None => {
                 warn!(
-                    "Received Heartbeat of {}:{} ({}) for unknown subscription {}",
+                    "Received Heartbeat from {}:{} ({}) for unknown subscription {}",
                     request_data.remote_addr().ip(),
                     request_data.remote_addr().port(),
                     request_data.principal(),
@@ -235,8 +247,20 @@ async fn handle_heartbeat(
         }
     };
 
+    if !subscription.data().is_active_for(request_data.principal()) {
+        info!(
+            "Received Heartbeat from {}:{} ({}) for subscription {} ({}) but the principal is not allowed to use the subscription.",
+            request_data.remote_addr().ip(),
+            request_data.remote_addr().port(),
+            request_data.principal(),
+            subscription.data().name(),
+            subscription.uuid()
+        );
+        return Ok(Response::err(StatusCode::FORBIDDEN));
+    }
+
     info!(
-        "Received Heartbeat of {}:{} ({:?}) for subscription {} ({})",
+        "Received Heartbeat from {}:{} ({:?}) for subscription {} ({})",
         request_data.remote_addr().ip(),
         request_data.remote_addr().port(),
         request_data.principal(),
@@ -285,6 +309,19 @@ async fn handle_events(
                 }
             }
         };
+
+        if !subscription.data().is_active_for(request_data.principal()) {
+            info!(
+                "Received Events from {}:{} ({}) for subscription {} ({}) but the principal is not allowed to use this subscription.",
+                request_data.remote_addr().ip(),
+                request_data.remote_addr().port(),
+                request_data.principal(), 
+                subscription.data().name(),
+                subscription.uuid(),
+            );
+            return Ok(Response::err(StatusCode::FORBIDDEN));
+        }
+
         info!(
             "Received Events from {}:{} ({}) for subscription {} ({})",
             request_data.remote_addr().ip(),

@@ -62,6 +62,20 @@ In its configuration UI, Microsoft WEC enables users to choose between three eve
 
 In its documentation, Microsoft states that Normal mode uses a Pull delivery mode (meaning that its the collector who connects to Windows machines and retrieve their event logs). It seems to be a mistake, as the exported configuration of a subscription configured in Normal mode clearly specifies that it is SourceInitiated in Push mode.
 
+## Principals filter
+
+It is possible to filter the client Kerberos principals that can see a subscription. The comparison is **case-sensitive**.
+
+There are three filtering modes:
+* `None` (default): no filtering based on Kerberos principal
+* `Only [princ, ...]`: the subscription will only be shown to the listed principals
+* `Except [princ, ...]`: the subscription will be shown to everyone except the listed principals
+
+The principals filter can be configured using openwec cli:
+*  `openwec subscriptions edit <subscription> filter set <mode> [princ, ...]` configures the principals filter.
+*  `openwec subscriptions edit <subscription> filter princs {add,delete,set} [princ, ...]` manages the principals in the filter.
+
+
 ## Available commands
 
 ### `openwec subscriptions`
@@ -112,7 +126,7 @@ This command enables you to edit an already existing subscription.
 
 You must provide the identifier of the subscription to edit, which can be either its `name` or its `uuid`.
 
-You may edit every parameters of the subscription, even its name.
+You can edit every parameters of the subscription, even its name.
 
 You should be very careful when editing a subscription query, especially when adding new event log channels (see [Query known issues](query.md#known-issues)).
 
@@ -124,8 +138,13 @@ Subscriptions update are not immediatly applied. openwec server maintains an in-
 $ openwec subscriptions edit my-super-subscription --uri /new-uri --connection-retry-count 10
 ```
 
-This commad edits the subscription named `my-super-subscription`, changing its uri to `/new-uri` and its `connection_retry_count` parameter to `10`.
+This command edits the subscription named `my-super-subscription`, changing its uri to `/new-uri` and its `connection_retry_count` parameter to `10`.
 
+```
+$ openwec subscriptions edit my-super-subscription filter set only 'SUSPICIOUS$@WINDOMAIN.LOCAL' 'INFECTED$@WINDOMAIN.LOCAL'
+```
+
+This command edits the subscription named `my-super-subscription`, changing its filter to _only_ retrieve events from `SUSPICIOUS$@WINDOMAIN.LOCAL` and `INFECTED$@WINDOMAIN.LOCAL`.
 
 ### `openwec subscriptions show`
 
@@ -147,7 +166,8 @@ Subscription my-super-subscription
 	ReadExistingEvents: false
 	ContentFormat: Raw
 	IgnoreChannelError: true
-	Outputs: None
+	Principal filter: Not configured
+	Outputs: Not configured 
 	Enabled: false
 
 Event filter query:
@@ -190,6 +210,7 @@ Subscription this-is-a-clone
 	ReadExistingEvents: false
 	ContentFormat: Raw
 	IgnoreChannelError: true
+	Principal filter: Not configured
 	Outputs: None
 	Enabled: false
 
@@ -218,7 +239,7 @@ These subscriptions can be imported in another openwec installation.
 
 ```
 $ openwec subscriptions export
-[{"uuid":"27D8CE0B-CAFE-44CA-9FE1-4B9D6EE45AE8","version":"3366A5BD-9E71-482E-9359-9505EA1F8400","name":"my-super-subscription","uri":"/new-uri","query":"<QueryList>\n    <Query Id=\"0\" Path=\"Application\">\n        <Select Path=\"Application\">*</Select>\n        <Select Path=\"Security\">*</Select>\n        <Select Path=\"Setup\">*</Select>\n        <Select Path=\"System\">*</Select>\n    </Query>\n</QueryList>\n","heartbeat_interval":600,"connection_retry_count":10,"connection_retry_interval":60,"max_time":600,"max_envelope_size":512000,"enabled":false,"read_existing_events":false,"content_format":"Raw","ignore_channel_error":true,"outputs":[]},[...]]
+[{"uuid":"27D8CE0B-CAFE-44CA-9FE1-4B9D6EE45AE8","version":"3366A5BD-9E71-482E-9359-9505EA1F8400","name":"my-super-subscription","uri":"/new-uri","query":"<QueryList>\n    <Query Id=\"0\" Path=\"Application\">\n        <Select Path=\"Application\">*</Select>\n        <Select Path=\"Security\">*</Select>\n        <Select Path=\"Setup\">*</Select>\n        <Select Path=\"System\">*</Select>\n    </Query>\n</QueryList>\n","heartbeat_interval":600,"connection_retry_count":10,"connection_retry_interval":60,"max_time":600,"max_envelope_size":512000,"enabled":false,"read_existing_events":false,"content_format":"Raw","ignore_channel_error":true,"princs_filter":{"operation":null,"princs":[]},"outputs":[]},[...]]
 ```
 
 ### `openwec subscriptions import`

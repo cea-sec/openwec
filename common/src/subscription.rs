@@ -1,12 +1,12 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     fmt::{Display, Formatter},
     str::FromStr,
 };
 
 use crate::utils::new_uuid;
 use anyhow::{anyhow, bail, Error, Result};
-use log::info;
+use log::{info, warn};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -193,6 +193,120 @@ impl TryFrom<u8> for SubscriptionOutputFormat {
 }
 
 #[derive(Debug, Serialize, Clone, Eq, PartialEq, Deserialize)]
+pub enum PrincsFilterOperation {
+    Only,
+    Except,
+}
+
+impl Display for PrincsFilterOperation {
+    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+        match self {
+            PrincsFilterOperation::Only => write!(f, "Only"),
+            PrincsFilterOperation::Except => write!(f, "Except"),
+        }
+    }
+}
+
+impl PrincsFilterOperation {
+    pub fn opt_from_str(op: &str) -> Result<Option<PrincsFilterOperation>> {
+        if op.eq_ignore_ascii_case("only") {
+            Ok(Some(PrincsFilterOperation::Only))
+        } else if op.eq_ignore_ascii_case("except") {
+            Ok(Some(PrincsFilterOperation::Except))
+        } else if op.eq_ignore_ascii_case("none") {
+            Ok(None)
+        } else {
+            bail!("Could not parse principal filter operation")
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Clone, Eq, PartialEq, Deserialize)]
+pub struct PrincsFilter {
+    operation: Option<PrincsFilterOperation>,
+    princs: HashSet<String>,
+}
+
+impl PrincsFilter {
+    pub fn empty() -> Self {
+        PrincsFilter {
+            operation: None,
+            princs: HashSet::new(),
+        }
+    }
+
+    pub fn from(operation: Option<String>, princs: Option<String>) -> Result<Self> {
+        Ok(PrincsFilter {
+            operation: match operation {
+                Some(op) => PrincsFilterOperation::opt_from_str(&op)?,
+                None => None,
+            },
+            princs: match princs {
+                Some(p) => HashSet::from_iter(p.split(',').map(|s| s.to_string())),
+                None => HashSet::new(),
+            },
+        })
+    }
+
+    pub fn princs(&self) -> &HashSet<String> {
+        &self.princs
+    }
+
+    pub fn princs_to_string(&self) -> String {
+        self.princs()
+            .iter()
+            .cloned()
+            .collect::<Vec<String>>()
+            .join(",")
+    }
+
+    pub fn princs_to_opt_string(&self) -> Option<String> {
+        if self.princs().is_empty() {
+            None
+        } else {
+            Some(self.princs_to_string())
+        }
+    }
+
+    pub fn add_princ(&mut self, princ: &str) -> Result<()> {
+        if self.operation.is_none() {
+            bail!("Could not add a principal to an unset filter")
+        }
+        self.princs.insert(princ.to_owned());
+        Ok(())
+    }
+
+    pub fn delete_princ(&mut self, princ: &str) -> Result<()> {
+        if self.operation.is_none() {
+            bail!("Could not delete a principal of an unset filter")
+        }
+        if !self.princs.remove(princ) {
+            warn!("{} was not present in the principals set", princ)
+        }
+        Ok(())
+    }
+
+    pub fn set_princs(&mut self, princs: HashSet<String>) -> Result<()> {
+        if self.operation.is_none() {
+            bail!("Could not set principals of an unset filter")
+        }
+        self.princs = princs;
+        Ok(())
+    }
+
+    pub fn operation(&self) -> Option<&PrincsFilterOperation> {
+        self.operation.as_ref()
+    }
+
+    pub fn set_operation(&mut self, operation: Option<PrincsFilterOperation>) {
+        if operation.is_none() {
+            self.princs.clear();
+        }
+        self.operation = operation;
+    }
+}
+
+#[derive(Debug, Serialize, Clone, Eq, PartialEq, Deserialize)]
 pub enum ContentFormat {
     Raw,
     RenderedText,
@@ -239,6 +353,7 @@ pub struct SubscriptionData {
     read_existing_events: bool,
     content_format: ContentFormat,
     ignore_channel_error: bool,
+    princs_filter: PrincsFilter,
     #[serde(default)]
     outputs: Vec<SubscriptionOutput>,
 }
@@ -253,7 +368,7 @@ impl Display for SubscriptionData {
             "\tURI: {}",
             match self.uri() {
                 Some(uri) => uri,
-                None => "None",
+                None => "Not configured",
             }
         )?;
         writeln!(f, "\tHeartbeat interval: {}s", self.heartbeat_interval())?;
@@ -276,8 +391,21 @@ impl Display for SubscriptionData {
         writeln!(f, "\tReadExistingEvents: {}", self.read_existing_events)?;
         writeln!(f, "\tContent format: {}", self.content_format())?;
         writeln!(f, "\tIgnore channel error: {}", self.ignore_channel_error())?;
+        match self.princs_filter().operation() {
+            None => {
+                writeln!(f, "\tPrincipal filter: Not configured")?;
+            }
+            Some(operation) => {
+                writeln!(
+                    f,
+                    "\tPrincipal filter: {} the following principals: {}",
+                    operation,
+                    self.princs_filter().princs_to_string(),
+                )?;
+            }
+        }
         if self.outputs().is_empty() {
-            writeln!(f, "\tOutputs: None")?;
+            writeln!(f, "\tOutputs: Not configured")?;
         } else {
             writeln!(f, "\tOutputs:")?;
             for (index, output) in self.outputs().iter().enumerate() {
@@ -305,6 +433,7 @@ impl SubscriptionData {
             read_existing_events: false,
             content_format: ContentFormat::Raw,
             ignore_channel_error: true,
+            princs_filter: PrincsFilter::empty(),
             outputs: Vec::new(),
         }
     }
@@ -322,6 +451,7 @@ impl SubscriptionData {
         read_existing_events: bool,
         content_format: ContentFormat,
         ignore_channel_error: bool,
+        princs_filter: PrincsFilter,
         outputs: Option<Vec<SubscriptionOutput>>,
     ) -> Self {
         SubscriptionData {
@@ -339,6 +469,7 @@ impl SubscriptionData {
             read_existing_events,
             content_format,
             ignore_channel_error,
+            princs_filter,
             outputs: outputs.unwrap_or_default(),
         }
     }
@@ -358,6 +489,7 @@ impl SubscriptionData {
         read_existing_events: bool,
         content_format: ContentFormat,
         ignore_channel_error: bool,
+        princs_filter: PrincsFilter,
         outputs: Vec<SubscriptionOutput>,
     ) -> Self {
         SubscriptionData {
@@ -375,6 +507,7 @@ impl SubscriptionData {
             read_existing_events,
             content_format,
             ignore_channel_error,
+            princs_filter,
             outputs,
         }
     }
@@ -578,6 +711,29 @@ impl SubscriptionData {
 
     pub fn is_active(&self) -> bool {
         self.enabled() && self.outputs().iter().any(|output| output.is_enabled())
+    }
+
+    pub fn princs_filter(&self) -> &PrincsFilter {
+        &self.princs_filter
+    }
+
+    pub fn set_princs_filter(&mut self, princs_filter: PrincsFilter) {
+        self.princs_filter = princs_filter;
+        self.update_version();
+    }
+
+    pub fn is_active_for(&self, principal: &str) -> bool {
+        if !self.is_active() {
+            return false;
+        }
+
+        match self.princs_filter().operation {
+            None => true,
+            Some(PrincsFilterOperation::Only) => self.princs_filter().princs().contains(principal),
+            Some(PrincsFilterOperation::Except) => {
+                !self.princs_filter().princs().contains(principal)
+            }
+        }
     }
 }
 

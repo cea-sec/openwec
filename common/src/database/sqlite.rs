@@ -41,7 +41,7 @@ use crate::bookmark::BookmarkData;
 use crate::database::Database;
 use crate::heartbeat::{HeartbeatData, HeartbeatsCache};
 use crate::subscription::{
-    SubscriptionData, SubscriptionMachine, SubscriptionMachineState, SubscriptionStatsCounters, ContentFormat,
+    SubscriptionData, SubscriptionMachine, SubscriptionMachineState, SubscriptionStatsCounters, ContentFormat, PrincsFilter,
 };
 
 use super::schema::{Migration, MigrationBase, Version};
@@ -187,6 +187,8 @@ fn row_to_subscription(row: &Row) -> Result<SubscriptionData, rusqlite::Error> {
         }
     };
     let content_format = ContentFormat::from_str(row.get::<&str, String>("content_format")?.as_ref()).map_err(|_| rusqlite::Error::InvalidColumnType(12, "content_format".to_owned(), Type::Text))?;
+    let princs_filter = PrincsFilter::from(row.get("princs_filter_op")?, row.get("princs_filter_value")?).map_err(|_| rusqlite::Error::InvalidColumnType(12, "princs_filter".to_owned(), Type::Text))?;
+
     Ok(SubscriptionData::from(
         row.get("uuid")?,
         row.get("version")?,
@@ -202,6 +204,7 @@ fn row_to_subscription(row: &Row) -> Result<SubscriptionData, rusqlite::Error> {
         row.get("read_existing_events")?,
         content_format,
         row.get("ignore_channel_error")?,
+        princs_filter,
         outputs,
     ))
 }
@@ -571,10 +574,12 @@ impl Database for SQLiteDatabase {
                 conn.execute(
                     r#"INSERT INTO subscriptions (uuid, version, name, uri, query,
                     heartbeat_interval, connection_retry_count, connection_retry_interval,
-                    max_time, max_envelope_size, enabled, read_existing_events, content_format, ignore_channel_error, outputs)
+                    max_time, max_envelope_size, enabled, read_existing_events, content_format, 
+                    ignore_channel_error, princs_filter_op, princs_filter_value, outputs)
                     VALUES (:uuid, :version, :name, :uri, :query,
                         :heartbeat_interval, :connection_retry_count, :connection_retry_interval,
-                        :max_time, :max_envelope_size, :enabled, :read_existing_events, :content_format, :ignore_channel_error, :outputs)
+                        :max_time, :max_envelope_size, :enabled, :read_existing_events, :content_format,
+                        :ignore_channel_error, :princs_filter_op, :princs_filter_value, :outputs)
                     ON CONFLICT (uuid) DO UPDATE SET 
                         version = excluded.version,
                         name = excluded.name,
@@ -589,6 +594,8 @@ impl Database for SQLiteDatabase {
                         read_existing_events = excluded.read_existing_events,
                         content_format = excluded.content_format,
                         ignore_channel_error = excluded.ignore_channel_error,
+                        princs_filter_op = excluded.princs_filter_op,
+                        princs_filter_value = excluded.princs_filter_value,
                         outputs = excluded.outputs"#,
                     named_params! {
                         ":uuid": subscription.uuid(),
@@ -605,6 +612,8 @@ impl Database for SQLiteDatabase {
                         ":read_existing_events": subscription.read_existing_events(),
                         ":content_format": subscription.content_format().to_string(),
                         ":ignore_channel_error": subscription.ignore_channel_error(),
+                        ":princs_filter_op": subscription.princs_filter().operation().map(|x| x.to_string()),
+                        ":princs_filter_value": subscription.princs_filter().princs_to_opt_string(),
                         ":outputs": serde_json::to_string(subscription.outputs())?,
                     },
                 )
