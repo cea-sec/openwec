@@ -1,4 +1,5 @@
 use anyhow::{anyhow, bail, Context, Result};
+use base64::Engine;
 use common::encoding::{decode_utf16le, encode_utf16le};
 use common::settings::Collector;
 use hyper::body::HttpBody;
@@ -89,7 +90,8 @@ pub async fn authenticate(
     let b64_token = auth_header
         .strip_prefix("Kerberos ")
         .ok_or_else(|| anyhow!("Authorization header does not start with 'Kerberos '"))?;
-    let token = base64::decode(b64_token)
+    let token = base64::engine::general_purpose::STANDARD
+        .decode(b64_token)
         .context("Failed to decode authorization header token as base64")?;
     match server_ctx
         .step(&token)
@@ -120,7 +122,7 @@ pub async fn authenticate(
             debug!("Server context info: {:?}", server_ctx.info());
             Ok(AuthenticationResult {
                 principal: server_ctx.source_name()?.to_string(),
-                token: Some(base64::encode(&*step)),
+                token: Some(base64::engine::general_purpose::STANDARD.encode(&*step)),
             })
         }
     }
