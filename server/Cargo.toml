@@ -43,3 +43,27 @@ bitreader = "0.3.7"
 
 [dev-dependencies]
 hex = "0.4.3"
+
+
+# cargo-deb
+[package.metadata.deb]
+name="openwec"
+maintainer = "William Bruneau <william.bruneau@cea.fr>"
+copyright = "2023, CEA <william.bruneau@cea.fr>"
+extended-description = """\
+An implementation of a Windows Event Collector\
+server running on GNU/Linux."""
+depends = "$auto"
+section = "utility"
+priority = "optional"
+assets = [
+    ["target/release/openwec", "usr/bin/", "755"],
+    ["target/release/openwecd", "usr/bin/", "755"],
+    ["../openwec.conf.sample.toml", "etc/openwec.conf.toml", "644"],
+    ["../openwec.conf.sample.toml", "usr/share/doc/openwec/", "644"],
+    ["../README.md", "usr/share/doc/openwec/", "644"],
+    ["../doc/*", "usr/share/doc/openwec/doc/", "644"],
+]
+conf-files = ["/etc/openwec.conf.toml"]
+maintainer-scripts = "debian/"
+systemd-units = { unit-name = "openwecd", enable = false }

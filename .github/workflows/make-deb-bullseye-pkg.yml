@@ -1,0 +1,29 @@
+name: Build debian bullseye package
+
+on:
+  push:
+    tags:
+      - "v*"
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+    - name: Make debian package
+      run: |
+          cd build-pkg && \
+          docker build -t openwec-builder:debian-bullseye -f Dockerfile-debian-bullseye . && \
+          docker run -t -u $(id -u):$(id -g) -v $(pwd)/../:/SRC  \
+            --env CARGO_HOME=/SRC/target/.cargo openwec-builder:debian-bullseye \
+            cargo deb --manifest-path=./server/Cargo.toml
+    - name: Upload package
+      uses: actions/upload-artifact@v3
+      with:
+        name: openwec-deb-bullseye-package
+        path: ./target/debian/*.deb
