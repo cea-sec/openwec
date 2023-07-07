@@ -1,0 +1,20 @@
+#!/bin/sh
+# inspired by https://github.com/NLnetLabs/krill/blob/main/pkg/debian/postinst
+set -e
+
+OPENWEC_USER="openwec"
+OPENWEC_HOME="/var/empty/openwec"
+OPENWEC_SHELL="/sbin/nologin"
+
+create_user() {
+    if id ${OPENWEC_USER} > /dev/null 2>&1; then return; fi
+    /usr/sbin/adduser --system --home "${OPENWEC_HOME}" --shell "${OPENWEC_SHELL}" --group ${OPENWEC_USER}
+}
+
+case "$1" in
+configure)
+    create_user
+    ;;
+esac
+
+#DEBHELPER#
