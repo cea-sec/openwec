@@ -347,6 +347,12 @@ async fn handle(
         }
     };
 
+    trace!(
+        "Send response {} with payload: {:?}",
+        status,
+        response_payload
+    );
+
     response_builder = response_builder.status(status);
     // Create HTTP response
     let response = match create_response(auth_mech, &conn_state, response_builder, response_payload)
