@@ -30,6 +30,17 @@
 # flush_heartbeats_interval = 5
 
 # [Optional]
+# To "store" a heartbeat, request handlers send a message to a task responsible
+# for managing heartbeats using a queue.
+# The database store operation may take some time. During this operation, new heartbeats message
+# are not popped from the queue, leading to the queue being full. When the queue is full,
+# request handlers have to wait before sending a response to clients.
+# You can customize the size of the queue, depending of the expected output of heartbeats
+# messages to store and the duration of the database store operation.
+# Default size of the queue is 2048.
+# heartbeats_queue_size = 2048
+
+# [Optional]
 # Set node name
 # This may be used by outputs. Unset by default.
 # node_name = unsef

@@ -184,6 +184,7 @@ pub struct Server {
     verbosity: Option<String>,
     db_sync_interval: Option<u64>,
     flush_heartbeats_interval: Option<u64>,
+    heartbeats_queue_size: Option<u64>,
     node_name: Option<String>,
 }
 
@@ -202,6 +203,10 @@ impl Server {
 
     pub fn node_name(&self) -> Option<&String> {
         self.node_name.as_ref()
+    }
+
+    pub fn heartbeats_queue_size(&self) -> u64 {
+        self.heartbeats_queue_size.unwrap_or(2048)
     }
 }
 

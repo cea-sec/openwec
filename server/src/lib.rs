@@ -416,14 +416,20 @@ pub async fn run(settings: Settings) {
         .await
     });
 
+    // To reduce database load, heartbeats are not saved immediately.
+    // Heartbeats data "to store" are cached in memory before being saved in database periodically.
+    // To "store" a heartbeat, request handlers send a message to the heartbeat task
+    // using a MPSC channel.
+    // The database store operation may take some time. During this operation, new heartbeats message
+    // are not popped from the channel. The channel must be large enough to enable the request handlers to enqueue
+    // their heartbeat messages without waiting.
     let interval = settings.server().flush_heartbeats_interval();
     let update_task_db = db.clone();
-    // Channel to communicate with heartbeat task
-    // TODO: why 32?
-    let (heartbeat_tx, heartbeat_rx) = mpsc::channel(32);
+    let (heartbeat_tx, heartbeat_rx) =
+        mpsc::channel(settings.server().heartbeats_queue_size() as usize);
     let (heartbeat_exit_tx, heartbeat_exit_rx) = oneshot::channel();
 
-    // Launch a task responsible for managing heartbeats
+    // Launch the task responsible for managing heartbeats
     tokio::spawn(async move {
         heartbeat_task(update_task_db, interval, heartbeat_rx, heartbeat_exit_rx).await
     });
