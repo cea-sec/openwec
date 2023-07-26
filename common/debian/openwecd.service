@@ -1,0 +1,14 @@
+[Unit]
+Description=OpenWEC server
+After=network-online.target
+
+[Service]
+ExecStart=/usr/bin/openwecd
+User=openwec
+Group=openwec
+Restart=always
+RestartSec=5s
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

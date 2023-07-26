@@ -2,6 +2,8 @@
 name = "common"
 version = "0.1.0"
 edition = "2021"
+# Used by cargo-deb
+homepage = "https://github.com/cea-sec/openwec"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -26,3 +28,26 @@ postgres-openssl = "0.5.0"
 [dev-dependencies]
 tempfile = "3.6.0"
 serial_test = "2.0.0"
+
+# cargo-deb
+[package.metadata.deb]
+name="openwec"
+maintainer = "CEA"
+copyright = "2023, CEA"
+extended-description = """\
+An implementation of a Windows Event Collector\
+server running on GNU/Linux."""
+depends = "$auto"
+section = "utility"
+priority = "optional"
+assets = [
+    ["target/release/openwec", "usr/bin/", "755"],
+    ["target/release/openwecd", "usr/bin/", "755"],
+    ["../openwec.conf.sample.toml", "etc/openwec.conf.toml", "644"],
+    ["../openwec.conf.sample.toml", "usr/share/doc/openwec/", "644"],
+    ["../README.md", "usr/share/doc/openwec/", "644"],
+    ["../doc/*", "usr/share/doc/openwec/doc/", "644"],
+]
+conf-files = ["/etc/openwec.conf.toml"]
+maintainer-scripts = "debian/"
+systemd-units = { unit-name = "openwecd", enable = false }
