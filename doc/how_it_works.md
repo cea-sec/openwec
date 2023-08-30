@@ -10,8 +10,6 @@ Two transport protocols are available:
 * Kerberos/HTTP (port 5985): SOAP messages are authenticated and encrypted using Kerberos and sent over HTTP. This is mainly used in Active Directory environments.
 * HTTPS (port 5986): SOAP messages are authenticated and encrypted using HTTPS. Each Windows machine must have a valid client certificate.
 
-**OpenWEC only supports Kerberos/HTTP.**
-
 ## Subscriptions
 
 Subscriptions are the heart of the Windows Event Forwarding protocol and thus of openwec :smile:.

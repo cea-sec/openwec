@@ -14,9 +14,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add IgnoreChannelError option to subscriptions (#6)
 - Add Kerberos principals filter to subscriptions (#18)
 - Add a setting to configure `heartbeats_queue_size` (#37)
+- Add Tls support for encryption and authentication (#36)
 
 ### Changed
-
 
 - Server log responses payload in TRACE level (#37)
 - Remove `OperationID` from responses because we don't support "Robust Connection" (#37)

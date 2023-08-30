@@ -8,7 +8,7 @@ use crate::{
         ACTION_HEARTBEAT, ACTION_SUBSCRIBE, ACTION_SUBSCRIPTION_END, ANONYMOUS, RESOURCE_EVENT_LOG,
     },
     subscription::{Subscription, Subscriptions},
-    RequestCategory, RequestData,
+    RequestCategory, RequestData, AuthenticationContext,
 };
 use common::{
     database::Db,
@@ -59,6 +59,7 @@ async fn handle_enumerate(
     db: &Db,
     subscriptions: Subscriptions,
     request_data: &RequestData,
+    auth_ctx: &AuthenticationContext,
 ) -> Result<Response> {
     // Check that URI corresponds to an enumerate Request
     let uri = match request_data.category() {
@@ -190,16 +191,28 @@ async fn handle_enumerate(
             identifier: subscription_data.version().to_owned(),
             bookmark,
             query: subscription_data.query().to_owned(),
-            address: format!(
-                "http://{}:{}/wsman/subscriptions/{}",
-                collector.hostname(),
-                collector.listen_port(),
-                subscription_data.version()
-            ),
+            address: match auth_ctx {
+                AuthenticationContext::Kerberos(_) => format!(
+                    "http://{}:{}/wsman/subscriptions/{}",
+                    collector.hostname(),
+                    collector.listen_port(),
+                    subscription_data.version()
+                ),
+                AuthenticationContext::Tls(_,_) => format!(
+                    "https://{}:{}/wsman/subscriptions/{}",
+                    collector.hostname(),
+                    collector.listen_port(),
+                    subscription_data.version()
+                )
+            },
             connection_retry_count: subscription_data.connection_retry_count(),
             connection_retry_interval: subscription_data.connection_retry_interval(),
             max_time: subscription_data.max_time(),
             max_envelope_size: subscription_data.max_envelope_size(),
+            thumbprint: match auth_ctx {
+                AuthenticationContext::Tls(_, thumbprint) => Some(thumbprint.clone()),
+                AuthenticationContext::Kerberos(_) => None
+            }
         };
 
         res_subscriptions.push(SoapSubscription {
@@ -432,12 +445,13 @@ pub async fn handle_message(
     heartbeat_tx: mpsc::Sender<WriteHeartbeatMessage>,
     request_data: RequestData,
     message: &Message,
+    auth_ctx: &AuthenticationContext,
 ) -> Result<Response> {
     let action = message.action()?;
     debug!("Received {} request", action);
 
     if action == ACTION_ENUMERATE {
-        handle_enumerate(collector, &db, subscriptions, &request_data)
+        handle_enumerate(collector, &db, subscriptions, &request_data, auth_ctx)
             .await
             .context("Failed to handle Enumerate action")
     } else if action == ACTION_END || action == ACTION_SUBSCRIPTION_END {

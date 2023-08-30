@@ -16,6 +16,7 @@ Subscriptions and their parameters are stored in a [database](doc/database.md) a
 # Documentation
 
 - [Getting started](doc/getting_started.md)
+- [TLS authentication](doc/tls.md)
 - [Command Line Interface](doc/cli.md)
 - [Database](doc/database.md)
 - [Subscription query](doc/query.md)

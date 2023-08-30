@@ -19,6 +19,8 @@ $ strip target/release/openwecd
 
 ## Basic configuration example
 
+This example uses Kerberos authentication. For a basic example using TLS, see [tls.md](tls.md).
+
 In an Active Directory domain `DC=windomain,DC=local`, let's configure OpenWEC on a machine named `wec.windomain.local` using an SQLite database.
 
 Requirements:
@@ -154,6 +156,8 @@ $ openwec subscriptions enable my-test-subscription
 ```
 
 ## Configuring Windows machines
+
+This configuration works for Kerberos authentication. For a configuration using TLS, see [tls.md](tls.md/) first, then follow the following steps by applying local policies instead of GPOs (use `gpedit.msc`).
 
 You can configure Windows machines using a GPO.
 
