@@ -49,5 +49,5 @@ assets = [
     ["../doc/*", "usr/share/doc/openwec/doc/", "644"],
 ]
 conf-files = ["/etc/openwec.conf.toml"]
-maintainer-scripts = "debian/"
+maintainer-scripts = "../build-pkg/debian/"
 systemd-units = { unit-name = "openwecd", enable = false }
