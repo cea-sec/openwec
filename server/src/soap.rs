@@ -551,7 +551,7 @@ impl Message {
                 max_envelope_size: None,
                 message_id: Some(new_uuid()),
                 session_id: None,
-                operation_id: message.header.operation_id.clone(),
+                operation_id: None,
                 sequence_id: Some(1),
                 relates_to: Some(
                     message

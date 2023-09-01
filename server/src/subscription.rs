@@ -99,84 +99,58 @@ pub async fn reload_subscriptions_task(
     mut task_exit_rx: oneshot::Receiver<oneshot::Sender<()>>,
 ) {
     let mut interval = time::interval(Duration::from_secs(interval));
-    let sig_opt = match signal(SignalKind::hangup()) {
-        Ok(sig) => Some(sig),
-        Err(e) => {
-            warn!("Could not listen to SIGHUP: {:?}", e);
-            None
-        }
-    };
+    let mut sighup = signal(SignalKind::hangup()).expect("Could not listen to SIGHUP");
 
-    if let Some(mut sig) = sig_opt {
-        loop {
-            tokio::select! {
-                _ = interval.tick() => {
-                    debug!("Update subscriptions from db (interval tick)");
-                    if let Err(e) = reload_subscriptions(db.clone(), subscriptions.clone()).await {
-                        warn!("Failed to update subscriptions on interval tick: {:?}", e);
-                        continue;
-                    }
-                },
-                _ = sig.recv() => {
-                    debug!("Update subscriptions from db (signal)");
-                    if let Err(e) = reload_subscriptions(db.clone(), subscriptions.clone()).await {
-                        warn!("Failed to update subscriptions on SIGHUP: {:?}", e);
-                        continue;
-                    }
+    loop {
+        tokio::select! {
+            _ = interval.tick() => {
+                debug!("Update subscriptions from db (interval tick)");
+                if let Err(e) = reload_subscriptions(db.clone(), subscriptions.clone(), true).await {
+                    warn!("Failed to update subscriptions on interval tick: {:?}", e);
+                    continue;
                 }
-                sender = &mut task_exit_rx => {
-                    info!("Exit task reload_subscriptions");
-                    match sender {
-                        Ok(sender) => {
-                            if let Err(e) = sender.send(()) {
-                                error!("Failed to respond to kill order: {:?}", e);
-                            }
-                        },
-                        Err(e) => {
-                            error!("Could not respond to kill order: {:?}", e);
-                        }
-                    }
-                    break;
+            },
+            _ = sighup.recv() => {
+                debug!("Update subscriptions from db (signal)");
+                if let Err(e) = reload_subscriptions(db.clone(), subscriptions.clone(), false).await {
+                    warn!("Failed to update subscriptions on SIGHUP: {:?}", e);
+                    continue;
                 }
             }
-        }
-    } else {
-        loop {
-            tokio::select! {
-                _ = interval.tick() => {
-                    debug!("Update subscriptions from db (interval tick)");
-                    if let Err(e) = reload_subscriptions(db.clone(), subscriptions.clone()).await {
-                        warn!("Failed to update subscriptions on interval tick: {:?}", e);
-                        continue;
-                    }
-                },
-                sender = &mut task_exit_rx => {
-                    info!("Exit task reload_subscriptions");
-                    match sender {
-                        Ok(sender) => {
-                            if let Err(e) = sender.send(()) {
-                                error!("Failed to respond to kill order: {:?}", e);
-                            }
-                        },
-                        Err(e) => {
-                            error!("Could not respond to kill order: {:?}", e);
+            sender = &mut task_exit_rx => {
+                info!("Exit task reload_subscriptions");
+                match sender {
+                    Ok(sender) => {
+                        if let Err(e) = sender.send(()) {
+                            error!("Failed to respond to kill order: {:?}", e);
                         }
+                    },
+                    Err(e) => {
+                        error!("Could not respond to kill order: {:?}", e);
                     }
-                    break;
                 }
+                break;
             }
         }
     }
 }
 
-async fn reload_subscriptions(db: Db, mem_subscriptions: Subscriptions) -> Result<()> {
+async fn reload_subscriptions(
+    db: Db,
+    mem_subscriptions: Subscriptions,
+    keep_already_existing: bool,
+) -> Result<()> {
     let db_subscriptions = db.get_subscriptions().await?;
 
     let mut active_subscriptions: HashSet<String> = HashSet::with_capacity(db_subscriptions.len());
 
-    // Take a write lock other subscriptions
-    // This will be release at the end of the function
+    // Take a write lock on subscriptions
+    // It will be released at the end of the function
     let mut mem_subscriptions = mem_subscriptions.write().unwrap();
+
+    if !keep_already_existing {
+        mem_subscriptions.clear();
+    }
 
     for subscription_data in db_subscriptions {
         let version = subscription_data.version();
