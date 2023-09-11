@@ -17,6 +17,7 @@ use log::{debug, error};
 use mime::Mime;
 use std::sync::Arc;
 use std::sync::Mutex;
+use std::env;
 
 use crate::multipart;
 use crate::sldc;
@@ -28,8 +29,8 @@ pub struct State {
 }
 
 impl State {
-    pub fn new(principal: &str) -> Self {
-        let context = setup_server_ctx(principal.as_bytes());
+    pub fn new(collector: &Collector) -> Self {
+        let context = setup_server_ctx(&collector);
 
         match context {
             Ok(ctx) => State { context: Some(ctx) },
@@ -45,13 +46,23 @@ impl State {
     }
 }
 
-fn setup_server_ctx(principal: &[u8]) -> Result<ServerCtx, Error> {
+fn setup_server_ctx(collector: &Collector) -> Result<ServerCtx, Error> {
+    // FIXME
+    let kerberos = match collector.authentication() {
+        common::settings::Authentication::Kerberos(kerberos) => kerberos,
+        _ => panic!("Unsupported authentication type"),
+    };
+
+    env::set_var("KRB5_KTNAME", kerberos.keytab());
+
+    let principal = kerberos.service_principal_name().to_owned();
+
     let desired_mechs = {
         let mut s = OidSet::new()?;
         s.add(&GSS_MECH_KRB5)?;
         s
     };
-    let name = Name::new(principal, Some(&GSS_NT_KRB5_PRINCIPAL))?;
+    let name = Name::new(principal.as_bytes(), Some(&GSS_NT_KRB5_PRINCIPAL))?;
     let cname = name.canonicalize(Some(&GSS_MECH_KRB5))?;
     let server_cred = Cred::acquire(Some(&cname), None, CredUsage::Accept, Some(&desired_mechs))?;
     debug!("Acquired server credentials: {:?}", server_cred.info());

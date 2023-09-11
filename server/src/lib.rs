@@ -29,7 +29,6 @@ use regex::Regex;
 use soap::Serializable;
 use std::collections::HashMap;
 use std::convert::Infallible;
-use std::env;
 use std::io::Cursor;
 use std::net::{IpAddr, SocketAddr};
 use std::str::FromStr;
@@ -450,18 +449,9 @@ pub async fn run(settings: Settings) {
 
         trace!("Listen address is {}", addr);
 
-        // FIXME
-        let kerberos = match collector.authentication() {
-            common::settings::Authentication::Kerberos(kerberos) => kerberos,
-            _ => panic!("Unsupported authentication type"),
-        };
-
-        env::set_var("KRB5_KTNAME", kerberos.keytab());
-
-        let principal = kerberos.service_principal_name().to_owned();
         // Try to initialize a security context. This is to be sure that an error in
         // Kerberos configuration will be reported as soon as possible.
-        let state = kerberos::State::new(&principal);
+        let state = kerberos::State::new(&collector);
         if state.context_is_none() {
             panic!("Could not initialize Kerberos context");
         }
@@ -472,7 +462,7 @@ pub async fn run(settings: Settings) {
             // `make_service`.
 
             // Initialise Kerberos context once for each TCP connection
-            let conn_state = Arc::new(Mutex::new(kerberos::State::new(&principal)));
+            let conn_state = Arc::new(Mutex::new(kerberos::State::new(&collector)));
             let collector_settings = collector_settings.clone();
             let svc_db = collector_db.clone();
             let svc_server_settings = collector_server_settings.clone();
