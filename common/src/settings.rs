@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Error, Result};
 use serde::Deserialize;
 use std::str::FromStr;
 use std::{fs::File, io::Read};
@@ -180,9 +180,70 @@ impl Postgres {
     }
 }
 
+#[derive(Debug, Deserialize, Clone, PartialEq, Eq)]
+pub enum LoggingType {
+    Stdout,
+    Stderr,
+    File(String),
+}
+
+impl FromStr for LoggingType {
+    type Err = Error;
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        let s_lower = s.to_lowercase();
+        if s_lower == "stdout" {
+            Ok(LoggingType::Stdout)
+        } else if s_lower == "stderr" {
+            Ok(LoggingType::Stderr)
+        } else {
+            Ok(LoggingType::File(s.to_owned()))
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct Logging {
+    verbosity: Option<String>,
+    access_logs: Option<String>,
+    access_logs_pattern: Option<String>,
+    server_logs: Option<String>,
+    server_logs_pattern: Option<String>,
+}
+
+impl Logging {
+    pub fn verbosity(&self) -> Option<&String> {
+        self.verbosity.as_ref()
+    }
+
+    pub fn access_logs(&self) -> Option<LoggingType> {
+        // Access logs defaults to None (don't log access)
+        self.access_logs
+            .as_ref()
+            .map(|s| LoggingType::from_str(s).expect("Can not happen"))
+    }
+
+    pub fn server_logs(&self) -> LoggingType {
+        match &self.server_logs {
+            Some(s) => LoggingType::from_str(s).expect("Can not happen"),
+            None => LoggingType::Stderr,
+        }
+    }
+
+    pub fn access_logs_pattern(&self) -> String {
+        match &self.access_logs_pattern {
+            Some(s) => s.to_owned(),
+            None => "{X(ip)}:{X(port)} - {X(principal)} [{d}] \"{X(http_uri)}\" {X(http_status)} {X(response_time)}{n}".to_owned()
+        }
+    }
+
+    pub fn server_logs_pattern(&self) -> Option<&String> {
+        self.server_logs_pattern.as_ref()
+    }
+}
+
 #[derive(Debug, Deserialize, Clone)]
 pub struct Server {
-    verbosity: Option<String>,
     db_sync_interval: Option<u64>,
     flush_heartbeats_interval: Option<u64>,
     heartbeats_queue_size: Option<u64>,
@@ -191,10 +252,6 @@ pub struct Server {
 }
 
 impl Server {
-    pub fn verbosity(&self) -> Option<&String> {
-        self.verbosity.as_ref()
-    }
-
     pub fn db_sync_interval(&self) -> u64 {
         self.db_sync_interval.unwrap_or(5)
     }
@@ -221,6 +278,7 @@ pub struct Settings {
     collectors: Vec<Collector>,
     database: Database,
     server: Server,
+    logging: Logging,
 }
 
 impl std::str::FromStr for Settings {
@@ -250,6 +308,10 @@ impl Settings {
     pub fn server(&self) -> &Server {
         &self.server
     }
+
+    pub fn logging(&self) -> &Logging {
+        &self.logging
+    }
 }
 
 #[cfg(test)]
@@ -258,8 +320,11 @@ mod tests {
 
     const CONFIG_KERBEROS_SQLITE: &str = r#"
         [server]
-        verbosity = "debug"
         keytab = "wec.windomain.local.keytab"
+
+        [logging]
+        verbosity = "debug"
+        server_logs = "stdout"
 
         [database]
         type =  "SQLite"
@@ -302,11 +367,19 @@ mod tests {
         };
 
         assert_eq!(sqlite.path(), "/tmp/toto.sqlite");
-        assert_eq!(s.server().verbosity().unwrap(), "debug");
+
+        assert_eq!(s.logging().verbosity().unwrap(), "debug");
+        assert!(s.logging().access_logs().is_none());
+        assert_eq!(s.logging().server_logs(), LoggingType::Stdout);
     }
 
     const CONFIG_TLS_POSTGRES: &str = r#"
         [server]
+
+        [logging]
+        access_logs = "/tmp/toto"
+        server_logs_pattern = "toto"
+        access_logs_pattern = "tutu"
 
         [database]
         type =  "Postgres"
@@ -356,6 +429,14 @@ mod tests {
         assert_eq!(postgres.dbname(), "test");
         assert_eq!(postgres.user(), "root");
         assert_eq!(postgres.password(), "");
-        assert!(s.server().verbosity().is_none());
+
+        assert!(s.logging().verbosity().is_none());
+        assert_eq!(
+            s.logging().access_logs(),
+            Some(LoggingType::File("/tmp/toto".to_string()))
+        );
+        assert_eq!(s.logging().server_logs(), LoggingType::Stderr,);
+        assert_eq!(s.logging().server_logs_pattern().unwrap(), "toto");
+        assert_eq!(s.logging().access_logs_pattern(), "tutu");
     }
 }

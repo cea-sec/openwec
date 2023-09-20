@@ -116,7 +116,7 @@ pub async fn reload_subscriptions_task(
                 }
             },
             _ = sighup.recv() => {
-                debug!("Update subscriptions from db (signal)");
+                info!("Update subscriptions from db (signal)");
                 if let Err(e) = reload_subscriptions(db.clone(), subscriptions.clone(), false).await {
                     warn!("Failed to update subscriptions on SIGHUP: {:?}", e);
                     continue;
@@ -200,10 +200,7 @@ async fn reload_subscriptions(
                     info!("Subscription {} has been updated", subscription_data.uuid());
                     mem_subscriptions.remove(old_subscription.version());
                 } else {
-                    info!(
-                        "New subscription {} has been created",
-                        subscription_data.uuid()
-                    );
+                    info!("Subscription {} has been created", subscription_data.uuid());
                 }
 
                 // Initialize the new subscription and add it to in-memory subscriptions
@@ -237,7 +234,7 @@ async fn reload_subscriptions(
     if mem_subscriptions.is_empty() {
         warn!("There are no active subscriptions!");
     } else {
-        info!(
+        debug!(
             "Active subscriptions are: {}",
             mem_subscriptions
                 .iter()
