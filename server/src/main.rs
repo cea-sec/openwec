@@ -1,5 +1,6 @@
 use clap::{arg, command};
 use common::settings::{Settings, DEFAULT_CONFIG_FILE};
+
 use server::run;
 use std::env;
 
@@ -24,27 +25,7 @@ async fn main() {
         }
     };
 
-    if env::var("OPENWEC_LOG").is_err() {
-        if matches.get_count("verbosity") > 0 {
-            env::set_var(
-                "OPENWEC_LOG",
-                match matches.get_count("verbosity") {
-                    1 => "info",
-                    2 => "debug",
-                    _ => "trace",
-                },
-            );
-        } else if let Some(verbosity) = settings.server().verbosity() {
-            env::set_var("OPENWEC_LOG", verbosity);
-        } else {
-            env::set_var("OPENWEC_LOG", "warn");
-        }
-    }
+    let verbosity = matches.get_count("verbosity");
 
-    env_logger::Builder::from_env("OPENWEC_LOG")
-        .format_module_path(false)
-        .format_timestamp(None)
-        .init();
-
-    run(settings).await;
+    run(settings, verbosity).await;
 }

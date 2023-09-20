@@ -3,12 +3,6 @@
 #######################
 
 [server]
-# [Optional]
-# Set server logging verbosity
-# This parameter is overwritten by --verbosity argument and
-# the OPENWEC_LOG environment variable.
-# Default value is warn
-# verbosity = "warn"
 
 # [Optional]
 # Set subscriptions refresh interval
@@ -51,6 +45,56 @@
 # It must contain entries for service principals used by collectors.
 # It can contain other entries that aren't used by openwec.
 # keytab = "/etc/krb5.keytab"
+
+##########################
+##   Logging settings   ##
+##########################
+
+[logging]
+
+# [Optional]
+# Set server logging verbosity
+# This parameter is overwritten by --verbosity argument.
+# Default value is warn 
+# Possible values are: error, warn, info, debug, trace
+# verbosity = "warn"
+
+# [Optional]
+# Server logs destination, can be :
+# - stdin
+# - stderr
+# - <path>: logs will be stored in the given file
+# Default value is stderr
+# server_logs = stderr
+
+# [Optional]
+# Server log formatting pattern
+# Pattern syntax is explained here: https://docs.rs/log4rs/latest/log4rs/encode/pattern 
+# Default value is None, meaning "{d} {l} {t} - {m}{n}"
+# server_logs_pattern = None
+
+# [Optional]
+# Access logs destination, can be :
+# - stdin
+# - stderr
+# - <path>: logs will be stored in the given file
+# - None: disable access logs
+# Default value is None
+# access_logs = None
+
+# [Optional]
+# Access log formatting pattern
+# Pattern syntax is explained here: https://docs.rs/log4rs/latest/log4rs/encode/pattern 
+# Contextual information can be accessed using {X(<value>)}. Available values are:
+# - http_status
+# - http_method
+# - http_uri
+# - response_time (in ms)
+# - ip
+# - port
+# - principal
+# Default value is None, meaning "{X(ip)}:{X(port)} - {X(principal)} [{d}] \"{X(http_uri)}\" {X(http_status)} {X(response_time)}{n}"
+# access_logs_pattern = None
 
 ##########################
 ##  Databases settings  ##

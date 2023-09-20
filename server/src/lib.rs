@@ -2,6 +2,7 @@ mod event;
 mod formatter;
 mod heartbeat;
 mod kerberos;
+mod logging;
 mod logic;
 mod multipart;
 mod output;
@@ -53,6 +54,7 @@ use tokio::sync::{mpsc, oneshot};
 use tokio_rustls::server::TlsStream;
 use tokio_rustls::TlsAcceptor;
 
+use crate::logging::ACCESS_LOGGER;
 use crate::tls::{make_config, subject_from_cert};
 
 pub enum RequestCategory {
@@ -293,17 +295,28 @@ async fn handle_payload(
     }
 }
 
-fn log_response(addr: &SocketAddr, method: &str, uri: &str, start: &Instant, status: StatusCode) {
+fn log_response(
+    addr: &SocketAddr,
+    method: &str,
+    uri: &str,
+    start: &Instant,
+    status: StatusCode,
+    principal: &str,
+) {
     let duration: f32 = start.elapsed().as_micros() as f32;
-    info!(
-        "Responded status {} to {}:{} (request was {}:{}) in {:.3}ms",
-        status,
-        addr.ip(),
-        addr.port(),
-        method,
-        uri,
-        duration / 1000.0
-    );
+    // MDC is thread related, so it should be safe to use it in a non-async
+    // function.
+    log_mdc::insert("http_status", status.as_str());
+    log_mdc::insert("http_method", method);
+    log_mdc::insert("http_uri", uri);
+    log_mdc::insert("response_time", format!("{:.3}", duration / 1000.0));
+    log_mdc::insert("ip", addr.ip().to_string());
+    log_mdc::insert("port", addr.port().to_string());
+    log_mdc::insert("principal", principal);
+
+    // Empty message, logging pattern should use MDC
+    info!(target: ACCESS_LOGGER, "");
+    log_mdc::clear();
 }
 
 async fn handle(
@@ -342,7 +355,7 @@ async fn handle(
                 e
             );
             let status = StatusCode::UNAUTHORIZED;
-            log_response(&addr, &method, &uri, &start, status);
+            log_response(&addr, &method, &uri, &start, status, "-");
             return Ok(Response::builder()
                 .status(status)
                 .body(Body::empty())
@@ -357,7 +370,7 @@ async fn handle(
         Err(e) => {
             error!("Failed to compute request data: {:?}", e);
             let status = StatusCode::NOT_FOUND;
-            log_response(&addr, &method, &uri, &start, status);
+            log_response(&addr, &method, &uri, &start, status, &principal);
             return Ok(Response::builder()
                 .status(status)
                 .body(Body::empty())
@@ -371,7 +384,7 @@ async fn handle(
         Err(e) => {
             error!("Failed to retrieve request payload: {:?}", e);
             let status = StatusCode::BAD_REQUEST;
-            log_response(&addr, &method, &uri, &start, status);
+            log_response(&addr, &method, &uri, &start, status, &principal);
             return Ok(Response::builder()
                 .status(status)
                 .body(Body::empty())
@@ -401,7 +414,7 @@ async fn handle(
         Err(e) => {
             error!("Failed to compute a response payload to request: {:?}", e);
             let status = StatusCode::INTERNAL_SERVER_ERROR;
-            log_response(&addr, &method, &uri, &start, status);
+            log_response(&addr, &method, &uri, &start, status, &principal);
             return Ok(Response::builder()
                 .status(status)
                 .body(Body::empty())
@@ -422,7 +435,7 @@ async fn handle(
         Err(e) => {
             error!("Failed to build HTTP response: {:?}", e);
             let status = StatusCode::INTERNAL_SERVER_ERROR;
-            log_response(&addr, &method, &uri, &start, status);
+            log_response(&addr, &method, &uri, &start, status, &principal);
             return Ok(Response::builder()
                 .status(status)
                 .body(Body::empty())
@@ -430,7 +443,7 @@ async fn handle(
         }
     };
 
-    log_response(&addr, &method, &uri, &start, response.status());
+    log_response(&addr, &method, &uri, &start, response.status(), &principal);
     Ok(response)
 }
 
@@ -593,7 +606,12 @@ async fn shutdown_signal() {
     };
 }
 
-pub async fn run(settings: Settings) {
+pub async fn run(settings: Settings, verbosity: u8) {
+    // Initialize loggers
+    if let Err(e) = logging::init(&settings, verbosity) {
+        panic!("Failed to setup logging: {:?}", e);
+    }
+
     // XXX : because the 2 closures have different types we use this, but may be better way to do this
     let mut servers: Vec<Pin<Box<dyn Future<Output = hyper::Result<()>> + Send>>> = Vec::new();
 
