@@ -45,6 +45,13 @@
 # This may be used by outputs. Unset by default.
 # node_name = unsef
 
+# [Optional]
+# Keytab file path that contains secrets for Kerberos SPNs used by collectors.
+# Required if Kerberos authentication is used by at least one collector.
+# It must contain entries for service principals used by collectors.
+# It can contain other entries that aren't used by openwec.
+# keytab = "/etc/krb5.keytab"
+
 ##########################
 ##  Databases settings  ##
 ##########################
@@ -148,16 +155,12 @@
 
 ## Kerberos configuration
 
+# [server.keytab] is required when using Kerberos authentication
+
 # [Required]
 # Service Principal Name of the openwec account
 # Should be something like "HTTP/openwec.mydomain.local@MYDOMAIN.LOCAL"
 # service_principal_name = ""
-
-# [Required]
-# Keytab file that contains secrets of the openwec account.
-# It must contain an entry for the principal <kerberos.service_principal_name>.
-# It may contains other entries, which won't be used by openwec.
-# keytab = "/etc/krb5.keytab"
 
 ## End of Kerberos configuration
 

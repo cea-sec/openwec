@@ -73,16 +73,17 @@ impl Collector {
 #[derive(Debug, Deserialize, Clone)]
 pub struct Kerberos {
     service_principal_name: String,
-    keytab: String,
 }
 
 impl Kerberos {
-    pub fn service_principal_name(&self) -> &str {
-        &self.service_principal_name
+    pub fn empty() -> Self {
+        Kerberos {
+            service_principal_name: String::new(),
+        }
     }
 
-    pub fn keytab(&self) -> &str {
-        &self.keytab
+    pub fn service_principal_name(&self) -> &str {
+        &self.service_principal_name
     }
 }
 
@@ -186,6 +187,7 @@ pub struct Server {
     flush_heartbeats_interval: Option<u64>,
     heartbeats_queue_size: Option<u64>,
     node_name: Option<String>,
+    keytab: Option<String>,
 }
 
 impl Server {
@@ -207,6 +209,10 @@ impl Server {
 
     pub fn heartbeats_queue_size(&self) -> u64 {
         self.heartbeats_queue_size.unwrap_or(2048)
+    }
+
+    pub fn keytab(&self) -> Option<&String> {
+        self.keytab.as_ref()
     }
 }
 
@@ -253,6 +259,7 @@ mod tests {
     const CONFIG_KERBEROS_SQLITE: &str = r#"
         [server]
         verbosity = "debug"
+        keytab = "wec.windomain.local.keytab"
 
         [database]
         type =  "SQLite"
@@ -267,7 +274,6 @@ mod tests {
         [collectors.authentication]
         type = "Kerberos"
         service_principal_name = "http/wec.windomain.local@WINDOMAIN.LOCAL"
-        keytab = "wec.windomain.local.keytab"
     "#;
 
     #[test]
@@ -284,7 +290,7 @@ mod tests {
             Authentication::Kerberos(kerb) => kerb,
             _ => panic!("Wrong authentication type"),
         };
-        assert_eq!(kerberos.keytab(), "wec.windomain.local.keytab");
+        assert_eq!(s.server().keytab().unwrap(), "wec.windomain.local.keytab");
         assert_eq!(
             kerberos.service_principal_name(),
             "http/wec.windomain.local@WINDOMAIN.LOCAL"
