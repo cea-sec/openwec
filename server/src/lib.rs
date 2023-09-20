@@ -38,7 +38,6 @@ use soap::Serializable;
 use std::boxed::Box;
 use std::collections::HashMap;
 use std::convert::Infallible;
-use std::env;
 use std::future::ready;
 use std::io::Cursor;
 use std::net::{IpAddr, SocketAddr};
@@ -46,6 +45,7 @@ use std::str::FromStr;
 use std::sync::Mutex;
 use std::sync::{Arc, RwLock};
 use std::time::Instant;
+use std::{env, mem};
 use subscription::{reload_subscriptions_task, Subscriptions};
 use tls_listener::TlsListener;
 use tokio::signal::unix::SignalKind;
@@ -443,8 +443,6 @@ fn create_kerberos_server(
     collector_server_settings: ServerSettings,
     addr: SocketAddr,
 ) -> Pin<Box<dyn Future<Output = hyper::Result<()>> + Send>> {
-    env::set_var("KRB5_KTNAME", kerberos_settings.keytab());
-
     let principal = kerberos_settings.service_principal_name().to_owned();
     // Try to initialize a security context. This is to be sure that an error in
     // Kerberos configuration will be reported as soon as possible.
@@ -644,6 +642,21 @@ pub async fn run(settings: Settings) {
     tokio::spawn(async move {
         heartbeat_task(update_task_db, interval, heartbeat_rx, heartbeat_exit_rx).await
     });
+
+    // Set KRB5_KTNAME env variable if necessary (i.e. if at least one collector uses
+    // Kerberos authentication)
+    if settings.collectors().iter().any(|x| {
+        mem::discriminant(x.authentication())
+            == mem::discriminant(&Authentication::Kerberos(Kerberos::empty()))
+    }) {
+        env::set_var(
+            "KRB5_KTNAME",
+            settings
+                .server()
+                .keytab()
+                .expect("Kerberos authentication requires the server.keytab setting to be set"),
+        );
+    }
 
     for collector in settings.collectors() {
         let collector_db = db.clone();

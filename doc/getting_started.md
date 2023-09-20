@@ -34,9 +34,7 @@ Write the following content in `/etc/openwec.conf.toml`:
 ```toml
 # /etc/openwec.conf.toml
 [server]
-verbosity = "info"
-db_sync_interval = 5
-flush_heartbeats_interval = 5
+keytab = "/etc/wec.windomain.local.keytab"
 
 [database]
 type = "SQLite"
@@ -50,7 +48,6 @@ listen_address = "0.0.0.0"
 [collectors.authentication]
 type = "Kerberos"
 service_principal_name = "http/wec.windomain.local@WINDOMAIN.LOCAL"
-keytab = "/etc/wec.windomain.local.keytab"
 ```
 
 See [openwec.conf.sample.toml](../openwec.conf.sample.toml) for further information on available parameters.

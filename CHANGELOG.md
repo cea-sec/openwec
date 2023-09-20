@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Remove `OperationID` from responses because we don't support "Robust Connection" (#37)
 - Clear in-memory subscriptions when a SIGHUP signal is received, resulting in all file descriptors used by subscriptions being closed (#37)
 - `heartbeats_queue_size` now defaults to 2048 instead of 32 (#37)
+- **Breaking change**: Keytab file path must be specified only once for all collectors (using Kerberos authentication)
 
 ## [0.1.0] - 2023-05-30
 
