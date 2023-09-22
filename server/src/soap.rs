@@ -25,6 +25,7 @@ pub const ANONYMOUS: &str = "http://schemas.xmlsoap.org/ws/2004/08/addressing/ro
 pub const RESOURCE_EVENT_LOG: &str = "http://schemas.microsoft.com/wbem/wsman/1/windows/EventLog";
 pub const SPNEGO_KERBEROS: &str =
     "http://schemas.dmtf.org/wbem/wsman/1/wsman/secprofile/http/spnego-kerberos";
+pub const HTTPS_MUTUAL: &str = "http://schemas.dmtf.org/wbem/wsman/1/wsman/secprofile/https/mutual";
 pub const EVENT_QUERY: &str = "http://schemas.microsoft.com/win/2004/08/events/eventquery";
 
 pub const ACTION_EVENTS: &str = "http://schemas.dmtf.org/wbem/wsman/1/wsman/Events";
@@ -91,6 +92,7 @@ pub struct SubscriptionBody {
     pub connection_retry_count: u16,
     pub max_time: u32,
     pub max_envelope_size: u32,
+    pub thumbprint: Option<String>,
 }
 
 impl Serializable for SubscriptionBody {
@@ -151,17 +153,56 @@ impl Serializable for SubscriptionBody {
                                                     .write_inner_content(|writer| {
                                                         writer
                                                             .create_element("c:All")
+                                                            // if thumbprint is defined, then we are using Tls
                                                             .write_inner_content(|writer| {
-                                                                writer
-                                                                    .create_element(
-                                                                        "auth:Authentication",
-                                                                    )
-                                                                    .with_attribute((
-                                                                        "Profile",
-                                                                        SPNEGO_KERBEROS,
-                                                                    ))
-                                                                    .write_empty()?;
-                                                                Ok(())
+                                                                if let Some(tmb) = &self.thumbprint {
+                                                                    // ---- BEGIN TLS ---- //
+                                                                    writer
+                                                                        .create_element(
+                                                                            "auth:Authentication",
+                                                                        )
+                                                                        .with_attribute((
+                                                                            "Profile",
+                                                                            HTTPS_MUTUAL,
+                                                                        ))
+                                                                        .write_inner_content(|writer| {
+                                                                            writer
+                                                                            .create_element(
+                                                                                "auth:ClientCertificate",
+                                                                            )
+                                                                            .write_inner_content(|writer| {
+                                                                                writer
+                                                                                .create_element(
+                                                                                    "auth:Thumbprint",
+                                                                                )
+                                                                                .with_attribute((
+                                                                                    "Role",
+                                                                                    "issuer",
+                                                                                ))
+                                                                                .write_text_content(BytesText::new(
+                                                                                    tmb,
+                                                                                ))?;
+                                                                                Ok(())
+                                                                            })?;
+                                                                            Ok(())
+                                                                        })?;
+                                                                    Ok(())
+                                                                    // ----- END TLS ----- //
+                                                                }
+                                                                else {
+                                                                    // ---- BEGIN KRB ---- //
+                                                                    writer
+                                                                        .create_element(
+                                                                            "auth:Authentication",
+                                                                        )
+                                                                        .with_attribute((
+                                                                            "Profile",
+                                                                            SPNEGO_KERBEROS,
+                                                                        ))
+                                                                        .write_empty()?;
+                                                                    Ok(())
+                                                                    // ----- END KRB ----- //
+                                                                }
                                                             })?;
                                                         Ok(())
                                                     })?;

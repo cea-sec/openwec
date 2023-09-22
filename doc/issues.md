@@ -57,9 +57,3 @@ To support this, we would need to enable users to configure a list of Kerberos p
 The Microsoft implementation allows subscriptions to be set for a group of machines. The only "clean" way to do this is to parse the PAC contained in the machine's Kerberos service ticket, but this does not appear to be supported by GSSAPI. Alternatively, OpenWEC implements filters using the Kerberos principal names of machines, allowing you to allow or deny a set of principals to "see"/"use" a subscription.
 
 In any case, it won't work with an intermediate forwarder.
-
-## TLS support
-
-Windows clients support TLS for authentication and encryption. This is not currently supported by OpenWEC, but it should. For now OpenWEC only supports authentication and encryption with Kerberos. There are two possibilities in order to add the TLS support:
-- implement TLS support within OpenWEC web server (powered by `hyper`).
-- use a reverse proxy which handles TLS and then send cleartext messages to OpenWEC service.

@@ -85,7 +85,7 @@ impl Event {
         let mut event = Event::default();
         event.additional = Additional {
             addr: metadata.addr().ip().to_string(),
-            principal: metadata.principal().to_owned(),
+            principal: metadata.principal().to_owned(), // TODO : change to something that works for TLS as well (modify db and output)
             node: metadata.node_name().cloned(),
             time_received: metadata.time_received().to_rfc3339(),
             subscription: SubscriptionType {
@@ -465,6 +465,7 @@ impl RenderingInfo {
 
 #[derive(Debug, Clone)]
 pub struct EventMetadata {
+    // TODO : add authentication method (TLS or Kerberos)
     addr: SocketAddr,
     principal: String,
     node_name: Option<String>,

@@ -9,15 +9,23 @@ mod outputs;
 mod sldc;
 mod soap;
 mod subscription;
+mod tls;
 
 use anyhow::{anyhow, bail, Context, Result};
 use common::database::{db_from_settings, schema_is_up_to_date, Db};
+use common::encoding::decode_utf16le;
+use common::settings::{Authentication, Kerberos, Tls};
 use common::settings::{Collector, Server as ServerSettings, Settings};
-use futures_util::future::join_all;
+use core::pin::Pin;
+use futures::Future;
+use futures_util::{future::join_all, StreamExt};
 use heartbeat::{heartbeat_task, WriteHeartbeatMessage};
 use http::response::Builder;
 use http::status::StatusCode;
+use hyper::body::{to_bytes, HttpBody};
 use hyper::header::{CONTENT_TYPE, WWW_AUTHENTICATE};
+use hyper::server::accept;
+use hyper::server::conn::AddrIncoming;
 use hyper::server::conn::AddrStream;
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Request, Response, Server};
@@ -27,9 +35,11 @@ use log::{debug, error, info, trace, warn};
 use quick_xml::writer::Writer;
 use regex::Regex;
 use soap::Serializable;
+use std::boxed::Box;
 use std::collections::HashMap;
 use std::convert::Infallible;
 use std::env;
+use std::future::ready;
 use std::io::Cursor;
 use std::net::{IpAddr, SocketAddr};
 use std::str::FromStr;
@@ -37,14 +47,13 @@ use std::sync::Mutex;
 use std::sync::{Arc, RwLock};
 use std::time::Instant;
 use subscription::{reload_subscriptions_task, Subscriptions};
+use tls_listener::TlsListener;
 use tokio::signal::unix::SignalKind;
 use tokio::sync::{mpsc, oneshot};
+use tokio_rustls::server::TlsStream;
+use tokio_rustls::TlsAcceptor;
 
-#[derive(Copy, Clone)]
-pub enum AuthenticationMechanism {
-    Kerberos,
-    Tls,
-}
+use crate::tls::{make_config, subject_from_cert};
 
 pub enum RequestCategory {
     Enumerate(String),
@@ -110,29 +119,77 @@ pub struct AuthenticationResult {
     token: Option<String>,
 }
 
+#[derive(Debug, Clone)]
+/// Kerberos : state
+/// Tls : subject, thumbprint
+pub enum AuthenticationContext {
+    Kerberos(Arc<Mutex<kerberos::State>>),
+    Tls(String, String),
+}
+
 async fn get_request_payload(
-    auth_mech: AuthenticationMechanism,
     collector: &Collector,
-    conn_state: &Arc<Mutex<kerberos::State>>,
+    auth_ctx: &AuthenticationContext,
     req: Request<Body>,
 ) -> Result<Option<String>> {
-    match auth_mech {
-        AuthenticationMechanism::Tls => bail!("TLS is not supported yet"),
-        AuthenticationMechanism::Kerberos => {
-            kerberos::get_request_payload(collector, conn_state, req).await
+    let (parts, body) = req.into_parts();
+
+    let response_content_length = body
+        .size_hint()
+        .upper()
+        .ok_or_else(|| anyhow!("Header Content-Length is not present"))
+        .context("Could not check Content-Length header of request")?;
+
+    let max_content_length = collector.max_content_length();
+
+    if response_content_length > max_content_length {
+        bail!(
+            "HTTP request body is too large ({} bytes larger than the maximum allowed {} bytes).",
+            response_content_length,
+            max_content_length
+        );
+    }
+
+    let data = to_bytes(body)
+        .await
+        .context("Could not retrieve request body")?;
+
+    if data.is_empty() {
+        return Ok(None);
+    }
+
+    let message = match auth_ctx {
+        AuthenticationContext::Tls(_, _) => tls::get_request_payload(parts, data).await?,
+        AuthenticationContext::Kerberos(conn_state) => {
+            kerberos::get_request_payload(conn_state, parts, data).await?
         }
+    };
+
+    match message {
+        Some(bytes) => Ok(Some(decode_utf16le(bytes)?)),
+        _ => Ok(None),
     }
 }
 
 fn create_response(
-    auth_mech: AuthenticationMechanism,
-    conn_state: &Arc<Mutex<kerberos::State>>,
+    auth_ctx: &AuthenticationContext,
     mut response: Builder,
     payload: Option<String>,
 ) -> Result<Response<Body>> {
-    match auth_mech {
-        AuthenticationMechanism::Tls => bail!("TLS is not supported yet"),
-        AuthenticationMechanism::Kerberos => {
+    match auth_ctx {
+        AuthenticationContext::Tls(_, _) => {
+            if payload.is_some() {
+                response = response.header(CONTENT_TYPE, "application/soap+xml;charset=UTF-16");
+            }
+            let body = match payload {
+                None => Body::empty(),
+                Some(payload) => Body::from(
+                    tls::get_response_payload(payload).context("Failed to compute TLS payload")?,
+                ),
+            };
+            Ok(response.body(body)?)
+        }
+        AuthenticationContext::Kerberos(conn_state) => {
             let boundary = "Encrypted Boundary";
             if payload.is_some() {
                 response = response.header(CONTENT_TYPE, "multipart/encrypted;protocol=\"application/HTTP-Kerberos-session-encrypted\";boundary=\"".to_owned() + boundary + "\"");
@@ -150,17 +207,21 @@ fn create_response(
 }
 
 async fn authenticate(
-    auth_mech: AuthenticationMechanism,
-    conn_state: &Arc<Mutex<kerberos::State>>,
+    auth_ctx: &AuthenticationContext,
     req: &Request<Body>,
     addr: &SocketAddr,
 ) -> Result<(String, Builder)> {
-    match auth_mech {
-        AuthenticationMechanism::Tls => {
-            error!("TLS is not supported yet");
-            bail!("TLS is not supported yet")
+    match auth_ctx {
+        AuthenticationContext::Tls(subject, _) => {
+            // if subject is empty, show unauthorized error
+            if subject.is_empty() {
+                bail!("Empty certificate")
+            }
+
+            let response = Response::builder();
+            Ok((subject.to_owned(), response))
         }
-        AuthenticationMechanism::Kerberos => {
+        AuthenticationContext::Kerberos(conn_state) => {
             let mut response = Response::builder();
             let auth_result = kerberos::authenticate(conn_state, req)
                 .await
@@ -194,6 +255,7 @@ async fn handle_payload(
     heartbeat_tx: mpsc::Sender<WriteHeartbeatMessage>,
     request_data: RequestData,
     request_payload: Option<String>,
+    auth_ctx: &AuthenticationContext,
 ) -> Result<(StatusCode, Option<String>)> {
     match request_payload {
         None => Ok((StatusCode::OK, None)),
@@ -208,6 +270,7 @@ async fn handle_payload(
                 heartbeat_tx,
                 request_data,
                 &message,
+                auth_ctx,
             )
             .await
             .context("Failed to handle SOAP message")?;
@@ -249,8 +312,7 @@ async fn handle(
     db: Db,
     subscriptions: Subscriptions,
     heartbeat_tx: mpsc::Sender<WriteHeartbeatMessage>,
-    auth_mech: AuthenticationMechanism,
-    conn_state: Arc<Mutex<kerberos::State>>,
+    auth_ctx: AuthenticationContext,
     addr: SocketAddr,
     req: Request<Body>,
 ) -> Result<Response<Body>, Infallible> {
@@ -268,26 +330,25 @@ async fn handle(
     let uri = req.uri().to_string();
 
     // Check authentication
-    let (principal, mut response_builder) =
-        match authenticate(auth_mech, &conn_state, &req, &addr).await {
-            Ok((principal, builder)) => (principal, builder),
-            Err(e) => {
-                debug!(
-                    "Authentication failed for {}:{} ({}:{}): {:?}",
-                    addr.ip(),
-                    addr.port(),
-                    &method,
-                    &uri,
-                    e
-                );
-                let status = StatusCode::UNAUTHORIZED;
-                log_response(&addr, &method, &uri, &start, status);
-                return Ok(Response::builder()
-                    .status(status)
-                    .body(Body::empty())
-                    .expect("Failed to build HTTP response"));
-            }
-        };
+    let (principal, mut response_builder) = match authenticate(&auth_ctx, &req, &addr).await {
+        Ok((principal, builder)) => (principal, builder),
+        Err(e) => {
+            debug!(
+                "Authentication failed for {}:{} ({}:{}): {:?}",
+                addr.ip(),
+                addr.port(),
+                &method,
+                &uri,
+                e
+            );
+            let status = StatusCode::UNAUTHORIZED;
+            log_response(&addr, &method, &uri, &start, status);
+            return Ok(Response::builder()
+                .status(status)
+                .body(Body::empty())
+                .expect("Failed to build HTTP response"));
+        }
+    };
 
     debug!("Successfully authenticated {}", principal);
 
@@ -305,7 +366,7 @@ async fn handle(
     };
 
     // Get request payload
-    let request_payload = match get_request_payload(auth_mech, &collector, &conn_state, req).await {
+    let request_payload = match get_request_payload(&collector, &auth_ctx, req).await {
         Ok(payload) => payload,
         Err(e) => {
             error!("Failed to retrieve request payload: {:?}", e);
@@ -332,6 +393,7 @@ async fn handle(
         heartbeat_tx,
         request_data,
         request_payload,
+        &auth_ctx,
     )
     .await
     {
@@ -355,8 +417,7 @@ async fn handle(
 
     response_builder = response_builder.status(status);
     // Create HTTP response
-    let response = match create_response(auth_mech, &conn_state, response_builder, response_payload)
-    {
+    let response = match create_response(&auth_ctx, response_builder, response_payload) {
         Ok(response) => response,
         Err(e) => {
             error!("Failed to build HTTP response: {:?}", e);
@@ -370,8 +431,157 @@ async fn handle(
     };
 
     log_response(&addr, &method, &uri, &start, response.status());
-    // debug!("Send response: {:?}", response);
     Ok(response)
+}
+
+fn create_kerberos_server(
+    kerberos_settings: &Kerberos,
+    collector_settings: Collector,
+    collector_db: Db,
+    collector_subscriptions: Subscriptions,
+    collector_heartbeat_tx: mpsc::Sender<WriteHeartbeatMessage>,
+    collector_server_settings: ServerSettings,
+    addr: SocketAddr,
+) -> Pin<Box<dyn Future<Output = hyper::Result<()>> + Send>> {
+    env::set_var("KRB5_KTNAME", kerberos_settings.keytab());
+
+    let principal = kerberos_settings.service_principal_name().to_owned();
+    // Try to initialize a security context. This is to be sure that an error in
+    // Kerberos configuration will be reported as soon as possible.
+    let state = kerberos::State::new(&principal);
+    if state.context_is_none() {
+        panic!("Could not initialize Kerberos context");
+    }
+
+    // A `MakeService` that produces a `Service` to handle each connection.
+    let make_service = make_service_fn(move |conn: &AddrStream| {
+        // We have to clone the context to share it with each invocation of
+        // `make_service`.
+
+        // Initialize Kerberos context once for each TCP connection
+        let collector_settings = collector_settings.clone();
+        let svc_db = collector_db.clone();
+        let svc_server_settings = collector_server_settings.clone();
+        let auth_ctx =
+            AuthenticationContext::Kerberos(Arc::new(Mutex::new(kerberos::State::new(&principal))));
+        let subscriptions = collector_subscriptions.clone();
+        let collector_heartbeat_tx = collector_heartbeat_tx.clone();
+
+        let addr = conn.remote_addr();
+
+        debug!("Received TCP connection from {}", addr);
+
+        // Create a `Service` for responding to the request.
+        let service = service_fn(move |req| {
+            handle(
+                svc_server_settings.clone(),
+                collector_settings.clone(),
+                svc_db.clone(),
+                subscriptions.clone(),
+                collector_heartbeat_tx.clone(),
+                auth_ctx.clone(),
+                addr,
+                req,
+            )
+        });
+
+        // Return the service to hyper.
+        async move { Ok::<_, Infallible>(service) }
+    });
+
+    // Then bind and serve...
+    let server = Server::bind(&addr)
+        .serve(make_service)
+        .with_graceful_shutdown(shutdown_signal());
+
+    info!("Server listenning on {}", addr);
+    // XXX : because the 2 closures have different types we use this, but may be better way to do this
+    Box::pin(server)
+}
+
+fn create_tls_server(
+    tls_settings: &Tls,
+    collector_settings: Collector,
+    collector_db: Db,
+    collector_subscriptions: Subscriptions,
+    collector_heartbeat_tx: mpsc::Sender<WriteHeartbeatMessage>,
+    collector_server_settings: ServerSettings,
+    addr: SocketAddr,
+) -> Pin<Box<dyn Future<Output = hyper::Result<()>> + Send>> {
+    // make TLS connection config
+    let tls_config = make_config(tls_settings).expect("Error while configuring server");
+
+    // create the service per connection
+    let make_service = make_service_fn(move |conn: &TlsStream<AddrStream>| {
+        // get peer certificate (= user certificate)
+        let cert = conn
+            .get_ref()
+            .1
+            .peer_certificates()
+            .expect("Peer certificate should exist") // client auth has to happen, so this should not fail
+            .first()
+            .expect("Peer certificate should not be empty") // client cert cannot be empty if authentication succeeded
+            .clone();
+
+        let subject = subject_from_cert(cert.as_ref()).expect("Could not parse client certificate");
+        let thumbprint = tls_config.thumbprint.clone();
+
+        let collector_settings = collector_settings.clone();
+        let svc_db = collector_db.clone();
+        let svc_server_settings = collector_server_settings.clone();
+        let subscriptions = collector_subscriptions.clone();
+        let collector_heartbeat_tx = collector_heartbeat_tx.clone();
+
+        let addr = conn.get_ref().0.remote_addr();
+        let auth_ctx = AuthenticationContext::Tls(subject, thumbprint);
+
+        // create service per request
+        let service = service_fn(move |req| {
+            handle(
+                svc_server_settings.clone(),
+                collector_settings.clone(),
+                svc_db.clone(),
+                subscriptions.clone(),
+                collector_heartbeat_tx.clone(),
+                auth_ctx.clone(),
+                addr,
+                req,
+            )
+        });
+
+        async move { Ok::<_, Infallible>(service) }
+    });
+
+    // create acceptor from config
+    let tls_acceptor: TlsAcceptor = tls_config.server.into();
+
+    // configure listener on the address to use the acceptor
+    let incoming = TlsListener::new(
+        tls_acceptor,
+        AddrIncoming::bind(&addr).expect("Could not bind address to listener"),
+    )
+    .filter(|conn| {
+        if let Err(err) = &conn {
+            match err {
+                tls_listener::Error::TlsAcceptError(e) if e.to_string() == "tls handshake eof" => {
+                    // happens sometimes, not problematic
+                    debug!("Error while establishing a connection : {:?}", err)
+                }
+                _ => warn!("Error while establishing a connection : {:?}", err),
+            };
+            ready(false)
+        } else {
+            ready(true)
+        }
+    });
+
+    let server = Server::builder(accept::from_stream(incoming))
+        .serve(make_service)
+        .with_graceful_shutdown(shutdown_signal());
+
+    info!("Server listenning on {}", addr);
+    // XXX : because the 2 closures have different types we use this, but may be better way to do this
+    Box::pin(server)
 }
 
 async fn shutdown_signal() {
@@ -386,7 +596,8 @@ async fn shutdown_signal() {
 }
 
 pub async fn run(settings: Settings) {
-    let mut servers = Vec::new();
+    // XXX : because the 2 closures have different types we use this, but may be better way to do this
+    let mut servers: Vec<Pin<Box<dyn Future<Output = hyper::Result<()>> + Send>>> = Vec::new();
 
     let db: Db = db_from_settings(&settings)
         .await
@@ -450,66 +661,32 @@ pub async fn run(settings: Settings) {
 
         trace!("Listen address is {}", addr);
 
-        // FIXME
-        let kerberos = match collector.authentication() {
-            common::settings::Authentication::Kerberos(kerberos) => kerberos,
-            _ => panic!("Unsupported authentication type"),
-        };
-
-        env::set_var("KRB5_KTNAME", kerberos.keytab());
-
-        let principal = kerberos.service_principal_name().to_owned();
-        // Try to initialize a security context. This is to be sure that an error in
-        // Kerberos configuration will be reported as soon as possible.
-        let state = kerberos::State::new(&principal);
-        if state.context_is_none() {
-            panic!("Could not initialize Kerberos context");
-        }
-
-        // A `MakeService` that produces a `Service` to handle each connection.
-        let make_service = make_service_fn(move |conn: &AddrStream| {
-            // We have to clone the context to share it with each invocation of
-            // `make_service`.
-
-            // Initialise Kerberos context once for each TCP connection
-            let conn_state = Arc::new(Mutex::new(kerberos::State::new(&principal)));
-            let collector_settings = collector_settings.clone();
-            let svc_db = collector_db.clone();
-            let svc_server_settings = collector_server_settings.clone();
-            let auth_mec = AuthenticationMechanism::Kerberos;
-            let subscriptions = collector_subscriptions.clone();
-            let collector_heartbeat_tx = collector_heartbeat_tx.clone();
-
-            let addr = conn.remote_addr();
-
-            debug!("Received TCP connection from {}", addr);
-
-            // Create a `Service` for responding to the request.
-            let service = service_fn(move |req| {
-                handle(
-                    svc_server_settings.clone(),
-                    collector_settings.clone(),
-                    svc_db.clone(),
-                    subscriptions.clone(),
-                    collector_heartbeat_tx.clone(),
-                    auth_mec,
-                    conn_state.clone(),
+        // create server depending on connection type it allows
+        match collector.authentication() {
+            Authentication::Kerberos(kerberos) => {
+                servers.push(create_kerberos_server(
+                    kerberos,
+                    collector_settings,
+                    collector_db,
+                    collector_subscriptions,
+                    collector_heartbeat_tx,
+                    collector_server_settings,
                     addr,
-                    req,
-                )
-            });
+                ));
+            }
 
-            // Return the service to hyper.
-            async move { Ok::<_, Infallible>(service) }
-        });
-
-        // Then bind and serve...
-        let server = Server::bind(&addr)
-            .serve(make_service)
-            .with_graceful_shutdown(shutdown_signal());
-
-        info!("Server listenning on {}", addr);
-        servers.push(server);
+            Authentication::Tls(tls) => {
+                servers.push(create_tls_server(
+                    tls,
+                    collector_settings,
+                    collector_db,
+                    collector_subscriptions,
+                    collector_heartbeat_tx,
+                    collector_server_settings,
+                    addr,
+                ));
+            }
+        };
     }
 
     let result = join_all(servers).await;

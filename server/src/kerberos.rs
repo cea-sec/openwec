@@ -1,10 +1,9 @@
 use anyhow::{anyhow, bail, Context, Result};
 use base64::Engine;
-use common::encoding::{decode_utf16le, encode_utf16le};
-use common::settings::Collector;
-use hyper::body::HttpBody;
+use common::encoding::encode_utf16le;
+use http::request::Parts;
 use hyper::header::AUTHORIZATION;
-use hyper::{Body, Request};
+use hyper::{body::Bytes, Body, Request};
 use libgssapi::{
     context::{CtxFlags, SecurityContext, ServerCtx},
     credential::{Cred, CredUsage},
@@ -202,35 +201,10 @@ fn encrypt_payload(mut payload: Vec<u8>, server_ctx: &mut ServerCtx) -> Result<V
 }
 
 pub async fn get_request_payload(
-    settings: &Collector,
     conn_state: &Arc<Mutex<State>>,
-    req: Request<Body>,
-) -> Result<Option<String>> {
-    let (parts, body) = req.into_parts();
-
-    let response_content_length = body
-        .size_hint()
-        .upper()
-        .ok_or_else(|| anyhow!("Header Content-Length is not present"))
-        .context("Could not check Content-Length header of request")?;
-
-    let max_content_length = settings.max_content_length();
-
-    if response_content_length > max_content_length {
-        bail!(
-            "HTTP request body is too large ({} bytes larger than the maximum allowed {} bytes).",
-            response_content_length,
-            max_content_length
-        );
-    }
-
-    let data = hyper::body::to_bytes(body)
-        .await
-        .context("Could not retrieve request body")?;
-    if data.is_empty() {
-        return Ok(None);
-    }
-
+    parts: Parts,
+    data: Bytes,
+) -> Result<Option<Vec<u8>>> {
     let content_type = match parts.headers.get("Content-Type") {
         Some(content_type) => content_type,
         None => bail!("Request does not contain 'Content-Type' header"),
@@ -261,7 +235,7 @@ pub async fn get_request_payload(
         value => bail!("Unsupported Content-Encoding {:?}", value),
     };
 
-    Ok(Some(decode_utf16le(message)?))
+    Ok(Some(message))
 }
 
 pub fn get_response_payload(

@@ -118,7 +118,6 @@
 # Each collector must listen on a different (address, port) pair.
 # All collectors share the same database.
 # This is useful if you want to support both Kerberos and TLS authentication
-# (TLS authentication is not yet supported).
 
 # This defines one collector
 [[collectors]]
@@ -142,11 +141,10 @@
 # max_content_length = 512000
 
 # Authentication settings for this collector
-# For now, the only available authentication method is Kerberos.
 [collectors.authentication]
 # [Required]
-# Authentication method: Kerberos
-# type = "Kerberos"
+# Authentication method: Kerberos, Tls
+# type = "Kerberos"
 
 ## Kerberos configuration
 
@@ -162,3 +160,19 @@
 # keytab = "/etc/krb5.keytab"
 
 ## End of Kerberos configuration
+
+## TLS configuration
+
+# [Required]
+# CA certificate used to sign client certificates
+# ca_certificate = "/etc/ca-cert.pem"
+
+# [Required]
+# Server certificate
+# server_certificate = "/etc/server-cert.pem"
+
+# [Required]
+# Server private key, corresponding to the certificate
+# server_private_key = "/etc/server-key.pem"
+
+## End of TLS configuration
