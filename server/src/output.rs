@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use async_trait::async_trait;
-use common::subscription::{FileConfiguration, KafkaConfiguration, SubscriptionOutput};
+use common::subscription::{FileConfiguration, KafkaConfiguration, SubscriptionOutput, RedisConfiguration};
 
 use crate::{event::EventMetadata, formatter::Format};
 
@@ -10,6 +10,7 @@ use crate::{event::EventMetadata, formatter::Format};
 pub enum OutputType {
     Files(Format, FileConfiguration, bool),
     Kafka(Format, KafkaConfiguration, bool),
+    Redis(Format, RedisConfiguration, bool),
     Tcp(Format, String, u16, bool),
 }
 
@@ -21,6 +22,9 @@ impl From<&SubscriptionOutput> for OutputType {
             }
             SubscriptionOutput::Kafka(sof, config, enabled) => {
                 OutputType::Kafka(sof.into(), config.clone(), *enabled)
+            }
+            SubscriptionOutput::Redis(sof, config, enabled) => {
+                OutputType::Redis(sof.into(), config.clone(), *enabled)
             }
             SubscriptionOutput::Tcp(sof, config, enabled) => OutputType::Tcp(
                 sof.into(),

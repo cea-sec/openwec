@@ -87,6 +87,12 @@ async fn main() {
                                 .arg(arg!(<port> "TCP port").value_parser(value_parser!(u16)))
                             )
                             .subcommand(
+                                Command::new("redis")
+                                    .about("Redis output")
+                                    .arg(arg!(<addr> "Redis address "))
+                                    .arg(arg!(<list> "Redis list"))
+                            )
+                            .subcommand(
                                 Command::new("kafka")
                                 .about("Kafka output")
                                 .arg(arg!(<topic> "Kafka topic"))

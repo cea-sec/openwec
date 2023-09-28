@@ -4,7 +4,7 @@ use common::{
     subscription::{
         ContentFormat, FileConfiguration, KafkaConfiguration, PrincsFilter, PrincsFilterOperation,
         SubscriptionData, SubscriptionMachineState, SubscriptionOutput, SubscriptionOutputFormat,
-        TcpConfiguration,
+        TcpConfiguration, RedisConfiguration,
     },
 };
 use roxmltree::{Document, Node};
@@ -630,6 +630,7 @@ async fn outputs_add(subscription: &mut SubscriptionData, matches: &ArgMatches) 
     };
     let output = match matches.subcommand() {
         Some(("tcp", matches)) => SubscriptionOutput::Tcp(format, outputs_add_tcp(matches)?, true),
+        Some(("redis", matches)) => SubscriptionOutput::Redis(format, outputs_add_redis(matches)?, true),
         Some(("kafka", matches)) => {
             SubscriptionOutput::Kafka(format, outputs_add_kafka(matches)?, true)
         }
@@ -654,6 +655,19 @@ fn outputs_add_tcp(matches: &ArgMatches) -> Result<TcpConfiguration> {
 
     info!("Adding TCP output : {}:{}", addr, port);
     Ok(TcpConfiguration::new(addr.clone(), *port))
+}
+
+fn outputs_add_redis(matches: &ArgMatches) -> Result<RedisConfiguration> {
+    let addr = matches
+        .get_one::<String>("addr")
+        .ok_or_else(|| anyhow!("Missing Redis server address"))?;
+
+    let list = matches
+        .get_one::<String>("list")
+        .ok_or_else(|| anyhow!("Missing Redis list"))?;
+
+    info!("Adding Redis output : address: {}, list {}", addr, list);
+    Ok(RedisConfiguration::new(addr.clone(), list.clone()))
 }
 
 fn outputs_add_kafka(matches: &ArgMatches) -> Result<KafkaConfiguration> {

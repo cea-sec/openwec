@@ -146,6 +146,29 @@ You must provide an IP address or a hostname and a port to connect to.
 $ openwec subscriptions edit my-subscription outputs add --format <format> tcp my.server.windomain.local 12000
 ```
 
+### Redis
+
+This output type sends events to a Redis list using the [LPUSH command](https://redis.io/commands/lpush/)
+
+You must provide:
+- a redis server address containing the IP and port to connect to.
+- a list name
+
+TODO:
+
+- [ ] implement TLS connections to redis
+- [ ] support redis auth
+- [ ] ...
+
+#### Examples
+
+* Send events to a redis server into a list named "wec":
+
+```
+$ openwec subscriptions edit my-test-subscription outputs add --format <format> redis 127.0.0.1:6377 wec
+```
+
+
 ## How to add a new output type ?
 
 TODO
