@@ -58,7 +58,6 @@ impl Output for OutputRedis {
         }
 
         while let Some(result) = results.next().await {
-            debug!("Redis message sent: {:?}", result);
             match result {
                 Ok(number_of_items) => debug!("Redis message sent: {:?}", number_of_items),
                 Err(e) => bail!(e),
