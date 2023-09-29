@@ -15,13 +15,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add Kerberos principals filter to subscriptions (#18)
 - Add a setting to configure `heartbeats_queue_size` (#37)
 - Add Tls support for encryption and authentication (#36)
+- Add support for output events to redis list (#45)
 
 ### Changed
 
 - Server log responses payload in TRACE level (#37)
 - Remove `OperationID` from responses because we don't support "Robust Connection" (#37)
 - Clear in-memory subscriptions when a SIGHUP signal is received, resulting in all file descriptors used by subscriptions being closed (#37)
-- `heartbeats_queue_size` now defauts to 2048 instead of 32 (#37)
+- `heartbeats_queue_size` now defaults to 2048 instead of 32 (#37)
 
 ## [0.1.0] - 2023-05-30
 

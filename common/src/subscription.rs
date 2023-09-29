@@ -33,6 +33,29 @@ impl KafkaConfiguration {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+pub struct RedisConfiguration {
+    addr: String,
+    list: String,
+}
+
+impl RedisConfiguration {
+    pub fn new(addr:String, list: String) -> Self {
+        RedisConfiguration { addr, list }
+    }
+
+    /// Get a reference to the redis configuration's list.
+    pub fn list(&self) -> &str {
+        self.list.as_ref()
+    }
+
+    /// Get a reference to the redis configuration's server address.
+    pub fn addr(&self) -> &str {
+        self.addr.as_ref()
+    }
+
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 pub struct TcpConfiguration {
     addr: String,
     port: u16,
@@ -104,6 +127,7 @@ pub enum SubscriptionOutput {
     Files(SubscriptionOutputFormat, FileConfiguration, bool),
     Kafka(SubscriptionOutputFormat, KafkaConfiguration, bool),
     Tcp(SubscriptionOutputFormat, TcpConfiguration, bool),
+    Redis(SubscriptionOutputFormat, RedisConfiguration, bool),
 }
 
 impl SubscriptionOutput {
@@ -112,6 +136,7 @@ impl SubscriptionOutput {
             SubscriptionOutput::Files(format, _, _) => format,
             SubscriptionOutput::Kafka(format, _, _) => format,
             SubscriptionOutput::Tcp(format, _, _) => format,
+            SubscriptionOutput::Redis(format, _, _) => format,
         }
     }
 
@@ -120,6 +145,7 @@ impl SubscriptionOutput {
             SubscriptionOutput::Files(_, _, enabled) => *enabled,
             SubscriptionOutput::Kafka(_, _, enabled) => *enabled,
             SubscriptionOutput::Tcp(_, _, enabled) => *enabled,
+            SubscriptionOutput::Redis(_, _, enabled) => *enabled,
         }
     }
 
@@ -133,6 +159,9 @@ impl SubscriptionOutput {
             }
             SubscriptionOutput::Tcp(format, config, _) => {
                 SubscriptionOutput::Tcp(format.clone(), config.clone(), value)
+            }
+            SubscriptionOutput::Redis(format, config, _) => {
+                SubscriptionOutput::Redis(format.clone(), config.clone(), value)
             }
         }
     }
@@ -160,6 +189,13 @@ impl Display for SubscriptionOutput {
                     f,
                     "Enabled: {:?}, Format: {}, Output: Tcp({}:{})",
                     enabled, format, config.addr, config.port
+                )
+            }
+            SubscriptionOutput::Redis(format, config, enabled) => {
+                write!(
+                    f,
+                    "Enabled: {:?}, Format: {}, Output: Redis({:?})",
+                    enabled, format, config
                 )
             }
         }

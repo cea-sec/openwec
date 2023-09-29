@@ -22,6 +22,8 @@ use crate::{
     outputs::{file::OutputFile, kafka::OutputKafka, tcp::OutputTcp},
 };
 
+use crate::outputs::redis::OutputRedis;
+
 pub struct Subscription {
     data: SubscriptionData,
     outputs: Vec<Arc<Box<dyn Output + Send + Sync>>>,
@@ -74,6 +76,9 @@ impl Subscription {
                     }
                     SubscriptionOutput::Tcp(format, config, _) => {
                         Arc::new(Box::new(OutputTcp::new(Format::from(format), config)?))
+                    }
+                    SubscriptionOutput::Redis(format, config, _) => {
+                        Arc::new(Box::new(OutputRedis::new(Format::from(format), config)?))
                     }
                 });
             }
