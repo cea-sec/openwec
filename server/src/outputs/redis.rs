@@ -51,7 +51,7 @@ impl Output for OutputRedis {
             results.push(async move {
                 redis_cmd
                     .arg(&[self.config.list(), event.as_ref()])
-                    .query_async::<_, Option<String>>(&mut redis_connection)
+                    .query_async::<_, Option<u32>>(&mut redis_connection)
                     .await
             });
 
