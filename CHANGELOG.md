@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add Kerberos principals filter to subscriptions (#18)
 - Add a setting to configure `heartbeats_queue_size` (#37)
 - Add Tls support for encryption and authentication (#36)
+- Add support for output events to redis list (#45)
 
 ### Changed
 

@@ -1,4 +1,4 @@
-use anyhow::{Result};
+use anyhow::{bail, Context, Result};
 use async_trait::async_trait;
 use common::subscription::{ RedisConfiguration};
 use log::debug;
@@ -17,7 +17,7 @@ pub struct OutputRedis {
 impl OutputRedis {
     pub fn new(format: Format, config: &RedisConfiguration) -> Result<Self> {
 
-        let client = redis::Client::open(format!("redis://{}/", config.addr())).unwrap();
+        let client = redis::Client::open(format!("redis://{}/", config.addr())).context("Could not open redis connection")?;
 
         debug!(
             "Initialize redis output with format {:?} and config {:?}",
@@ -58,9 +58,12 @@ impl Output for OutputRedis {
         }
 
         while let Some(result) = results.next().await {
-            debug!("Redis message sent: {:?}", result)
+            debug!("Redis message sent: {:?}", result);
+            match result {
+                Ok(number_of_items) => debug!("Redis message sent: {:?}", number_of_items),
+                Err(e) => bail!(e),
+            }
         }
-
 
         Ok(())
     }
