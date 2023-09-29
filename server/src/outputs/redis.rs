@@ -4,7 +4,8 @@ use common::subscription::{ RedisConfiguration};
 use log::debug;
 
 use std::{sync::Arc};
-use redis::RedisResult;
+use futures_util::stream::FuturesUnordered;
+use futures_util::StreamExt;
 use crate::{event::EventMetadata, formatter::Format, output::Output};
 
 pub struct OutputRedis {
@@ -39,6 +40,7 @@ impl Output for OutputRedis {
     ) -> Result<()> {
 
 
+        let mut results = FuturesUnordered::new();
         let cmd = redis::cmd("LPUSH");
 
         for event in events.iter() {
@@ -46,14 +48,19 @@ impl Output for OutputRedis {
             let mut redis_cmd = cmd.clone();
             let mut redis_connection = self.producer.get_tokio_connection().await?;
 
-
-            let result : RedisResult<Option<String>> = redis_cmd
-                .arg(&[self.config.list(), event.as_ref()])
-                .query_async(&mut redis_connection).await;
-
-            debug!("Redis message sent: {:?}", result)
+            results.push(async move {
+                redis_cmd
+                    .arg(&[self.config.list(), event.as_ref()])
+                    .query_async::<_, Option<String>>(&mut redis_connection)
+                    .await
+            });
 
         }
+
+        while let Some(result) = results.next().await {
+            debug!("Redis message sent: {:?}", result)
+        }
+
 
         Ok(())
     }
