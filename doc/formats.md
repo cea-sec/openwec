@@ -44,6 +44,12 @@ openwec_data := {
         "Version": string,
         "Uuid": string,
         "Uri": string
+    },
+    /* Only in case of error during event parsing or serializing */
+    "Error": {
+        "OriginalContent": string,
+        "Type": string,
+        "Message": string
     }
 }
 

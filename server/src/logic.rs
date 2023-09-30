@@ -356,11 +356,9 @@ async fn handle_events(
         for format in subscription.formats() {
             let mut content = Vec::new();
             for raw in events.iter() {
-                content.push(
-                    format
-                        .format(&metadata, raw.clone())
-                        .with_context(|| format!("Failed to format event with {:?}", format))?,
-                );
+                if let Some(str) = format.format(&metadata, raw.clone()) {
+                    content.push(str.clone())
+                }
             }
             formatted_events.insert(format.clone(), Arc::new(content));
         }
