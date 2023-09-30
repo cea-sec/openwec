@@ -24,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Clear in-memory subscriptions when a SIGHUP signal is received, resulting in all file descriptors used by subscriptions being closed (#37)
 - `heartbeats_queue_size` now defaults to 2048 instead of 32 (#37)
 - **Breaking change**: Keytab file path must be specified only once for all collectors (using Kerberos authentication)
+- A malformed event will no longer stop the event stream (for a computer/subscription) because formatters are not allowed to fail. In problematic cases, some work is done to try to recover the raw data of the event, and an `OpenWEC.Error` field is added (in the JSON formatter) to help catch the problem (#47)
 
 ## [0.1.0] - 2023-05-30
 
