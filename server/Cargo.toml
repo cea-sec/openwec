@@ -21,7 +21,7 @@ itoa = "1.0.6"
 libgssapi = { version = "0.6.4", features = ["iov"] }
 log = "0.4.19"
 mime = "0.3.17"
-quick-xml = "0.30.0"
+quick-xml = "0.31.0"
 roxmltree = "0.18.0"
 tokio = { version = "1.33.0", features = ["full"] }
 rdkafka = { version = "0.34.0", features = ["zstd", "libz", "external-lz4"] }

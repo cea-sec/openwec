@@ -72,9 +72,9 @@ impl Serializable for Subscription {
                     .write_inner_content(|writer| {
                         self.header.serialize(writer)?;
                         self.body.serialize(writer)?;
-                        Ok(())
+                        Ok::<(), quick_xml::Error>(())
                     })?;
-                Ok(())
+                Ok::<(), quick_xml::Error>(())
             })?;
         Ok(())
     }
@@ -115,9 +115,9 @@ impl Serializable for SubscriptionBody {
                                         writer
                                             .create_element("e:Identifier")
                                             .write_text_content(BytesText::new(&self.identifier))?;
-                                        Ok(())
+                                        Ok::<(), quick_xml::Error>(())
                                     })?;
-                                Ok(())
+                                Ok::<(), quick_xml::Error>(())
                             })?;
                         writer
                             .create_element("e:Delivery")
@@ -141,7 +141,7 @@ impl Serializable for SubscriptionBody {
                                                     .write_text_content(BytesText::new(
                                                         &self.identifier,
                                                     ))?;
-                                                Ok(())
+                                                Ok::<(), quick_xml::Error>(())
                                             })?;
                                         writer
                                             .create_element("c:Policy")
@@ -182,11 +182,11 @@ impl Serializable for SubscriptionBody {
                                                                                 .write_text_content(BytesText::new(
                                                                                     tmb,
                                                                                 ))?;
-                                                                                Ok(())
+                                                                                Ok::<(), quick_xml::Error>(())
                                                                             })?;
-                                                                            Ok(())
+                                                                            Ok::<(), quick_xml::Error>(())
                                                                         })?;
-                                                                    Ok(())
+                                                                    Ok::<(), quick_xml::Error>(())
                                                                     // ----- END TLS ----- //
                                                                 }
                                                                 else {
@@ -200,15 +200,15 @@ impl Serializable for SubscriptionBody {
                                                                             SPNEGO_KERBEROS,
                                                                         ))
                                                                         .write_empty()?;
-                                                                    Ok(())
+                                                                    Ok::<(), quick_xml::Error>(())
                                                                     // ----- END KRB ----- //
                                                                 }
                                                             })?;
-                                                        Ok(())
+                                                        Ok::<(), quick_xml::Error>(())
                                                     })?;
-                                                Ok(())
+                                                Ok::<(), quick_xml::Error>(())
                                             })?;
-                                        Ok(())
+                                        Ok::<(), quick_xml::Error>(())
                                     },
                                 )?;
                                 writer
@@ -242,7 +242,7 @@ impl Serializable for SubscriptionBody {
                                 writer
                                     .create_element("w:ContentEncoding")
                                     .write_text_content(BytesText::new("UTF-16"))?;
-                                Ok(())
+                                Ok::<(), quick_xml::Error>(())
                             })?;
                         writer
                             .create_element("w:Filter")
@@ -258,7 +258,7 @@ impl Serializable for SubscriptionBody {
                                         _ => (),
                                     };
                                 }
-                                Ok(())
+                                Ok::<(), quick_xml::Error>(())
                             })?;
                         if let Some(bookmark) = &self.bookmark {
                             writer
@@ -273,13 +273,13 @@ impl Serializable for SubscriptionBody {
                                             _ => (),
                                         };
                                     }
-                                    Ok(())
+                                    Ok::<(), quick_xml::Error>(())
                                 })?;
                         }
                         writer.create_element("w:SendBookmarks").write_empty()?;
-                        Ok(())
+                        Ok::<(), quick_xml::Error>(())
                     })?;
-                Ok(())
+                Ok::<(), quick_xml::Error>(())
             })?;
         Ok(())
     }
@@ -405,7 +405,7 @@ impl Serializable for Header {
                                 .create_element("a:Address")
                                 .with_attribute(("s:mustUnderstand", "true"))
                                 .write_text_content(BytesText::new(reply_to))?;
-                            Ok(())
+                            Ok::<(), quick_xml::Error>(())
                         })?;
                 }
                 if let Some(action) = &self.action {
@@ -476,10 +476,10 @@ impl Serializable for Header {
                                         .write_empty()?,
                                 };
                             }
-                            Ok(())
+                            Ok::<(), quick_xml::Error>(())
                         })?;
                 }
-                Ok(())
+                Ok::<(), quick_xml::Error>(())
             })?;
         Ok(())
     }
@@ -510,12 +510,12 @@ impl Serializable for Body {
                                         for subscription in subscriptions {
                                             subscription.serialize(writer)?;
                                         }
-                                        Ok(())
+                                        Ok::<(), quick_xml::Error>(())
                                     })?;
                                 writer.create_element("w:EndOfSequence").write_empty()?;
-                                Ok(())
+                                Ok::<(), quick_xml::Error>(())
                             })?;
-                        Ok(())
+                        Ok::<(), quick_xml::Error>(())
                     })?;
             }
             x => {
@@ -555,7 +555,7 @@ impl Serializable for Message {
                         writer.create_element("s:Body").write_empty()?;
                     }
                 }
-                Ok(())
+                Ok::<(), quick_xml::Error>(())
             })?;
         Ok(())
     }
