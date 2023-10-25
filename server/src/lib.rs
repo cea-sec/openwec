@@ -571,14 +571,17 @@ fn create_tls_server(
         tls_acceptor,
         AddrIncoming::bind(&addr).expect("Could not bind address to listener"),
     )
+    .connections()
     .filter(|conn| {
         if let Err(err) = &conn {
             match err {
-                tls_listener::Error::TlsAcceptError(e) if e.to_string() == "tls handshake eof" => {
+                tls_listener::Error::TlsAcceptError { error, .. }
+                    if error.to_string() == "tls handshake eof" =>
+                {
                     // happens sometimes, not problematic
-                    debug!("Error while establishing a connection : {:?}", err)
+                    debug!("Error while establishing a connection: {:?}", err)
                 }
-                _ => warn!("Error while establishing a connection : {:?}", err),
+                _ => warn!("Error while establishing a connection: {:?}", err),
             };
             ready(false)
         } else {
