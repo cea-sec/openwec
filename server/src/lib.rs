@@ -45,7 +45,7 @@ use std::net::{IpAddr, SocketAddr};
 use std::str::FromStr;
 use std::sync::Mutex;
 use std::sync::{Arc, RwLock};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use std::{env, mem};
 use subscription::{reload_subscriptions_task, Subscriptions};
 use tls_listener::TlsListener;
@@ -464,6 +464,12 @@ fn create_kerberos_server(
         panic!("Could not initialize Kerberos context");
     }
 
+    let tcp_keepalive_time = Duration::from_secs(collector_server_settings.tcp_keepalive_time());
+    let tcp_keepalive_interval = collector_server_settings
+        .tcp_keepalive_intvl()
+        .map(Duration::from_secs);
+    let tcp_keepalive_probes = collector_server_settings.tcp_keepalive_probes();
+
     // A `MakeService` that produces a `Service` to handle each connection.
     let make_service = make_service_fn(move |conn: &AddrStream| {
         // We have to clone the context to share it with each invocation of
@@ -502,6 +508,9 @@ fn create_kerberos_server(
 
     // Then bind and serve...
     let server = Server::bind(&addr)
+        .tcp_keepalive(Some(tcp_keepalive_time))
+        .tcp_keepalive_interval(tcp_keepalive_interval)
+        .tcp_keepalive_retries(tcp_keepalive_probes)
         .serve(make_service)
         .with_graceful_shutdown(shutdown_signal());
 
@@ -521,6 +530,12 @@ fn create_tls_server(
 ) -> Pin<Box<dyn Future<Output = hyper::Result<()>> + Send>> {
     // make TLS connection config
     let tls_config = make_config(tls_settings).expect("Error while configuring server");
+
+    let tcp_keepalive_time = Duration::from_secs(collector_server_settings.tcp_keepalive_time());
+    let tcp_keepalive_interval = collector_server_settings
+        .tcp_keepalive_intvl()
+        .map(Duration::from_secs);
+    let tcp_keepalive_probes = collector_server_settings.tcp_keepalive_probes();
 
     // create the service per connection
     let make_service = make_service_fn(move |conn: &TlsStream<AddrStream>| {
@@ -566,28 +581,30 @@ fn create_tls_server(
     // create acceptor from config
     let tls_acceptor: TlsAcceptor = tls_config.server.into();
 
+    let mut addr_incoming = AddrIncoming::bind(&addr).expect("Could not bind address to listener");
+    addr_incoming.set_keepalive(Some(tcp_keepalive_time));
+    addr_incoming.set_keepalive_interval(tcp_keepalive_interval);
+    addr_incoming.set_keepalive_retries(tcp_keepalive_probes);
+
     // configure listener on the address to use the acceptor
-    let incoming = TlsListener::new(
-        tls_acceptor,
-        AddrIncoming::bind(&addr).expect("Could not bind address to listener"),
-    )
-    .connections()
-    .filter(|conn| {
-        if let Err(err) = &conn {
-            match err {
-                tls_listener::Error::TlsAcceptError { error, .. }
-                    if error.to_string() == "tls handshake eof" =>
-                {
-                    // happens sometimes, not problematic
-                    debug!("Error while establishing a connection: {:?}", err)
-                }
-                _ => warn!("Error while establishing a connection: {:?}", err),
-            };
-            ready(false)
-        } else {
-            ready(true)
-        }
-    });
+    let incoming = TlsListener::new(tls_acceptor, addr_incoming)
+        .connections()
+        .filter(|conn| {
+            if let Err(err) = &conn {
+                match err {
+                    tls_listener::Error::TlsAcceptError { error, .. }
+                        if error.to_string() == "tls handshake eof" =>
+                    {
+                        // happens sometimes, not problematic
+                        debug!("Error while establishing a connection: {:?}", err)
+                    }
+                    _ => warn!("Error while establishing a connection: {:?}", err),
+                };
+                ready(false)
+            } else {
+                ready(true)
+            }
+        });
 
     let server = Server::builder(accept::from_stream(incoming))
         .serve(make_service)
@@ -678,6 +695,8 @@ pub async fn run(settings: Settings, verbosity: u8) {
                 .expect("Kerberos authentication requires the server.keytab setting to be set"),
         );
     }
+
+    info!("Server settings: {:?}", settings.server());
 
     for collector in settings.collectors() {
         let collector_db = db.clone();

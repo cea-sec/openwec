@@ -249,6 +249,9 @@ pub struct Server {
     heartbeats_queue_size: Option<u64>,
     node_name: Option<String>,
     keytab: Option<String>,
+    tcp_keepalive_time: Option<u64>,
+    tcp_keepalive_intvl: Option<u64>,
+    tcp_keepalive_probes: Option<u32>,
 }
 
 impl Server {
@@ -270,6 +273,18 @@ impl Server {
 
     pub fn keytab(&self) -> Option<&String> {
         self.keytab.as_ref()
+    }
+
+    pub fn tcp_keepalive_time(&self) -> u64 {
+        self.tcp_keepalive_time.unwrap_or(7200)
+    }
+
+    pub fn tcp_keepalive_intvl(&self) -> Option<u64> {
+        self.tcp_keepalive_intvl
+    }
+
+    pub fn tcp_keepalive_probes(&self) -> Option<u32> {
+        self.tcp_keepalive_probes
     }
 }
 
@@ -321,6 +336,9 @@ mod tests {
     const CONFIG_KERBEROS_SQLITE: &str = r#"
         [server]
         keytab = "wec.windomain.local.keytab"
+        tcp_keepalive_time = 3600
+        tcp_keepalive_intvl = 1
+        tcp_keepalive_probes = 10
 
         [logging]
         verbosity = "debug"
@@ -371,6 +389,9 @@ mod tests {
         assert_eq!(s.logging().verbosity().unwrap(), "debug");
         assert!(s.logging().access_logs().is_none());
         assert_eq!(s.logging().server_logs(), LoggingType::Stdout);
+        assert_eq!(s.server().tcp_keepalive_time(), 3600);
+        assert_eq!(s.server().tcp_keepalive_intvl().unwrap(), 1);
+        assert_eq!(s.server().tcp_keepalive_probes().unwrap(), 10);
     }
 
     const CONFIG_TLS_POSTGRES: &str = r#"
@@ -438,5 +459,8 @@ mod tests {
         assert_eq!(s.logging().server_logs(), LoggingType::Stderr,);
         assert_eq!(s.logging().server_logs_pattern().unwrap(), "toto");
         assert_eq!(s.logging().access_logs_pattern(), "tutu");
+        assert_eq!(s.server().tcp_keepalive_time(), 7200);
+        assert!(s.server().tcp_keepalive_intvl().is_none());
+        assert!(s.server().tcp_keepalive_probes().is_none());
     }
 }

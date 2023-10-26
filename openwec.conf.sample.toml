@@ -46,6 +46,23 @@
 # It can contain other entries that aren't used by openwec.
 # keytab = "/etc/krb5.keytab"
 
+# [Optional]
+# Set the duration to remain idle before sending TCP keepalive probes.
+# Defaults to 7200
+# tcp_keepalive_time = 7200
+
+# [Optional]
+# Set the duration between two successive TCP keepalive retransmissions,
+# if acknowledgement to the previous keepalive transmission is not received.
+# Defaults to None (i.e. system value)
+# tcp_keepalive_intvl = None
+
+# [Optional]
+# Set the number of retransmissions to be carried out before declaring
+# that remote end is not available.
+# Defaults to None (i.e. system value)
+# tcp_keepalive_probes = None
+
 ##########################
 ##   Logging settings   ##
 ##########################
