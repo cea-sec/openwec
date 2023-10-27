@@ -11,7 +11,7 @@ pub fn confirm(message: &str) -> bool {
         io::stdout().flush().unwrap();
         let mut input = String::new();
         match io::stdin().read_line(&mut input) {
-            Ok(n) if n == 2 => return input.to_ascii_lowercase().trim() == "y",
+            Ok(2) => return input.to_ascii_lowercase().trim() == "y",
             _ => (),
         };
     }
