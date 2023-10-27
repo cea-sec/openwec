@@ -1,3 +1,5 @@
+#![allow(clippy::too_many_arguments)]
+
 use std::env;
 
 use common::{database::schema::Version, settings::DEFAULT_CONFIG_FILE};

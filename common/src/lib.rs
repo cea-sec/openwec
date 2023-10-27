@@ -1,3 +1,5 @@
+#![allow(clippy::too_many_arguments)]
+
 pub mod bookmark;
 pub mod database;
 pub mod encoding;

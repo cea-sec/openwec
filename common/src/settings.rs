@@ -98,17 +98,12 @@ impl SQLite {
     }
 }
 
-#[derive(Debug, Deserialize, Clone, PartialEq, Eq)]
+#[derive(Debug, Deserialize, Clone, PartialEq, Eq, Default)]
 pub enum PostgresSslMode {
     Disable,
+    #[default]
     Prefer,
     Require,
-}
-
-impl Default for PostgresSslMode {
-    fn default() -> Self {
-        PostgresSslMode::Prefer
-    }
 }
 
 #[derive(Debug, Deserialize, Clone)]

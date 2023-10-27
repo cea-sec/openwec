@@ -90,12 +90,14 @@ pub struct PostgresDatabase {
 
 impl PostgresDatabase {
     pub async fn new(settings: &Postgres) -> Result<PostgresDatabase> {
-        let mut config = Config::default();
-        config.host = Some(settings.host().to_string());
-        config.port = Some(settings.port());
-        config.user = Some(settings.user().to_string());
-        config.password = Some(settings.password().to_string());
-        config.dbname = Some(settings.dbname().to_string());
+        let mut config = Config {
+            host: Some(settings.host().to_string()),
+            port: Some(settings.port()),
+            user: Some(settings.user().to_string()),
+            password: Some(settings.password().to_string()),
+            dbname: Some(settings.dbname().to_string()),
+            ..Default::default()
+        };
 
         let pool = if *settings.ssl_mode() == PostgresSslMode::Disable {
             config
