@@ -15,7 +15,7 @@ use common::{
     settings::{Collector, Server},
 };
 use http::status::StatusCode;
-use log::{debug, error, info, warn};
+use log::{debug, error, warn};
 use std::{collections::HashMap, sync::Arc};
 use tokio::{sync::mpsc, task::JoinSet};
 
@@ -70,7 +70,7 @@ async fn handle_enumerate(
         }
     };
 
-    info!(
+    debug!(
         "Received Enumerate request from {}:{} ({}) with URI {}",
         request_data.remote_addr.ip(),
         request_data.remote_addr.port(),
@@ -261,7 +261,7 @@ async fn handle_heartbeat(
     };
 
     if !subscription.data().is_active_for(request_data.principal()) {
-        info!(
+        debug!(
             "Received Heartbeat from {}:{} ({}) for subscription {} ({}) but the principal is not allowed to use the subscription.",
             request_data.remote_addr().ip(),
             request_data.remote_addr().port(),
@@ -272,7 +272,7 @@ async fn handle_heartbeat(
         return Ok(Response::err(StatusCode::FORBIDDEN));
     }
 
-    info!(
+    debug!(
         "Received Heartbeat from {}:{} ({:?}) for subscription {} ({})",
         request_data.remote_addr().ip(),
         request_data.remote_addr().port(),
@@ -324,7 +324,7 @@ async fn handle_events(
         };
 
         if !subscription.data().is_active_for(request_data.principal()) {
-            info!(
+            debug!(
                 "Received Events from {}:{} ({}) for subscription {} ({}) but the principal is not allowed to use this subscription.",
                 request_data.remote_addr().ip(),
                 request_data.remote_addr().port(),
@@ -335,7 +335,7 @@ async fn handle_events(
             return Ok(Response::err(StatusCode::FORBIDDEN));
         }
 
-        info!(
+        debug!(
             "Received Events from {}:{} ({}) for subscription {} ({})",
             request_data.remote_addr().ip(),
             request_data.remote_addr().port(),
