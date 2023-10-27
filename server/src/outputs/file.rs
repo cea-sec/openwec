@@ -2,6 +2,7 @@ use async_trait::async_trait;
 use log::{debug, info, warn};
 use tokio::fs::OpenOptions;
 use tokio::sync::{mpsc, oneshot};
+use tokio_util::sync::CancellationToken;
 
 use crate::event::EventMetadata;
 use crate::formatter::Format;
@@ -61,10 +62,7 @@ async fn handle_message(
     Ok(())
 }
 
-pub async fn run(
-    mut task_rx: mpsc::Receiver<WriteFileMessage>,
-    mut task_exit_rx: oneshot::Receiver<()>,
-) {
+pub async fn run(mut task_rx: mpsc::Receiver<WriteFileMessage>, task_ct: CancellationToken) {
     info!("File output task started");
     let mut file_handles: HashMap<PathBuf, File> = HashMap::new();
     loop {
@@ -77,9 +75,9 @@ pub async fn run(
                     warn!("Failed to send File write result because the receiver dropped. Result was: {:?}", e);
                 }
             },
-            _ = &mut task_exit_rx => {
-                break
-            },
+            _ = task_ct.cancelled() => {
+                break;
+            }
         };
     }
     info!("Exiting File output task");
@@ -89,7 +87,7 @@ pub struct OutputFile {
     format: Format,
     config: FileConfiguration,
     task_tx: mpsc::Sender<WriteFileMessage>,
-    task_exit_tx: Option<oneshot::Sender<()>>,
+    task_ct: CancellationToken,
 }
 
 impl OutputFile {
@@ -102,18 +100,20 @@ impl OutputFile {
         // TODO: Why 32?
         let (task_tx, task_rx) = mpsc::channel(32);
 
-        // Create a oneshot channel to ask to the ask to end itself
-        let (task_exit_tx, task_exit_rx) = oneshot::channel();
+        // Use a CancellationToken to tell the task to end itself
+        let task_ct = CancellationToken::new();
+        let cloned_task_ct = task_ct.clone();
 
         // Launch the task responsible for handling file system operations
         tokio::spawn(async move {
-            run(task_rx, task_exit_rx).await;
+            run(task_rx, cloned_task_ct).await;
         });
+
         OutputFile {
             format,
             config: config.clone(),
             task_tx,
-            task_exit_tx: Some(task_exit_tx),
+            task_ct,
         }
     }
 
@@ -256,10 +256,7 @@ impl Output for OutputFile {
 
 impl Drop for OutputFile {
     fn drop(&mut self) {
-        if let Some(sender) = self.task_exit_tx.take() {
-            // Using `let _ =` to ignore send errors.
-            let _ = sender.send(());
-        }
+        self.task_ct.cancel();
     }
 }
 
