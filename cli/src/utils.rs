@@ -10,10 +10,9 @@ pub fn confirm(message: &str) -> bool {
         print!("{} [y/n] ", message);
         io::stdout().flush().unwrap();
         let mut input = String::new();
-        match io::stdin().read_line(&mut input) {
-            Ok(2) => return input.to_ascii_lowercase().trim() == "y",
-            _ => (),
-        };
+        if let Ok(2) = io::stdin().read_line(&mut input) {
+            return input.to_ascii_lowercase().trim() == "y";
+        }
     }
     false
 }
