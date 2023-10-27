@@ -4,7 +4,7 @@ use common::{
     subscription::{SubscriptionData, SubscriptionOutput},
 };
 use itertools::Itertools;
-use log::{debug, error, info, warn};
+use log::{debug, info, warn};
 use std::{
     collections::{HashMap, HashSet},
     sync::{Arc, RwLock},
@@ -12,7 +12,6 @@ use std::{
 };
 use tokio::{
     signal::unix::{signal, SignalKind},
-    sync::oneshot,
     time,
 };
 
@@ -97,12 +96,8 @@ impl Subscription {
 
 pub type Subscriptions = Arc<RwLock<HashMap<String, Arc<Subscription>>>>;
 
-pub async fn reload_subscriptions_task(
-    db: Db,
-    subscriptions: Subscriptions,
-    interval: u64,
-    mut task_exit_rx: oneshot::Receiver<oneshot::Sender<()>>,
-) {
+pub async fn reload_subscriptions_task(db: Db, subscriptions: Subscriptions, interval: u64) {
+    info!("reload_subscriptions task started");
     let mut interval = time::interval(Duration::from_secs(interval));
     let mut sighup = signal(SignalKind::hangup()).expect("Could not listen to SIGHUP");
 
@@ -121,20 +116,6 @@ pub async fn reload_subscriptions_task(
                     warn!("Failed to update subscriptions on SIGHUP: {:?}", e);
                     continue;
                 }
-            }
-            sender = &mut task_exit_rx => {
-                info!("Exit task reload_subscriptions");
-                match sender {
-                    Ok(sender) => {
-                        if let Err(e) = sender.send(()) {
-                            error!("Failed to respond to kill order: {:?}", e);
-                        }
-                    },
-                    Err(e) => {
-                        error!("Could not respond to kill order: {:?}", e);
-                    }
-                }
-                break;
             }
         }
     }

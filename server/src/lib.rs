@@ -50,9 +50,10 @@ use std::{env, mem};
 use subscription::{reload_subscriptions_task, Subscriptions};
 use tls_listener::TlsListener;
 use tokio::signal::unix::SignalKind;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::mpsc;
 use tokio_rustls::server::TlsStream;
 use tokio_rustls::TlsAcceptor;
+use tokio_util::sync::CancellationToken;
 
 use crate::logging::ACCESS_LOGGER;
 use crate::tls::{make_config, subject_from_cert};
@@ -651,16 +652,9 @@ pub async fn run(settings: Settings, verbosity: u8) {
     let interval = settings.server().db_sync_interval();
     let update_task_db = db.clone();
     let update_task_subscriptions = subscriptions.clone();
-    let (update_task_subscription_exit_tx, update_task_subscription_exit_rx) = oneshot::channel();
     // Launch a task responsible for updating subscriptions
     tokio::spawn(async move {
-        reload_subscriptions_task(
-            update_task_db,
-            update_task_subscriptions,
-            interval,
-            update_task_subscription_exit_rx,
-        )
-        .await
+        reload_subscriptions_task(update_task_db, update_task_subscriptions, interval).await
     });
 
     // To reduce database load, heartbeats are not saved immediately.
@@ -674,11 +668,15 @@ pub async fn run(settings: Settings, verbosity: u8) {
     let update_task_db = db.clone();
     let (heartbeat_tx, heartbeat_rx) =
         mpsc::channel(settings.server().heartbeats_queue_size() as usize);
-    let (heartbeat_exit_tx, heartbeat_exit_rx) = oneshot::channel();
+
+    // We use a CancellationToken to tell the task to shutdown, so
+    // that it is able to store cached heartbeats.
+    let heartbeat_ct = CancellationToken::new();
+    let cloned_heartbaat_ct = heartbeat_ct.clone();
 
     // Launch the task responsible for managing heartbeats
-    tokio::spawn(async move {
-        heartbeat_task(update_task_db, interval, heartbeat_rx, heartbeat_exit_rx).await
+    let heartbeat_task = tokio::spawn(async move {
+        heartbeat_task(update_task_db, interval, heartbeat_rx, cloned_heartbaat_ct).await
     });
 
     // Set KRB5_KTNAME env variable if necessary (i.e. if at least one collector uses
@@ -752,23 +750,10 @@ pub async fn run(settings: Settings, verbosity: u8) {
 
     info!("HTTP server has been shutdown.");
 
-    let (task_ended_tx, task_ended_rx) = oneshot::channel();
-    if let Err(e) = heartbeat_exit_tx.send(task_ended_tx) {
-        error!("Failed to shutdown heartbeat task: {:?}", e);
-    };
-    if let Err(e) = task_ended_rx.await {
-        error!("Failed to wait for heartbeat task shutdown: {:?}", e);
+    // Signal the task that we want to shutdown
+    heartbeat_ct.cancel();
+    // Wait for the task to shutdown gracefully
+    if let Err(e) = heartbeat_task.await {
+        error!("Failed to wait for heartbeat task to shutdown: {:?}", e)
     }
-
-    info!("Heartbeat task has been terminated.");
-
-    let (task_ended_tx, task_ended_rx) = oneshot::channel();
-    if let Err(e) = update_task_subscription_exit_tx.send(task_ended_tx) {
-        error!("Failed to shutdown update subscription task: {:?}", e);
-    }
-    if let Err(e) = task_ended_rx.await {
-        error!("Failed to wait for heartbeat task shutdown: {:?}", e);
-    }
-
-    info!("Subscription update task has been terminated.");
 }

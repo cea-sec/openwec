@@ -11,6 +11,7 @@ use tokio::{
 };
 
 use tokio::io::AsyncWriteExt;
+use tokio_util::sync::CancellationToken;
 
 #[derive(Debug)]
 pub struct WriteTCPMessage {
@@ -31,7 +32,7 @@ pub async fn run(
     addr: String,
     port: u16,
     mut task_rx: mpsc::Receiver<WriteTCPMessage>,
-    mut task_exit_rx: oneshot::Receiver<()>,
+    cancellation_token: CancellationToken,
 ) {
     let mut stream_opt: Option<TcpStream> = None;
     loop {
@@ -69,9 +70,9 @@ pub async fn run(
 
                 send_response(message.resp, Ok(()));
             },
-            _ = &mut task_exit_rx => {
-                break
-            },
+            _ = cancellation_token.cancelled() => {
+                break;
+            }
         };
     }
     info!("Exiting TCP output task ({}:{})", addr, port);
@@ -82,7 +83,7 @@ pub struct OutputTcp {
     addr: String,
     port: u16,
     task_tx: mpsc::Sender<WriteTCPMessage>,
-    task_exit_tx: Option<oneshot::Sender<()>>,
+    task_ct: CancellationToken,
 }
 
 impl OutputTcp {
@@ -98,21 +99,22 @@ impl OutputTcp {
         // TODO: Why 32?
         let (task_tx, task_rx) = mpsc::channel(32);
 
-        // Create a oneshot channel to ask to the ask to end itself
-        let (task_exit_tx, task_exit_rx) = oneshot::channel();
+        // Use a CancellationToken to tell the task to end itself
+        let task_ct = CancellationToken::new();
+        let cloned_task_ct = task_ct.clone();
 
         let addr = config.addr().to_string();
         let port = config.port();
 
         // Launch the task responsible for handling the TCP connection
-        tokio::spawn(async move { run(addr, port, task_rx, task_exit_rx).await });
+        tokio::spawn(async move { run(addr, port, task_rx, cloned_task_ct).await });
 
         Ok(OutputTcp {
             format,
             addr: config.addr().to_string(),
             port: config.port(),
             task_tx,
-            task_exit_tx: Some(task_exit_tx),
+            task_ct,
         })
     }
 }
@@ -154,9 +156,6 @@ impl Output for OutputTcp {
 
 impl Drop for OutputTcp {
     fn drop(&mut self) {
-        if let Some(sender) = self.task_exit_tx.take() {
-            // Using `let _ =` to ignore send errors.
-            let _ = sender.send(());
-        }
+        self.task_ct.cancel();
     }
 }

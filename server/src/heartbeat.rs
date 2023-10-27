@@ -9,11 +9,8 @@ use common::{
     heartbeat::{HeartbeatKey, HeartbeatValue, HeartbeatsCache},
 };
 use log::{debug, error, info};
-use tokio::{
-    select,
-    sync::{mpsc, oneshot},
-    time,
-};
+use tokio::{select, sync::mpsc, time};
+use tokio_util::sync::CancellationToken;
 
 pub async fn store_heartbeat(
     heartbeat_tx: mpsc::Sender<WriteHeartbeatMessage>,
@@ -62,7 +59,7 @@ pub async fn heartbeat_task(
     db: Db,
     interval: u64,
     mut task_rx: mpsc::Receiver<WriteHeartbeatMessage>,
-    mut task_exit_rx: oneshot::Receiver<oneshot::Sender<()>>,
+    cancellation_token: CancellationToken,
 ) {
     info!("Heartbeat task started");
     let mut interval = time::interval(Duration::from_secs(interval));
@@ -117,26 +114,17 @@ pub async fn heartbeat_task(
                     info!("Heartbeat cache flushed and cleared");
                 }
             },
-            sender = &mut task_exit_rx => {
+            _ = cancellation_token.cancelled() => {
+                info!("Heartbeat task received killed signal");
                 if !heartbeats.is_empty() {
                     info!("Flush heartbeat cache before killing the task");
                     if let Err(e) = db.store_heartbeats(&heartbeats).await {
                         error!("Could not store heartbeats in database: {:?}", e);
                     }
                 }
-
-                match sender {
-                    Ok(sender) => {
-                        if let Err(e) = sender.send(()) {
-                            error!("Failed to respond to kill order: {:?}", e);
-                        }
-                    },
-                    Err(e) => {
-                        error!("Could not respond to kill order: {:?}", e);
-                    }
-                }
                 break;
             }
         }
     }
+    info!("Heartbeat task exited");
 }
