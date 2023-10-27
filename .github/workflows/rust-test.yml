@@ -29,6 +29,8 @@ jobs:
         sh up.sh
     - name: Build
       run: cargo build --verbose
+    - name: Clippy
+      run: cargo clippy
     - name: Run tests
       run: |
         # Env var to connect to the Postgres docker
