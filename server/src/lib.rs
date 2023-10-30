@@ -515,7 +515,7 @@ fn create_kerberos_server(
         .tcp_keepalive_interval(tcp_keepalive_interval)
         .tcp_keepalive_retries(tcp_keepalive_probes)
         .serve(make_service)
-        .with_graceful_shutdown(shutdown_signal());
+        .with_graceful_shutdown(http_shutdown_signal());
 
     info!("Server listenning on {}", addr);
     // XXX : because the 2 closures have different types we use this, but may be better way to do this
@@ -611,22 +611,44 @@ fn create_tls_server(
 
     let server = Server::builder(accept::from_stream(incoming))
         .serve(make_service)
-        .with_graceful_shutdown(shutdown_signal());
+        .with_graceful_shutdown(http_shutdown_signal());
 
     info!("Server listenning on {}", addr);
     // XXX : because the 2 closures have different types we use this, but may be better way to do this
     Box::pin(server)
 }
 
-async fn shutdown_signal() {
+enum ShutdownReason {
+    CtrlC,
+    Sigterm,
+}
+
+async fn shutdown_signal() -> ShutdownReason {
     let ctrl_c = tokio::signal::ctrl_c();
     let mut sigterm = tokio::signal::unix::signal(SignalKind::terminate())
         .expect("failed to install SIGTERM handler");
 
     tokio::select! {
-        _ = ctrl_c => { info!("Received CTRL+C") },
-        _ = sigterm.recv() => { info!("Received SIGTERM signal") },
-    };
+        _ = ctrl_c => ShutdownReason::CtrlC,
+        _ = sigterm.recv() => ShutdownReason::Sigterm,
+    }
+}
+
+async fn http_shutdown_signal() {
+    shutdown_signal().await;
+}
+
+async fn force_shutdown_timeout() {
+    match shutdown_signal().await {
+        ShutdownReason::CtrlC => {
+            info!("Received CTRL+C")
+        }
+        ShutdownReason::Sigterm => {
+            info!("Received SIGTERM signal")
+        }
+    }
+    debug!("Start 10 secs timeout before killing HTTP servers");
+    tokio::time::sleep(Duration::from_secs(10)).await;
 }
 
 pub async fn run(settings: Settings, verbosity: u8) {
@@ -742,15 +764,19 @@ pub async fn run(settings: Settings, verbosity: u8) {
         };
     }
 
-    let result = join_all(servers).await;
-
-    for server in result {
-        if let Err(e) = server {
-            error!("Server error: {}", e);
+    tokio::select! {
+        _ = force_shutdown_timeout() => {
+            warn!("HTTP servers graceful shutdown timed out.");
+        },
+        result = join_all(servers) => {
+            for server in result {
+                if let Err(e) = server {
+                    error!("HTTP server error: {}", e);
+                }
+            }
+            info!("HTTP servers have been shutdown gracefully.");
         }
     }
-
-    info!("HTTP server has been shutdown.");
 
     // Signal the task that we want to shutdown
     heartbeat_ct.cancel();
