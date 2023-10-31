@@ -16,10 +16,10 @@ use log::{debug, error};
 use mime::Mime;
 use std::sync::Arc;
 use std::sync::Mutex;
+use thiserror::Error;
 
 use crate::multipart;
 use crate::sldc;
-use crate::AuthenticationResult;
 
 #[derive(Debug)]
 pub struct State {
@@ -57,13 +57,38 @@ fn setup_server_ctx(principal: &[u8]) -> Result<ServerCtx, Error> {
     Ok(ServerCtx::new(server_cred))
 }
 
+pub struct AuthenticationData {
+    principal: String,
+    token: Option<String>,
+}
+
+impl AuthenticationData {
+    pub fn principal(&self) -> &str {
+        self.principal.as_ref()
+    }
+
+    pub fn token(&self) -> Option<&String> {
+        self.token.as_ref()
+    }
+}
+
+#[derive(Error, Debug)]
+pub enum AuthenticationError {
+    #[error("Client request does not contain authorization header")]
+    MissingAuthorizationHeader,
+    #[error(transparent)]
+    Gssapi(#[from] libgssapi::error::Error),
+    #[error(transparent)]
+    Other(#[from] anyhow::Error),
+}
+
 ///
 /// Perform Kerberos authentication
 ///
 pub async fn authenticate(
     conn_state: &Arc<Mutex<State>>,
     req: &Request<Body>,
-) -> Result<AuthenticationResult> {
+) -> Result<AuthenticationData, AuthenticationError> {
     let mut state = conn_state.lock().unwrap();
     let server_ctx = state
         .context
@@ -72,7 +97,7 @@ pub async fn authenticate(
 
     // Server context has already been established for this TCP connection
     if server_ctx.is_complete() {
-        return Ok(AuthenticationResult {
+        return Ok(AuthenticationData {
             principal: server_ctx.source_name()?.to_string(),
             token: None,
         });
@@ -82,7 +107,7 @@ pub async fn authenticate(
     let auth_header = req
         .headers()
         .get(AUTHORIZATION)
-        .ok_or_else(|| anyhow!("Client request does not contain authorization header"))?
+        .ok_or_else(|| AuthenticationError::MissingAuthorizationHeader)?
         .to_str()
         .context("Failed to convert authorization header to str")?;
 
@@ -97,7 +122,7 @@ pub async fn authenticate(
         .context("Failed to perform Kerberos operation")?
     {
         // TODO: should we return Ok in this case ?
-        None => Ok(AuthenticationResult {
+        None => Ok(AuthenticationData {
             principal: server_ctx.source_name()?.to_string(),
             token: None,
         }),
@@ -105,21 +130,22 @@ pub async fn authenticate(
             // TODO: support multiple steps
             // see RFC4559 "5.  Negotiate Operation Example"
             if !server_ctx.is_complete() {
-                bail!(
+                return Err(anyhow!(
                     "Authentication is not complete after first round. Multiple rounds
                     are not supported"
-                );
+                )
+                .into());
             }
             let flags = server_ctx.flags().context("Error in server ctx")?;
             let required_flags = CtxFlags::GSS_C_CONF_FLAG
                 | CtxFlags::GSS_C_MUTUAL_FLAG
                 | CtxFlags::GSS_C_INTEG_FLAG;
             if flags & required_flags != required_flags {
-                bail!("Kerberos flags not compliant");
+                return Err(anyhow!("Kerberos flags not compliant").into());
             }
 
             debug!("Server context info: {:?}", server_ctx.info());
-            Ok(AuthenticationResult {
+            Ok(AuthenticationData {
                 principal: server_ctx.source_name()?.to_string(),
                 token: Some(base64::engine::general_purpose::STANDARD.encode(&*step)),
             })

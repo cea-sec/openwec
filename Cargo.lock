@@ -1914,6 +1914,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha1",
+ "thiserror",
  "tls-listener",
  "tokio",
  "tokio-rustls",
