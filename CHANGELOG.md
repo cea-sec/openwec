@@ -27,6 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A malformed event will no longer stop the event stream (for a computer/subscription) because formatters are not allowed to fail. In problematic cases, some work is done to try to recover the raw data of the event, and an `OpenWEC.Error` field is added (in the JSON formatter) to help catch the problem (#47)
 - **Breaking change**: Split access and server logs. Configuration file format has been updated. (#52)
 - Ensure that openwecd shutdowns gracefully even if hyper server is not responding
+- Improve the logging of failed Kerberos authentications: missing authorization header warning is now in DEBUG level
 
 ## [0.1.0] - 2023-05-30
 

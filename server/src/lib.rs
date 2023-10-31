@@ -32,6 +32,7 @@ use hyper::server::conn::AddrIncoming;
 use hyper::server::conn::AddrStream;
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Request, Response, Server};
+use kerberos::AuthenticationError;
 use lazy_static::lazy_static;
 use libgssapi::error::MajorFlags;
 use log::{debug, error, info, trace, warn};
@@ -117,11 +118,6 @@ impl RequestData {
     pub fn category(&self) -> &RequestCategory {
         &self.category
     }
-}
-
-pub struct AuthenticationResult {
-    principal: String,
-    token: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -211,6 +207,23 @@ fn create_response(
     }
 }
 
+fn log_auth_error(addr: &SocketAddr, req: &Request<Body>, err_str: String, do_warn: bool) {
+    let str_format = format!(
+        "Authentication failed for {}:{} ({}:{}): {}",
+        addr.ip(),
+        addr.port(),
+        req.method(),
+        req.uri(),
+        err_str.replace('\n', " ")
+    );
+
+    if do_warn {
+        warn!("{}", str_format);
+    } else {
+        debug!("{}", str_format);
+    }
+}
+
 async fn authenticate(
     auth_ctx: &AuthenticationContext,
     req: &Request<Body>,
@@ -220,6 +233,7 @@ async fn authenticate(
         AuthenticationContext::Tls(subject, _) => {
             // if subject is empty, show unauthorized error
             if subject.is_empty() {
+                log_auth_error(addr, req, "Empty certificate".to_owned(), true);
                 bail!("Empty certificate")
             }
 
@@ -231,23 +245,24 @@ async fn authenticate(
             let auth_result = kerberos::authenticate(conn_state, req)
                 .await
                 .map_err(|err| {
-                    match err.root_cause().downcast_ref::<libgssapi::error::Error>() {
-                        Some(e) if e.major.bits() == MajorFlags::GSS_S_CONTEXT_EXPIRED.bits() => (),
-                        _ => warn!(
-                            "Authentication failed for {}:{} ({}:{}): {:?}",
-                            addr.ip(),
-                            addr.port(),
-                            req.method(),
-                            req.uri(),
-                            err
-                        ),
-                    };
+                    match err {
+                        AuthenticationError::Gssapi(gssapi_err)
+                            if gssapi_err.major.bits()
+                                != MajorFlags::GSS_S_CONTEXT_EXPIRED.bits() =>
+                        {
+                            log_auth_error(addr, req, format!("{:?}", err), true)
+                        }
+                        AuthenticationError::Other(_) => {
+                            log_auth_error(addr, req, format!("{:?}", err), true)
+                        }
+                        _ => log_auth_error(addr, req, format!("{:?}", err), false),
+                    }
                     err
                 })?;
-            if let Some(token) = auth_result.token {
+            if let Some(token) = auth_result.token() {
                 response = response.header(WWW_AUTHENTICATE, format!("Kerberos {}", token))
             }
-            Ok((auth_result.principal, response))
+            Ok((auth_result.principal().to_owned(), response))
         }
     }
 }
@@ -348,15 +363,7 @@ async fn handle(
     // Check authentication
     let (principal, mut response_builder) = match authenticate(&auth_ctx, &req, &addr).await {
         Ok((principal, builder)) => (principal, builder),
-        Err(e) => {
-            debug!(
-                "Authentication failed for {}:{} ({}:{}): {:?}",
-                addr.ip(),
-                addr.port(),
-                &method,
-                &uri,
-                e
-            );
+        Err(_) => {
             let status = StatusCode::UNAUTHORIZED;
             log_response(&addr, &method, &uri, &start, status, "-");
             return Ok(Response::builder()
