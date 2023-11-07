@@ -120,6 +120,11 @@ async fn main() {
                                 )
                                 .arg(arg!(--filename <FILENAME> "Name of the file where logs will be written.").default_value("messages"))
                             )
+                            .subcommand(
+                                Command::new("unixdatagram")
+                                .about("UnixDatagram output")
+                                .arg(arg!(<path> "Path"))
+                            )
                         )
                         .subcommand(
                             Command::new("delete")

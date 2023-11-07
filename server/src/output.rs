@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use async_trait::async_trait;
-use common::subscription::{FileConfiguration, KafkaConfiguration, SubscriptionOutput, RedisConfiguration};
+use common::subscription::{FileConfiguration, KafkaConfiguration, SubscriptionOutput, RedisConfiguration, UnixDatagramConfiguration};
 
 use crate::{event::EventMetadata, formatter::Format};
 
@@ -12,6 +12,7 @@ pub enum OutputType {
     Kafka(Format, KafkaConfiguration, bool),
     Redis(Format, RedisConfiguration, bool),
     Tcp(Format, String, u16, bool),
+    UnixDatagram(Format, UnixDatagramConfiguration, bool),
 }
 
 impl From<&SubscriptionOutput> for OutputType {
@@ -32,6 +33,9 @@ impl From<&SubscriptionOutput> for OutputType {
                 config.port(),
                 *enabled,
             ),
+            SubscriptionOutput::UnixDatagram(sof, config, enabled) => {
+                OutputType::UnixDatagram(sof.into(), config.clone(), *enabled)
+            }
         }
     }
 }

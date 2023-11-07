@@ -4,7 +4,7 @@ use common::{
     subscription::{
         ContentFormat, FileConfiguration, KafkaConfiguration, PrincsFilter, PrincsFilterOperation,
         SubscriptionData, SubscriptionMachineState, SubscriptionOutput, SubscriptionOutputFormat,
-        TcpConfiguration, RedisConfiguration,
+        TcpConfiguration, RedisConfiguration, UnixDatagramConfiguration,
     },
 };
 use roxmltree::{Document, Node};
@@ -637,6 +637,9 @@ async fn outputs_add(subscription: &mut SubscriptionData, matches: &ArgMatches) 
         Some(("files", matches)) => {
             SubscriptionOutput::Files(format, outputs_add_files(matches)?, true)
         }
+        Some(("unixdatagram", matches)) => {
+            SubscriptionOutput::UnixDatagram(format, outputs_add_unix_datagram(matches)?, true)
+        }
         _ => {
             bail!("Missing output type")
         }
@@ -713,6 +716,16 @@ fn outputs_add_files(matches: &ArgMatches) -> Result<FileConfiguration> {
     let config = FileConfiguration::new(base, split_on_addr_index, append_node_name, filename);
     info!("Adding Files output with config {:?}", config);
     Ok(config)
+}
+
+fn outputs_add_unix_datagram(matches: &ArgMatches) -> Result<UnixDatagramConfiguration> {
+    let path = matches
+        .get_one::<String>("path")
+        .ok_or_else(|| anyhow!("Missing UnixDatagram path"))?
+        .to_owned();
+
+    info!("Adding UnixDatagram output : {}", path);
+    Ok(UnixDatagramConfiguration::new(path))
 }
 
 async fn outputs_delete(subscription: &mut SubscriptionData, matches: &ArgMatches) -> Result<()> {

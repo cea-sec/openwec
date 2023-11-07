@@ -121,6 +121,21 @@ impl FileConfiguration {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+pub struct UnixDatagramConfiguration {
+    path: String,
+}
+
+impl UnixDatagramConfiguration {
+    pub fn new(path: String) -> Self {
+        Self { path }
+    }
+
+    pub fn path(&self) -> &str {
+        self.path.as_ref()
+    }
+}
+
 #[derive(Debug, Serialize, Clone, Eq, PartialEq, Deserialize)]
 pub enum SubscriptionOutput {
     // The last bool indicates whether the output is enabled or not.
@@ -128,6 +143,7 @@ pub enum SubscriptionOutput {
     Kafka(SubscriptionOutputFormat, KafkaConfiguration, bool),
     Tcp(SubscriptionOutputFormat, TcpConfiguration, bool),
     Redis(SubscriptionOutputFormat, RedisConfiguration, bool),
+    UnixDatagram(SubscriptionOutputFormat, UnixDatagramConfiguration, bool),
 }
 
 impl SubscriptionOutput {
@@ -137,6 +153,7 @@ impl SubscriptionOutput {
             SubscriptionOutput::Kafka(format, _, _) => format,
             SubscriptionOutput::Tcp(format, _, _) => format,
             SubscriptionOutput::Redis(format, _, _) => format,
+            SubscriptionOutput::UnixDatagram(format, _, _) => format,
         }
     }
 
@@ -146,6 +163,7 @@ impl SubscriptionOutput {
             SubscriptionOutput::Kafka(_, _, enabled) => *enabled,
             SubscriptionOutput::Tcp(_, _, enabled) => *enabled,
             SubscriptionOutput::Redis(_, _, enabled) => *enabled,
+            SubscriptionOutput::UnixDatagram(_, _, enabled) => *enabled,
         }
     }
 
@@ -162,6 +180,9 @@ impl SubscriptionOutput {
             }
             SubscriptionOutput::Redis(format, config, _) => {
                 SubscriptionOutput::Redis(format.clone(), config.clone(), value)
+            }
+            SubscriptionOutput::UnixDatagram(format, config, _) => {
+                SubscriptionOutput::UnixDatagram(format.clone(), config.clone(), value)
             }
         }
     }
@@ -195,6 +216,13 @@ impl Display for SubscriptionOutput {
                 write!(
                     f,
                     "Enabled: {:?}, Format: {}, Output: Redis({:?})",
+                    enabled, format, config
+                )
+            }
+            SubscriptionOutput::UnixDatagram(format, config, enabled) => {
+                write!(
+                    f,
+                    "Enabled: {:?}, Format: {}, Output: UnixDatagram({:?})",
                     enabled, format, config
                 )
             }

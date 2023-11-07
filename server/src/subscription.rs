@@ -18,7 +18,7 @@ use tokio::{
 use crate::{
     formatter::Format,
     output::Output,
-    outputs::{file::OutputFile, kafka::OutputKafka, tcp::OutputTcp},
+    outputs::{file::OutputFile, kafka::OutputKafka, tcp::OutputTcp, unix::OutputUnixDatagram},
 };
 
 use crate::outputs::redis::OutputRedis;
@@ -78,6 +78,9 @@ impl Subscription {
                     }
                     SubscriptionOutput::Redis(format, config, _) => {
                         Arc::new(Box::new(OutputRedis::new(Format::from(format), config)?))
+                    }
+                    SubscriptionOutput::UnixDatagram(format, config, _) => {
+                        Arc::new(Box::new(OutputUnixDatagram::new(Format::from(format), config)?))
                     }
                 });
             }
