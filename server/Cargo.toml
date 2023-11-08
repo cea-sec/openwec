@@ -24,7 +24,7 @@ mime = "0.3.17"
 quick-xml = "0.31.0"
 roxmltree = "0.18.0"
 tokio = { version = "1.33.0", features = ["full"] }
-rdkafka = { version = "0.34.0", features = ["zstd", "libz", "external-lz4"] }
+rdkafka = { version = "0.35.0", features = ["zstd", "libz", "external-lz4"] }
 regex = "1.9.0"
 lazy_static = "1.4.0"
 uuid = { version = "1.5.0", features = ["v4", "fast-rng"] }
