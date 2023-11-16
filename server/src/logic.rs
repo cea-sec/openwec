@@ -441,7 +441,7 @@ pub async fn handle_message(
     db: Db,
     subscriptions: Subscriptions,
     heartbeat_tx: mpsc::Sender<WriteHeartbeatMessage>,
-    request_data: RequestData,
+    request_data: &RequestData,
     message: &Message,
     auth_ctx: &AuthenticationContext,
 ) -> Result<Response> {
@@ -449,13 +449,13 @@ pub async fn handle_message(
     debug!("Received {} request", action);
 
     if action == ACTION_ENUMERATE {
-        handle_enumerate(collector, &db, subscriptions, &request_data, auth_ctx)
+        handle_enumerate(collector, &db, subscriptions, request_data, auth_ctx)
             .await
             .context("Failed to handle Enumerate action")
     } else if action == ACTION_END || action == ACTION_SUBSCRIPTION_END {
         Ok(Response::err(StatusCode::OK))
     } else if action == ACTION_HEARTBEAT {
-        handle_heartbeat(subscriptions, heartbeat_tx, &request_data, message)
+        handle_heartbeat(subscriptions, heartbeat_tx, request_data, message)
             .await
             .context("Failed to handle Heartbeat action")
     } else if action == ACTION_EVENTS {
@@ -464,7 +464,7 @@ pub async fn handle_message(
             &db,
             subscriptions,
             heartbeat_tx,
-            &request_data,
+            request_data,
             message,
         )
         .await

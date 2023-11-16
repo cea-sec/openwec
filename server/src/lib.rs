@@ -53,7 +53,7 @@ use std::{env, mem};
 use subscription::{reload_subscriptions_task, Subscriptions};
 use tls_listener::TlsListener;
 use tokio::signal::unix::SignalKind;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 use tokio_rustls::server::TlsStream;
 use tokio_rustls::TlsAcceptor;
 use tokio_util::sync::CancellationToken;
@@ -273,7 +273,7 @@ async fn handle_payload(
     db: Db,
     subscriptions: Subscriptions,
     heartbeat_tx: mpsc::Sender<WriteHeartbeatMessage>,
-    request_data: RequestData,
+    request_data: &RequestData,
     request_payload: Option<String>,
     auth_ctx: &AuthenticationContext,
 ) -> Result<(StatusCode, Option<String>)> {
@@ -313,6 +313,24 @@ async fn handle_payload(
     }
 }
 
+enum ConnectionStatus {
+    // Connection aborted before the response completed.
+    Aborted,
+    // Connection may be kept alive after the response is sent.
+    Alive,
+}
+
+impl ConnectionStatus {
+    pub fn as_str(&self) -> &str {
+        // This is inspired by %X of Apache httpd:
+        // https://httpd.apache.org/docs/current/mod/mod_log_config.html
+        match self {
+            Self::Aborted => "X",
+            Self::Alive => "+",
+        }
+    }
+}
+
 fn log_response(
     addr: &SocketAddr,
     method: &str,
@@ -320,8 +338,10 @@ fn log_response(
     start: &Instant,
     status: StatusCode,
     principal: &str,
+    conn_status: ConnectionStatus,
 ) {
     let duration: f32 = start.elapsed().as_micros() as f32;
+
     // MDC is thread related, so it should be safe to use it in a non-async
     // function.
     log_mdc::insert("http_status", status.as_str());
@@ -331,10 +351,18 @@ fn log_response(
     log_mdc::insert("ip", addr.ip().to_string());
     log_mdc::insert("port", addr.port().to_string());
     log_mdc::insert("principal", principal);
+    log_mdc::insert("conn_status", conn_status.as_str());
 
     // Empty message, logging pattern should use MDC
     info!(target: ACCESS_LOGGER, "");
     log_mdc::clear();
+}
+
+fn build_error_response(status: StatusCode) -> Response<Body> {
+    Response::builder()
+        .status(status)
+        .body(Body::empty())
+        .expect("Failed to build HTTP response")
 }
 
 async fn handle(
@@ -365,11 +393,16 @@ async fn handle(
         Ok((principal, builder)) => (principal, builder),
         Err(_) => {
             let status = StatusCode::UNAUTHORIZED;
-            log_response(&addr, &method, &uri, &start, status, "-");
-            return Ok(Response::builder()
-                .status(status)
-                .body(Body::empty())
-                .expect("Failed to build HTTP response"));
+            log_response(
+                &addr,
+                &method,
+                &uri,
+                &start,
+                status,
+                "-",
+                ConnectionStatus::Alive,
+            );
+            return Ok(build_error_response(status));
         }
     };
 
@@ -380,11 +413,16 @@ async fn handle(
         Err(e) => {
             error!("Failed to compute request data: {:?}", e);
             let status = StatusCode::NOT_FOUND;
-            log_response(&addr, &method, &uri, &start, status, &principal);
-            return Ok(Response::builder()
-                .status(status)
-                .body(Body::empty())
-                .expect("Failed to build HTTP response"));
+            log_response(
+                &addr,
+                &method,
+                &uri,
+                &start,
+                status,
+                &principal,
+                ConnectionStatus::Alive,
+            );
+            return Ok(build_error_response(status));
         }
     };
 
@@ -394,11 +432,16 @@ async fn handle(
         Err(e) => {
             error!("Failed to retrieve request payload: {:?}", e);
             let status = StatusCode::BAD_REQUEST;
-            log_response(&addr, &method, &uri, &start, status, &principal);
-            return Ok(Response::builder()
-                .status(status)
-                .body(Body::empty())
-                .expect("Failed to build HTTP response"));
+            log_response(
+                &addr,
+                &method,
+                &uri,
+                &start,
+                status,
+                &principal,
+                ConnectionStatus::Alive,
+            );
+            return Ok(build_error_response(status));
         }
     };
 
@@ -408,27 +451,100 @@ async fn handle(
     );
 
     // Handle request payload, and retrieves response payload
-    let (status, response_payload) = match handle_payload(
-        &server,
-        &collector,
-        db,
-        subscriptions,
-        heartbeat_tx,
-        request_data,
-        request_payload,
-        &auth_ctx,
-    )
-    .await
-    {
-        Ok((status, response_payload)) => (status, response_payload),
-        Err(e) => {
-            error!("Failed to compute a response payload to request: {:?}", e);
+    //
+    // It seems that Hyper can abort the Service future at any time (for example if the client
+    // closes the connection), meaning that any ".await" can be a dead end.
+    // We want to ensure that the payload handling cannot be aborted unexpectedly resulting
+    // in an inconsistent state.
+    // To achieve that, the handle_payload function is executed in an independent Tokio task.
+    //
+    // In practice, Windows clients appear to close connections to their configured WEC server
+    // when they (re-)apply group policies.
+
+    // handle_payload task result will be returned using a oneshot channel
+    let (tx, rx) = oneshot::channel();
+
+    // The following variables need to be cloned because they are moved in the spawned closure
+    let auth_ctx_cloned = auth_ctx.clone();
+    let method_cloned = method.clone();
+    let uri_cloned = uri.clone();
+    let principal_cloned = principal.clone();
+
+    tokio::spawn(async move {
+        let res = handle_payload(
+            &server,
+            &collector,
+            db,
+            subscriptions,
+            heartbeat_tx,
+            &request_data,
+            request_payload,
+            &auth_ctx_cloned,
+        )
+        .await;
+        if let Err(e) = &res {
+            error!(
+                "Failed to compute a response payload to request (from {}:{}): {:?}",
+                request_data.remote_addr().ip(),
+                request_data.remote_addr().port(),
+                e
+            );
+        }
+        if let Err(value) = tx.send(res) {
+            debug!(
+                "Could not send handle_payload result to handling Service for {}:{} (receiver dropped). Result was: {:?}",
+                request_data.remote_addr().ip(),
+                request_data.remote_addr().port(),
+                value
+            );
+            // Log this response with conn_status = Aborted
+            let status = match value {
+                Ok((status, _)) => status,
+                Err(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            };
+            log_response(
+                request_data.remote_addr(),
+                &method_cloned,
+                &uri_cloned,
+                &start,
+                status,
+                &principal_cloned,
+                ConnectionStatus::Aborted,
+            );
+        }
+    });
+
+    // Wait for the handle_payload task to answer using the oneshot channel
+    let (status, response_payload) = match rx.await {
+        Ok(Ok((status, response_payload))) => (status, response_payload),
+        Ok(Err(_)) => {
+            // Ok(Err(_)): the handle_payload task returned an Err
             let status = StatusCode::INTERNAL_SERVER_ERROR;
-            log_response(&addr, &method, &uri, &start, status, &principal);
-            return Ok(Response::builder()
-                .status(status)
-                .body(Body::empty())
-                .expect("Failed to build HTTP response"));
+            log_response(
+                &addr,
+                &method,
+                &uri,
+                &start,
+                status,
+                &principal,
+                ConnectionStatus::Alive,
+            );
+            return Ok(build_error_response(status));
+        }
+        Err(_) => {
+            // Err(_): the handle_payload task "sender" has been dropped (should not happen)
+            error!("handle_payload task sender has been dropped. Maybe the task panicked?");
+            let status = StatusCode::INTERNAL_SERVER_ERROR;
+            log_response(
+                &addr,
+                &method,
+                &uri,
+                &start,
+                status,
+                &principal,
+                ConnectionStatus::Alive,
+            );
+            return Ok(build_error_response(status));
         }
     };
 
@@ -445,15 +561,28 @@ async fn handle(
         Err(e) => {
             error!("Failed to build HTTP response: {:?}", e);
             let status = StatusCode::INTERNAL_SERVER_ERROR;
-            log_response(&addr, &method, &uri, &start, status, &principal);
-            return Ok(Response::builder()
-                .status(status)
-                .body(Body::empty())
-                .expect("Failed to build HTTP response"));
+            log_response(
+                &addr,
+                &method,
+                &uri,
+                &start,
+                status,
+                &principal,
+                ConnectionStatus::Alive,
+            );
+            return Ok(build_error_response(status));
         }
     };
 
-    log_response(&addr, &method, &uri, &start, response.status(), &principal);
+    log_response(
+        &addr,
+        &method,
+        &uri,
+        &start,
+        response.status(),
+        &principal,
+        ConnectionStatus::Alive,
+    );
     Ok(response)
 }
 

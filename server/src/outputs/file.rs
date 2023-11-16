@@ -25,7 +25,7 @@ pub struct WriteFileMessage {
 
 async fn handle_message(
     file_handles: &mut HashMap<PathBuf, File>,
-    message: &mut WriteFileMessage,
+    message: &WriteFileMessage,
 ) -> Result<()> {
     let parent = message
         .path
@@ -67,8 +67,8 @@ pub async fn run(mut task_rx: mpsc::Receiver<WriteFileMessage>, task_ct: Cancell
     let mut file_handles: HashMap<PathBuf, File> = HashMap::new();
     loop {
         tokio::select! {
-            Some(mut message) = task_rx.recv() => {
-                let result = handle_message(&mut file_handles, &mut message).await;
+            Some(message) = task_rx.recv() => {
+                let result = handle_message(&mut file_handles, &message).await;
                 if let Err(e) = message
                     .resp
                     .send(result) {

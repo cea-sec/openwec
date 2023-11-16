@@ -29,6 +29,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Ensure that openwecd shutdowns gracefully even if hyper server is not responding
 - Improve the logging of failed Kerberos authentications: missing authorization header warning is now in DEBUG level
 
+### Fixed
+
+- Fixed an issue that could result in an inconsistent state when a client unexpectedly closes an HTTP connection.
+
 ## [0.1.0] - 2023-05-30
 
 Initial commit containing most of the desired features. The project is still under heavy development and production use without a backup solution should be avoided.

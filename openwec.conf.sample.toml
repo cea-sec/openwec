@@ -110,6 +110,8 @@
 # - ip
 # - port
 # - principal
+# - conn_status: 'X' (connection aborted before the response completed)
+#                '+' (connection may be kept alive after the response is sent)
 # Default value is None, meaning "{X(ip)}:{X(port)} - {X(principal)} [{d}] \"{X(http_uri)}\" {X(http_status)} {X(response_time)}{n}"
 # access_logs_pattern = None
 
