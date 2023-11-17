@@ -16,7 +16,7 @@ base64 = "0.21.2"
 buf-read-ext = "0.4.0"
 http = "0.2.9"
 httparse = "1.8.0"
-hyper = { version = "0.14.26", features = ["full"] }
+hyper = { version = "1.0.1", features = ["full"] }
 itoa = "1.0.6"
 libgssapi = { version = "0.6.4", features = ["iov"] }
 log = "0.4.19"
