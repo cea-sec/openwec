@@ -696,10 +696,7 @@ pub fn parse(payload: &str) -> Result<Message> {
         // the XML parsing can succeed.
         match doc_res {
             Ok(doc) => doc,
-            Err(roxmltree::Error::ParserError(xmlparser::Error::InvalidCdata(
-                xmlparser::StreamError::NonXmlChar(c, pos),
-                _,
-            ))) => {
+            Err(roxmltree::Error::NonXmlChar(c, pos)) => {
                 debug!("Could not parse payload because of a non-XML character {:?} in CDATA at pos {}. Try to sanitize payload.", c, pos);
                 trace!("Payload was {:?}", payload);
                 sanitized_payload.reserve(payload.len());
