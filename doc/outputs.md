@@ -138,6 +138,23 @@ The TCP connection is established when the first event has to be sent. It is kep
 
 You must provide an IP address or a hostname and a port to connect to.
 
+### UNIX domain socket
+
+This output type sends events to a UNIX domain socket. The output can be used to forward events to a local output for
+further processing.
+
+The connection is established when the first event has to be sent.
+
+The path of the receiver socket is the only mandatory parameter.
+
+#### Examples
+
+* Send raw events to a UNIX datagram socket `/run/openwec.sock`:
+
+```
+$ openwec subscriptions edit my-subscription outputs add --format raw unixdatagram /run/openwec.sock
+```
+
 #### Examples
 
 * Send events to a TCP server `my.server.windomain.local` using port `12000`:
@@ -167,7 +184,6 @@ TODO:
 ```
 $ openwec subscriptions edit my-test-subscription outputs add --format <format> redis 127.0.0.1:6377 wec
 ```
-
 
 ## How to add a new output type ?
 
