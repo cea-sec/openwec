@@ -41,7 +41,7 @@ bitreader = "0.3.7"
 rustls = "0.21.6"
 rustls-pemfile = "1.0.3"
 tls-listener = { version = "0.8.0", features = ["hyper-h2", "rustls"] }
-tokio-rustls = "0.24.1"
+tokio-rustls = "0.25.0"
 x509-parser = "0.15.1"
 sha1 = "0.10.5"
 hex = "0.4.3"
