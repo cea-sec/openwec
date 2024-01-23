@@ -634,7 +634,7 @@ impl Database for PostgresDatabase {
 
     async fn store_subscription(&self, subscription: SubscriptionData) -> Result<()> {
         let heartbeat_interval: i32 = subscription.heartbeat_interval().try_into()?;
-        let connection_retry_count: i32 = subscription.connection_retry_count().try_into()?;
+        let connection_retry_count: i32 = subscription.connection_retry_count().into();
         let connection_retry_interval: i32 = subscription.connection_retry_interval().try_into()?;
         let max_time: i32 = subscription.max_time().try_into()?;
         let max_envelope_size: i32 = subscription.max_envelope_size().try_into()?;
