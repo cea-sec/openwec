@@ -68,7 +68,7 @@ openssl req -x509 -nodes -key ca-key.pem -out ca-cert.pem -batch -subj "$SUBJ" -
 
 # Server certificate
 SERVERNAME="$2"
-ISSUERCA=`openssl x509 -in ca-cert.pem -noout -sha1 -fingerprint |sed s/^SHA1\ Fingerprint=//|sed s/://g`
+ISSUERCA=`openssl x509 -in ca-cert.pem -noout -sha1 -fingerprint |sed s/^SHA1\ Fingerprint=//i|sed s/://g`
 SERVERSUBJ="/CN=$SERVERNAME/O=example.local/C=HU/ST=state/L=location"
 CERTDIR=.
 openssl ecparam -out server-key.pem -name $CURVE -genkey
