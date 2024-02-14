@@ -125,8 +125,7 @@ pub mod tests {
     use crate::{
         heartbeat::{HeartbeatKey, HeartbeatValue},
         subscription::{
-            ContentFormat, FileConfiguration, PrincsFilter, PrincsFilterOperation,
-            SubscriptionOutput, SubscriptionOutputFormat,
+            ContentFormat, FileConfiguration, PrincsFilter, PrincsFilterOperation, SubscriptionOutput, SubscriptionOutputDriver, SubscriptionOutputFormat
         },
     };
 
@@ -216,16 +215,16 @@ pub mod tests {
                 Some("couscous,boulette".to_string()),
             )?,
             Some(vec![
-                SubscriptionOutput::Files(
+                SubscriptionOutput::new(
                     SubscriptionOutputFormat::Json,
-                    file_config_1.clone(),
+                    SubscriptionOutputDriver::Files(file_config_1.clone()),
                     true,
                 ),
-                SubscriptionOutput::Files(
+                SubscriptionOutput::new(
                     SubscriptionOutputFormat::Raw,
-                    file_config_2.clone(),
+                    SubscriptionOutputDriver::Files(file_config_2.clone()),
                     false,
-                ),
+                )
             ]),
         );
         db.store_subscription(subscription2).await?;
@@ -252,17 +251,17 @@ pub mod tests {
         assert_eq!(
             tata.outputs(),
             vec![
-                SubscriptionOutput::Files(
+                SubscriptionOutput::new(
                     SubscriptionOutputFormat::Json,
-                    file_config_1.clone(),
-                    true
+                    SubscriptionOutputDriver::Files(file_config_1.clone()),
+                    true,
                 ),
-                SubscriptionOutput::Files(
+                SubscriptionOutput::new(
                     SubscriptionOutputFormat::Raw,
-                    file_config_2.clone(),
+                    SubscriptionOutputDriver::Files(file_config_2.clone()),
                     false,
-                ),
-            ]
+                )
+            ],
         );
         assert_eq!(tata.is_active(), true);
         assert_eq!(tata.is_active_for("couscous"), true);

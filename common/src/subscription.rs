@@ -39,7 +39,7 @@ pub struct RedisConfiguration {
 }
 
 impl RedisConfiguration {
-    pub fn new(addr:String, list: String) -> Self {
+    pub fn new(addr: String, list: String) -> Self {
         RedisConfiguration { addr, list }
     }
 
@@ -52,7 +52,6 @@ impl RedisConfiguration {
     pub fn addr(&self) -> &str {
         self.addr.as_ref()
     }
-
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
@@ -136,100 +135,60 @@ impl UnixDatagramConfiguration {
     }
 }
 
-#[derive(Debug, Serialize, Clone, Eq, PartialEq, Deserialize)]
-pub enum SubscriptionOutput {
-    // The last bool indicates whether the output is enabled or not.
-    Files(SubscriptionOutputFormat, FileConfiguration, bool),
-    Kafka(SubscriptionOutputFormat, KafkaConfiguration, bool),
-    Tcp(SubscriptionOutputFormat, TcpConfiguration, bool),
-    Redis(SubscriptionOutputFormat, RedisConfiguration, bool),
-    UnixDatagram(SubscriptionOutputFormat, UnixDatagramConfiguration, bool),
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+pub enum SubscriptionOutputDriver {
+    Files(FileConfiguration),
+    Kafka(KafkaConfiguration),
+    Tcp(TcpConfiguration),
+    Redis(RedisConfiguration),
+    UnixDatagram(UnixDatagramConfiguration),
+}
+
+#[derive(Serialize, Debug, Deserialize, Clone, Eq, PartialEq)]
+pub struct SubscriptionOutput {
+    format: SubscriptionOutputFormat,
+    driver: SubscriptionOutputDriver,
+    enabled: bool,
 }
 
 impl SubscriptionOutput {
-    pub fn format(&self) -> &SubscriptionOutputFormat {
-        match self {
-            SubscriptionOutput::Files(format, _, _) => format,
-            SubscriptionOutput::Kafka(format, _, _) => format,
-            SubscriptionOutput::Tcp(format, _, _) => format,
-            SubscriptionOutput::Redis(format, _, _) => format,
-            SubscriptionOutput::UnixDatagram(format, _, _) => format,
+    pub fn new(
+        format: SubscriptionOutputFormat,
+        driver: SubscriptionOutputDriver,
+        enabled: bool,
+    ) -> Self {
+        Self {
+            format,
+            driver,
+            enabled,
         }
+    }
+    pub fn format(&self) -> &SubscriptionOutputFormat {
+        &self.format
     }
 
     pub fn is_enabled(&self) -> bool {
-        match self {
-            SubscriptionOutput::Files(_, _, enabled) => *enabled,
-            SubscriptionOutput::Kafka(_, _, enabled) => *enabled,
-            SubscriptionOutput::Tcp(_, _, enabled) => *enabled,
-            SubscriptionOutput::Redis(_, _, enabled) => *enabled,
-            SubscriptionOutput::UnixDatagram(_, _, enabled) => *enabled,
-        }
+        self.enabled
     }
 
-    pub fn set_enabled(&self, value: bool) -> SubscriptionOutput {
-        match self {
-            SubscriptionOutput::Files(format, config, _) => {
-                SubscriptionOutput::Files(format.clone(), config.clone(), value)
-            }
-            SubscriptionOutput::Kafka(format, config, _) => {
-                SubscriptionOutput::Kafka(format.clone(), config.clone(), value)
-            }
-            SubscriptionOutput::Tcp(format, config, _) => {
-                SubscriptionOutput::Tcp(format.clone(), config.clone(), value)
-            }
-            SubscriptionOutput::Redis(format, config, _) => {
-                SubscriptionOutput::Redis(format.clone(), config.clone(), value)
-            }
-            SubscriptionOutput::UnixDatagram(format, config, _) => {
-                SubscriptionOutput::UnixDatagram(format.clone(), config.clone(), value)
-            }
-        }
+    pub fn set_enabled(&mut self, value: bool) {
+        self.enabled = value;
+    }
+
+    pub fn driver(&self) -> &SubscriptionOutputDriver {
+        &self.driver
     }
 }
 
 impl Display for SubscriptionOutput {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            SubscriptionOutput::Files(format, config, enabled) => {
-                write!(
-                    f,
-                    "Enabled: {:?}, Format: {}, Output: Files({:?})",
-                    enabled, format, config
-                )
-            }
-            SubscriptionOutput::Kafka(format, config, enabled) => {
-                write!(
-                    f,
-                    "Enabled: {:?}, Format: {}, Output: Kafka({:?})",
-                    enabled, format, config
-                )
-            }
-            SubscriptionOutput::Tcp(format, config, enabled) => {
-                write!(
-                    f,
-                    "Enabled: {:?}, Format: {}, Output: Tcp({}:{})",
-                    enabled, format, config.addr, config.port
-                )
-            }
-            SubscriptionOutput::Redis(format, config, enabled) => {
-                write!(
-                    f,
-                    "Enabled: {:?}, Format: {}, Output: Redis({:?})",
-                    enabled, format, config
-                )
-            }
-            SubscriptionOutput::UnixDatagram(format, config, enabled) => {
-                write!(
-                    f,
-                    "Enabled: {:?}, Format: {}, Output: UnixDatagram({:?})",
-                    enabled, format, config
-                )
-            }
-        }
+        write!(
+            f,
+            "Enabled: {:?}, Format: {}, Driver: {:?}",
+            self.enabled, self.format, self.driver
+        )
     }
 }
-
 #[derive(Debug, Serialize, Clone, Eq, PartialEq, Deserialize)]
 pub enum SubscriptionOutputFormat {
     Json,
@@ -759,7 +718,7 @@ impl SubscriptionData {
         } else {
             info!("Disabling output {:?}", output);
         }
-        self.outputs[index] = output.set_enabled(value);
+        self.outputs[index].set_enabled(value);
         self.update_version();
         Ok(())
     }

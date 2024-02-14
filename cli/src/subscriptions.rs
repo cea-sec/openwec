@@ -3,8 +3,9 @@ use common::{
     encoding::decode_utf16le,
     subscription::{
         ContentFormat, FileConfiguration, KafkaConfiguration, PrincsFilter, PrincsFilterOperation,
-        SubscriptionData, SubscriptionMachineState, SubscriptionOutput, SubscriptionOutputFormat,
-        TcpConfiguration, RedisConfiguration, UnixDatagramConfiguration,
+        RedisConfiguration, SubscriptionData, SubscriptionMachineState, SubscriptionOutput,
+        SubscriptionOutputDriver, SubscriptionOutputFormat, TcpConfiguration,
+        UnixDatagramConfiguration,
     },
 };
 use roxmltree::{Document, Node};
@@ -629,17 +630,31 @@ async fn outputs_add(subscription: &mut SubscriptionData, matches: &ArgMatches) 
         _ => bail!("Invalid output format"),
     };
     let output = match matches.subcommand() {
-        Some(("tcp", matches)) => SubscriptionOutput::Tcp(format, outputs_add_tcp(matches)?, true),
-        Some(("redis", matches)) => SubscriptionOutput::Redis(format, outputs_add_redis(matches)?, true),
-        Some(("kafka", matches)) => {
-            SubscriptionOutput::Kafka(format, outputs_add_kafka(matches)?, true)
-        }
-        Some(("files", matches)) => {
-            SubscriptionOutput::Files(format, outputs_add_files(matches)?, true)
-        }
-        Some(("unixdatagram", matches)) => {
-            SubscriptionOutput::UnixDatagram(format, outputs_add_unix_datagram(matches)?, true)
-        }
+        Some(("tcp", matches)) => SubscriptionOutput::new(
+            format,
+            SubscriptionOutputDriver::Tcp(outputs_add_tcp(matches)?),
+            true,
+        ),
+        Some(("redis", matches)) => SubscriptionOutput::new(
+            format,
+            SubscriptionOutputDriver::Redis(outputs_add_redis(matches)?),
+            true,
+        ),
+        Some(("kafka", matches)) => SubscriptionOutput::new(
+            format,
+            SubscriptionOutputDriver::Kafka(outputs_add_kafka(matches)?),
+            true,
+        ),
+        Some(("files", matches)) => SubscriptionOutput::new(
+            format,
+            SubscriptionOutputDriver::Files(outputs_add_files(matches)?),
+            true,
+        ),
+        Some(("unixdatagram", matches)) => SubscriptionOutput::new(
+            format,
+            SubscriptionOutputDriver::UnixDatagram(outputs_add_unix_datagram(matches)?),
+            true,
+        ),
         _ => {
             bail!("Missing output type")
         }

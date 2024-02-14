@@ -1,7 +1,7 @@
 use anyhow::Result;
 use common::{
     database::Db,
-    subscription::{SubscriptionData, SubscriptionOutput},
+    subscription::{SubscriptionData, SubscriptionOutputDriver},
 };
 use itertools::Itertools;
 use log::{debug, info, warn};
@@ -66,22 +66,24 @@ impl Subscription {
         // Initialize outputs
         for output_data in self.data.outputs() {
             if output_data.is_enabled() {
-                self.outputs.push(match output_data {
-                    SubscriptionOutput::Files(format, config, _) => {
-                        Arc::new(Box::new(OutputFile::new(Format::from(format), config)))
-                    }
-                    SubscriptionOutput::Kafka(format, config, _) => {
-                        Arc::new(Box::new(OutputKafka::new(Format::from(format), config)?))
-                    }
-                    SubscriptionOutput::Tcp(format, config, _) => {
-                        Arc::new(Box::new(OutputTcp::new(Format::from(format), config)?))
-                    }
-                    SubscriptionOutput::Redis(format, config, _) => {
-                        Arc::new(Box::new(OutputRedis::new(Format::from(format), config)?))
-                    }
-                    SubscriptionOutput::UnixDatagram(format, config, _) => {
-                        Arc::new(Box::new(OutputUnixDatagram::new(Format::from(format), config)?))
-                    }
+                self.outputs.push(match output_data.driver() {
+                    SubscriptionOutputDriver::Files(config) => Arc::new(Box::new(OutputFile::new(
+                        Format::from(output_data.format()),
+                        config,
+                    ))),
+                    SubscriptionOutputDriver::Kafka(config) => Arc::new(Box::new(
+                        OutputKafka::new(Format::from(output_data.format()), config)?,
+                    )),
+                    SubscriptionOutputDriver::Tcp(config) => Arc::new(Box::new(OutputTcp::new(
+                        Format::from(output_data.format()),
+                        config,
+                    )?)),
+                    SubscriptionOutputDriver::Redis(config) => Arc::new(Box::new(
+                        OutputRedis::new(Format::from(output_data.format()), config)?,
+                    )),
+                    SubscriptionOutputDriver::UnixDatagram(config) => Arc::new(Box::new(
+                        OutputUnixDatagram::new(Format::from(output_data.format()), config)?,
+                    )),
                 });
             }
         }

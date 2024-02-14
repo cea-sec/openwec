@@ -2,7 +2,10 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use async_trait::async_trait;
-use common::subscription::{FileConfiguration, KafkaConfiguration, SubscriptionOutput, RedisConfiguration, UnixDatagramConfiguration};
+use common::subscription::{
+    FileConfiguration, KafkaConfiguration, RedisConfiguration, SubscriptionOutput,
+    SubscriptionOutputDriver, UnixDatagramConfiguration,
+};
 
 use crate::{event::EventMetadata, formatter::Format};
 
@@ -17,24 +20,26 @@ pub enum OutputType {
 
 impl From<&SubscriptionOutput> for OutputType {
     fn from(so: &SubscriptionOutput) -> Self {
-        match so {
-            SubscriptionOutput::Files(sof, config, enabled) => {
-                OutputType::Files(sof.into(), config.clone(), *enabled)
+        let format = so.format();
+        let enabled = so.is_enabled();
+        match so.driver() {
+            SubscriptionOutputDriver::Files(config) => {
+                OutputType::Files(format.into(), config.clone(), enabled)
             }
-            SubscriptionOutput::Kafka(sof, config, enabled) => {
-                OutputType::Kafka(sof.into(), config.clone(), *enabled)
+            SubscriptionOutputDriver::Kafka(config) => {
+                OutputType::Kafka(format.into(), config.clone(), enabled)
             }
-            SubscriptionOutput::Redis(sof, config, enabled) => {
-                OutputType::Redis(sof.into(), config.clone(), *enabled)
+            SubscriptionOutputDriver::Redis(config) => {
+                OutputType::Redis(format.into(), config.clone(), enabled)
             }
-            SubscriptionOutput::Tcp(sof, config, enabled) => OutputType::Tcp(
-                sof.into(),
+            SubscriptionOutputDriver::Tcp(config) => OutputType::Tcp(
+                format.into(),
                 config.addr().to_string(),
                 config.port(),
-                *enabled,
+                enabled,
             ),
-            SubscriptionOutput::UnixDatagram(sof, config, enabled) => {
-                OutputType::UnixDatagram(sof.into(), config.clone(), *enabled)
+            SubscriptionOutputDriver::UnixDatagram(config) => {
+                OutputType::UnixDatagram(format.into(), config.clone(), enabled)
             }
         }
     }
