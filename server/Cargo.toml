@@ -38,7 +38,7 @@ xmlparser = "0.13.5"
 itertools = "0.12.0"
 futures = "0.3.28"
 bitreader = "0.3.7"
-rustls = "0.21.6"
+rustls = "0.23.0"
 rustls-pemfile = "1.0.3"
 tls-listener = { version = "0.8.0", features = ["hyper-h2", "rustls"] }
 tokio-rustls = "0.24.1"
