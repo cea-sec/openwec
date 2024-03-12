@@ -5,10 +5,9 @@ use tokio::sync::{mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
 
 use crate::event::EventMetadata;
-use crate::formatter::Format;
-use crate::output::Output;
+use crate::output::OutputDriver;
 use anyhow::{anyhow, bail, Context, Result};
-use common::subscription::FileConfiguration;
+use common::subscription::FilesConfiguration;
 use std::collections::HashMap;
 use std::net::IpAddr;
 use std::sync::Arc;
@@ -17,7 +16,7 @@ use tokio::fs::{create_dir_all, File};
 use tokio::io::AsyncWriteExt;
 
 #[derive(Debug)]
-pub struct WriteFileMessage {
+pub struct WriteFilesMessage {
     path: PathBuf,
     content: String,
     resp: oneshot::Sender<Result<()>>,
@@ -25,7 +24,7 @@ pub struct WriteFileMessage {
 
 async fn handle_message(
     file_handles: &mut HashMap<PathBuf, File>,
-    message: &WriteFileMessage,
+    message: &WriteFilesMessage,
 ) -> Result<()> {
     let parent = message
         .path
@@ -62,7 +61,7 @@ async fn handle_message(
     Ok(())
 }
 
-pub async fn run(mut task_rx: mpsc::Receiver<WriteFileMessage>, task_ct: CancellationToken) {
+pub async fn run(mut task_rx: mpsc::Receiver<WriteFilesMessage>, task_ct: CancellationToken) {
     info!("File output task started");
     let mut file_handles: HashMap<PathBuf, File> = HashMap::new();
     loop {
@@ -83,18 +82,17 @@ pub async fn run(mut task_rx: mpsc::Receiver<WriteFileMessage>, task_ct: Cancell
     info!("Exiting File output task");
 }
 
-pub struct OutputFile {
-    format: Format,
-    config: FileConfiguration,
-    task_tx: mpsc::Sender<WriteFileMessage>,
+pub struct OutputFiles {
+    config: FilesConfiguration,
+    task_tx: mpsc::Sender<WriteFilesMessage>,
     task_ct: CancellationToken,
 }
 
-impl OutputFile {
-    pub fn new(format: Format, config: &FileConfiguration) -> Self {
+impl OutputFiles {
+    pub fn new(config: &FilesConfiguration) -> Self {
         debug!(
-            "Initialize file output with format {:?} and config {:?}",
-            format, config
+            "Initialize Files driver with config {:?}",
+            config
         );
         // Create a communication channel with the task responsible for file management
         // TODO: Why 32?
@@ -109,8 +107,7 @@ impl OutputFile {
             run(task_rx, cloned_task_ct).await;
         });
 
-        OutputFile {
-            format,
+        OutputFiles {
             config: config.clone(),
             task_tx,
             task_ct,
@@ -236,7 +233,7 @@ impl OutputFile {
 }
 
 #[async_trait]
-impl Output for OutputFile {
+impl OutputDriver for OutputFiles {
     async fn write(
         &self,
         metadata: Arc<EventMetadata>,
@@ -260,7 +257,7 @@ impl Output for OutputFile {
         // Create a oneshot channel to retrieve the result of the operation
         let (tx, rx) = oneshot::channel();
         self.task_tx
-            .send(WriteFileMessage {
+            .send(WriteFilesMessage {
                 path,
                 content,
                 resp: tx,
@@ -272,17 +269,9 @@ impl Output for OutputFile {
 
         Ok(())
     }
-
-    fn describe(&self) -> String {
-        format!("Files ({:?})", self.config)
-    }
-
-    fn format(&self) -> &Format {
-        &self.format
-    }
 }
 
-impl Drop for OutputFile {
+impl Drop for OutputFiles {
     fn drop(&mut self) {
         self.task_ct.cancel();
     }
@@ -346,10 +335,10 @@ mod tests {
     #[tokio::test]
     async fn test_build_path() -> Result<()> {
         let config =
-            FileConfiguration::new("/base".to_string(), None, false, "messages".to_string());
+            FilesConfiguration::new("/base".to_string(), None, false, "messages".to_string());
         let ip: IpAddr = "127.0.0.1".parse()?;
 
-        let output_file = OutputFile::new(Format::Json, &config);
+        let output_file = OutputFiles::new(&config);
 
         assert_eq!(
             output_file.build_path(&ip, "princ", None)?,
@@ -357,8 +346,8 @@ mod tests {
         );
 
         let config =
-            FileConfiguration::new("/base".to_string(), None, true, "messages".to_string());
-        let output_file = OutputFile::new(Format::Json, &config);
+            FilesConfiguration::new("/base".to_string(), None, true, "messages".to_string());
+        let output_file = OutputFiles::new(&config);
 
         assert_eq!(
             output_file.build_path(&ip, "princ", Some(&"node".to_string()))?,
@@ -366,8 +355,8 @@ mod tests {
         );
 
         let config =
-            FileConfiguration::new("/base".to_string(), Some(1), true, "messages".to_string());
-        let output_file = OutputFile::new(Format::Json, &config);
+            FilesConfiguration::new("/base".to_string(), Some(1), true, "messages".to_string());
+        let output_file = OutputFiles::new(&config);
 
         assert_eq!(
             output_file.build_path(&ip, "princ", Some(&"node".to_string()))?,
@@ -375,8 +364,8 @@ mod tests {
         );
 
         let config =
-            FileConfiguration::new("/base".to_string(), Some(2), false, "other".to_string());
-        let output_file = OutputFile::new(Format::Json, &config);
+            FilesConfiguration::new("/base".to_string(), Some(2), false, "other".to_string());
+        let output_file = OutputFiles::new(&config);
 
         assert_eq!(
             output_file.build_path(&ip, "princ", Some(&"node".to_string()))?,
@@ -384,8 +373,8 @@ mod tests {
         );
 
         let config =
-            FileConfiguration::new("/base".to_string(), Some(3), false, "messages".to_string());
-        let output_file = OutputFile::new(Format::Json, &config);
+            FilesConfiguration::new("/base".to_string(), Some(3), false, "messages".to_string());
+        let output_file = OutputFiles::new(&config);
 
         assert_eq!(
             output_file.build_path(&ip, "princ", Some(&"node".to_string()))?,
@@ -393,8 +382,8 @@ mod tests {
         );
 
         let config =
-            FileConfiguration::new("/base".to_string(), Some(4), false, "messages".to_string());
-        let output_file = OutputFile::new(Format::Json, &config);
+            FilesConfiguration::new("/base".to_string(), Some(4), false, "messages".to_string());
+        let output_file = OutputFiles::new(&config);
 
         assert_eq!(
             output_file.build_path(&ip, "princ", Some(&"node".to_string()))?,
@@ -402,8 +391,8 @@ mod tests {
         );
 
         let config =
-            FileConfiguration::new("/base".to_string(), Some(5), false, "messages".to_string());
-        let output_file = OutputFile::new(Format::Json, &config);
+            FilesConfiguration::new("/base".to_string(), Some(5), false, "messages".to_string());
+        let output_file = OutputFiles::new(&config);
 
         assert_eq!(
             output_file.build_path(&ip, "princ", Some(&"node".to_string()))?,
@@ -411,23 +400,23 @@ mod tests {
         );
 
         let config =
-            FileConfiguration::new("/base".to_string(), None, true, "messages".to_string());
-        let output_file = OutputFile::new(Format::Json, &config);
+            FilesConfiguration::new("/base".to_string(), None, true, "messages".to_string());
+        let output_file = OutputFiles::new(&config);
 
         assert!(output_file.build_path(&ip, "princ", None).is_err());
 
         let ip: IpAddr = "1:2:3:4:5:6:7:8".parse()?;
         let config =
-            FileConfiguration::new("/base".to_string(), None, false, "messages".to_string());
-        let output_file = OutputFile::new(Format::Json, &config);
+            FilesConfiguration::new("/base".to_string(), None, false, "messages".to_string());
+        let output_file = OutputFiles::new(&config);
         assert_eq!(
             output_file.build_path(&ip, "princ", Some(&"node".to_string()))?,
             PathBuf::from_str("/base/1:2:3:4:5:6:7:8/princ/messages")?
         );
 
         let config =
-            FileConfiguration::new("/base".to_string(), Some(3), false, "messages".to_string());
-        let output_file = OutputFile::new(Format::Json, &config);
+            FilesConfiguration::new("/base".to_string(), Some(3), false, "messages".to_string());
+        let output_file = OutputFiles::new(&config);
         assert_eq!(output_file.build_path(&ip, "princ", Some(&"node".to_string()))?,PathBuf::from_str("/base/1:2:3/1:2:3:4/1:2:3:4:5/1:2:3:4:5:6/1:2:3:4:5:6:7/1:2:3:4:5:6:7:8/princ/messages")?);
         Ok(())
     }

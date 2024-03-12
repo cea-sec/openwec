@@ -1,18 +1,19 @@
 #![allow(clippy::too_many_arguments)]
+#![deny(unsafe_code)]
 
 mod event;
-mod formatter;
 mod heartbeat;
 mod kerberos;
 mod logging;
 mod logic;
 mod multipart;
 mod output;
-mod outputs;
+mod drivers;
 mod sldc;
 mod soap;
 mod subscription;
 mod tls;
+mod formats;
 
 use anyhow::{anyhow, bail, Context, Result};
 use common::database::{db_from_settings, schema_is_up_to_date, Db};

@@ -1,7 +1,7 @@
 use anyhow::Result;
 use common::{
     database::Db,
-    subscription::{SubscriptionData, SubscriptionOutputDriver},
+    subscription::{InternalVersion, PublicVersion, SubscriptionData, SubscriptionOutputFormat},
 };
 use itertools::Itertools;
 use log::{debug, info, warn};
@@ -15,76 +15,51 @@ use tokio::{
     time,
 };
 
-use crate::{
-    formatter::Format,
-    output::Output,
-    outputs::{file::OutputFile, kafka::OutputKafka, tcp::OutputTcp, unix::OutputUnixDatagram},
-};
-
-use crate::outputs::redis::OutputRedis;
+use crate::output::Output;
 
 pub struct Subscription {
     data: SubscriptionData,
-    outputs: Vec<Arc<Box<dyn Output + Send + Sync>>>,
-    formats: HashSet<Format>,
+    // Subscription public version is a bit expensive to compute, so we
+    // store the result in memory
+    public_version: PublicVersion,
+    outputs: Vec<Output>,
+    formats: HashSet<SubscriptionOutputFormat>,
 }
 
 impl TryFrom<SubscriptionData> for Subscription {
     type Error = anyhow::Error;
     fn try_from(data: SubscriptionData) -> Result<Self, Self::Error> {
-        let mut formats: HashSet<Format> = HashSet::new();
+        let mut formats: HashSet<SubscriptionOutputFormat> = HashSet::new();
         for output in data.outputs() {
-            formats.insert(output.format().into());
+            formats.insert(output.format().clone());
         }
         let mut subscription = Subscription {
+            public_version: data.public_version()?,
             data,
             outputs: Vec::new(),
             formats,
         };
-        subscription.init()?;
+        subscription.create_outputs()?;
         Ok(subscription)
     }
 }
 
 impl Subscription {
     /// Get a reference to the subscription's uuid.
-    pub fn uuid(&self) -> &str {
-        self.data.uuid()
+    pub fn uuid_string(&self) -> String {
+        self.data.uuid_string()
     }
 
-    /// Get a reference to the subscription's version.
-    pub fn version(&self) -> &str {
-        self.data.version()
+    /// Get a reference to the subscription's public version.
+    pub fn public_version_string(&self) -> String {
+        self.public_version.to_string().to_uppercase()
     }
 
-    /// Get a reference to the subscription's outputs.
-    pub fn outputs(&self) -> &[Arc<Box<dyn Output + Send + Sync>>] {
-        self.outputs.as_ref()
-    }
-
-    fn init(&mut self) -> Result<()> {
-        // Initialize outputs
+    fn create_outputs(&mut self) -> Result<()> {
         for output_data in self.data.outputs() {
-            if output_data.is_enabled() {
-                self.outputs.push(match output_data.driver() {
-                    SubscriptionOutputDriver::Files(config) => Arc::new(Box::new(OutputFile::new(
-                        Format::from(output_data.format()),
-                        config,
-                    ))),
-                    SubscriptionOutputDriver::Kafka(config) => Arc::new(Box::new(
-                        OutputKafka::new(Format::from(output_data.format()), config)?,
-                    )),
-                    SubscriptionOutputDriver::Tcp(config) => Arc::new(Box::new(OutputTcp::new(
-                        Format::from(output_data.format()),
-                        config,
-                    )?)),
-                    SubscriptionOutputDriver::Redis(config) => Arc::new(Box::new(
-                        OutputRedis::new(Format::from(output_data.format()), config)?,
-                    )),
-                    SubscriptionOutputDriver::UnixDatagram(config) => Arc::new(Box::new(
-                        OutputUnixDatagram::new(Format::from(output_data.format()), config)?,
-                    )),
-                });
+            if output_data.enabled() {
+                self.outputs
+                    .push(Output::new(output_data.format(), output_data.driver())?);
             }
         }
         Ok(())
@@ -94,12 +69,18 @@ impl Subscription {
         &self.data
     }
 
-    pub fn formats(&self) -> &HashSet<Format> {
+    pub fn formats(&self) -> &HashSet<SubscriptionOutputFormat> {
         &self.formats
+    }
+
+    pub fn outputs(&self) -> &[Output] {
+        &self.outputs
     }
 }
 
-pub type Subscriptions = Arc<RwLock<HashMap<String, Arc<Subscription>>>>;
+/// In-memory map of currently active subscriptions
+/// <public version> => <subscription>
+pub type Subscriptions = Arc<RwLock<HashMap<PublicVersion, Arc<Subscription>>>>;
 
 pub async fn reload_subscriptions_task(db: Db, subscriptions: Subscriptions, interval: u64) {
     info!("reload_subscriptions task started");
@@ -133,7 +114,7 @@ async fn reload_subscriptions(
 ) -> Result<()> {
     let db_subscriptions = db.get_subscriptions().await?;
 
-    let mut active_subscriptions: HashSet<String> = HashSet::with_capacity(db_subscriptions.len());
+    let mut active_subscriptions: HashSet<InternalVersion> = HashSet::with_capacity(db_subscriptions.len());
 
     // Take a write lock on subscriptions
     // It will be released at the end of the function
@@ -143,78 +124,86 @@ async fn reload_subscriptions(
         mem_subscriptions.clear();
     }
 
-    for subscription_data in db_subscriptions {
-        let version = subscription_data.version();
+    // mem_subscriptions is indexed on "public version"
+    // To know whether something has changed, we must rely "on internal version"
+    let mem_subscriptions_internal_version: HashSet<InternalVersion> = mem_subscriptions
+        .iter()
+        .map(|(_, subscription)| subscription.data().internal_version())
+        .collect();
 
+    for subscription_data in db_subscriptions {
         if !subscription_data.is_active() {
             debug!(
                 "Subscription {} is disabled or have no enabled outputs",
-                subscription_data.uuid()
+                subscription_data.name(),
             );
             continue;
         }
 
-        active_subscriptions.insert(version.to_string());
+        let internal_version = subscription_data.internal_version();
+
+        active_subscriptions.insert(internal_version);
 
         // Update the in memory representation of this subscription if necessary
-        match mem_subscriptions.get(version) {
+        match mem_subscriptions_internal_version.get(&internal_version) {
             Some(_) => {
                 // This subscription has not been changed. Nothing to do
             }
             None => {
                 debug!(
-                    "Subscription version {} not found in the in memory subscriptions",
-                    version
+                    "Subscription internal version {} not found in the in memory subscriptions",
+                    internal_version
                 );
-                // The version of this subscription does not exist in the in-memory
+                // The internal version of this subscription does not exist in the in-memory
                 // subscriptions HashMap. This may happen in 2 situations:
                 // 1. This is a new subscription. We must add it to the in-memory subscriptions.
                 // 2. The subscription has been updated. We must remove the old subscription and add the new one to the
                 //      in memory subscriptions.
 
                 // `subscription.uuid()` stays the same after an update
-                let old_subscription = {
+                let old_subscription: Option<Arc<Subscription>> = {
                     mem_subscriptions
                         .values()
                         .find(|old_subscription| {
-                            subscription_data.uuid() == old_subscription.uuid()
+                            subscription_data.uuid() == old_subscription.data().uuid()
                         })
                         .cloned()
                 };
 
                 if let Some(old_subscription) = old_subscription {
-                    info!("Subscription {} has been updated", subscription_data.uuid());
-                    mem_subscriptions.remove(old_subscription.version());
+                    info!("Subscription {} has been updated", subscription_data.name());
+                    mem_subscriptions.remove(&old_subscription.public_version);
                 } else {
-                    info!("Subscription {} has been created", subscription_data.uuid());
+                    info!("Subscription {} has been created", subscription_data.name());
                 }
 
                 // Initialize the new subscription and add it to in-memory subscriptions
                 let new_subscription = Arc::new(Subscription::try_from(subscription_data.clone())?);
-                mem_subscriptions.insert(version.to_owned(), new_subscription);
+                // mem_subscriptions is indexed on public version
+                mem_subscriptions.insert(new_subscription.public_version, new_subscription);
             }
         }
     }
 
-    debug!("Active subscriptions are: {:?}", active_subscriptions);
+    debug!("Active subscriptions internal versions are: {:?}", active_subscriptions);
 
     // Make a list of subscriptions that need to be removed from in-memory subscriptions
     // These subscriptions have been disabled or deleted
     let mut to_delete = HashSet::new();
-    for version in mem_subscriptions.keys() {
-        if !active_subscriptions.contains(version) {
-            debug!("Mark {} as 'to delete'", version);
-            to_delete.insert(version.to_string());
+    for subscription in mem_subscriptions.values() {
+        if !active_subscriptions.contains(&subscription.data().internal_version()) {
+            debug!("Mark subscription {} as 'to delete' (public version: {})",  subscription.data().name(), subscription.public_version);
+            to_delete.insert(subscription.public_version);
         }
     }
 
     // Remove listed subscriptions
-    for version in to_delete {
+    for public_version in to_delete {
         info!(
-            "Remove subscription {} from in memory subscriptions",
-            version
+            "Remove public version {} from in memory subscriptions",
+            public_version
         );
-        mem_subscriptions.remove(&version);
+        mem_subscriptions.remove(&public_version);
     }
 
     if mem_subscriptions.is_empty() {
@@ -225,9 +214,11 @@ async fn reload_subscriptions(
             mem_subscriptions
                 .iter()
                 .map(|(_, subscription)| format!(
-                    "\"{}\" ({})",
+                    "\"{}\" (uuid:{}, internal_version:{}, public_version:{})",
                     subscription.data.name(),
-                    subscription.data.uuid()
+                    subscription.data.uuid(),
+                    subscription.data().internal_version(),
+                    subscription.public_version,
                 ))
                 .join(", ")
         );

@@ -12,6 +12,8 @@ mod heartbeats;
 mod stats;
 mod subscriptions;
 mod utils;
+mod config;
+mod skell;
 
 pub async fn run(matches: ArgMatches, help_str: StyledStr) -> Result<()> {
     let settings = Settings::new(matches.get_one::<String>("config"))
@@ -33,7 +35,7 @@ pub async fn run(matches: ArgMatches, help_str: StyledStr) -> Result<()> {
     };
 
     if let Some(matches) = matches.subcommand_matches("subscriptions") {
-        subscriptions::run(&db, matches).await?;
+        subscriptions::run(&db, matches, &settings).await?;
     } else if let Some(matches) = matches.subcommand_matches("heartbeats") {
         heartbeats::run(&db, matches).await?;
     } else if let Some(matches) = matches.subcommand_matches("stats") {

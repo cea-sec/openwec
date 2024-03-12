@@ -28,9 +28,9 @@
 use anyhow::{anyhow, ensure, Context, Error, Result};
 use async_trait::async_trait;
 use deadpool_sqlite::{Config, Pool, Runtime};
-use log::{error, warn};
-use rusqlite::types::Type;
+use log::warn;
 use rusqlite::{named_params, params, Connection, OptionalExtension, Row};
+use uuid::Uuid;
 use std::collections::btree_map::Entry::Vacant;
 use std::collections::{BTreeMap, BTreeSet};
 use std::str::FromStr;
@@ -41,7 +41,7 @@ use crate::bookmark::BookmarkData;
 use crate::database::Database;
 use crate::heartbeat::{HeartbeatData, HeartbeatsCache};
 use crate::subscription::{
-    SubscriptionData, SubscriptionMachine, SubscriptionMachineState, SubscriptionStatsCounters, ContentFormat, PrincsFilter,
+    ContentFormat, InternalVersion, PrincsFilter, SubscriptionData, SubscriptionMachine, SubscriptionMachineState, SubscriptionStatsCounters
 };
 
 use super::schema::{Migration, MigrationBase, Version};
@@ -63,6 +63,18 @@ pub trait SQLiteMigration: Migration {
 pub struct SQLiteDatabase {
     pool: Pool,
     migrations: BTreeMap<Version, Arc<dyn SQLiteMigration + Send + Sync>>,
+}
+
+fn optional<T>(res: Result<T>) -> Result<Option<T>> {
+    match res {
+        Ok(value) => Ok(Some(value)),
+        Err(e) => {
+            match e.downcast_ref::<rusqlite::Error>() {
+                Some(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+                _ => Err(e),
+            }
+        }
+    }
 }
 
 impl SQLiteDatabase {
@@ -89,33 +101,6 @@ impl SQLiteDatabase {
         }
     }
 
-    async fn get_subscription_by_field(
-        &self,
-        field: &'static str,
-        value: String,
-    ) -> Result<Option<SubscriptionData>> {
-        self.pool
-            .get()
-            .await?
-            .interact(move |conn| {
-                conn.query_row(
-                    format!(
-                        r#"SELECT *
-                        FROM subscriptions
-                        WHERE {} = :value"#,
-                        field
-                    )
-                    .as_str(),
-                    &[(":value", &value)],
-                    row_to_subscription,
-                )
-                .optional()
-                .map_err(|err| anyhow!(err))
-            })
-            .await
-            .map_err(|err| anyhow!(format!("{}", err)))?
-    }
-
     async fn get_heartbeats_by_field(
         &self,
         field: &'static str,
@@ -138,7 +123,7 @@ impl SQLiteDatabase {
                         )
                         .as_str()
                     )?;
-                    let rows = statement.query_map(&[(":field_value", &field_value), (":subscription", &value)], row_to_heartbeat)?;
+                    let rows = statement.query_and_then(&[(":field_value", &field_value), (":subscription", &value)], row_to_heartbeat)?;
 
                     let mut heartbeats = Vec::new(); 
                     for heartbeat in rows {
@@ -156,7 +141,7 @@ impl SQLiteDatabase {
                         )
                         .as_str()
                     )?;
-                    let rows = statement.query_map(&[(":field_value", &field_value)], row_to_heartbeat)?;
+                    let rows = statement.query_and_then(&[(":field_value", &field_value)], row_to_heartbeat)?;
                     let mut heartbeats = Vec::new(); 
                     for heartbeat in rows {
                         heartbeats.push(heartbeat?);
@@ -169,47 +154,43 @@ impl SQLiteDatabase {
     }
 }
 
-fn row_to_subscription(row: &Row) -> Result<SubscriptionData, rusqlite::Error> {
+fn row_to_subscription(row: &Row) -> Result<SubscriptionData> {
     let outputs_str: String = row.get("outputs")?;
-    let outputs = match serde_json::from_str(&outputs_str) {
-        Ok(outputs) => outputs,
-        Err(e) => {
-            error!(
-                "Failed to parse subscription output : {}. Subscription output is {}",
-                e, outputs_str
-            );
-            // We are forced to create a rusqlite::Error
-            return Err(rusqlite::Error::InvalidColumnType(
-                9,
-                "outputs".to_owned(),
-                Type::Text,
-            ));
-        }
-    };
-    let content_format = ContentFormat::from_str(row.get::<&str, String>("content_format")?.as_ref()).map_err(|_| rusqlite::Error::InvalidColumnType(12, "content_format".to_owned(), Type::Text))?;
-    let princs_filter = PrincsFilter::from(row.get("princs_filter_op")?, row.get("princs_filter_value")?).map_err(|_| rusqlite::Error::InvalidColumnType(12, "princs_filter".to_owned(), Type::Text))?;
+    let outputs = serde_json::from_str(&outputs_str).context("Failed to parse subscription output")?;
 
-    Ok(SubscriptionData::from(
-        row.get("uuid")?,
-        row.get("version")?,
-        row.get("name")?,
-        row.get("uri")?,
-        row.get("query")?,
-        row.get("heartbeat_interval")?,
-        row.get("connection_retry_count")?,
-        row.get("connection_retry_interval")?,
-        row.get("max_time")?,
-        row.get("max_envelope_size")?,
-        row.get("enabled")?,
-        row.get("read_existing_events")?,
-        content_format,
-        row.get("ignore_channel_error")?,
-        princs_filter,
-        outputs,
-    ))
+    // row.get can not convert into &str, so we retrieve String(s) first
+    let name: String = row.get("name")?;
+    let uuid: String = row.get("uuid")?;
+    let version: String = row.get("version")?;
+    let query: String = row.get("query")?;
+
+    let content_format = ContentFormat::from_str(row.get::<&str, String>("content_format")?.as_ref())?;
+    let princs_filter = PrincsFilter::from(row.get("princs_filter_op")?, row.get("princs_filter_value")?)?;
+
+    let mut subscription= SubscriptionData::new(&name, &query);
+    subscription.set_uuid(Uuid::parse_str(&uuid)?)
+        .set_uri(row.get("uri")?)
+        .set_revision(row.get("revision")?)
+        .set_heartbeat_interval(row.get("heartbeat_interval")?)
+        .set_connection_retry_count(row.get("connection_retry_count")?)
+        .set_connection_retry_interval(row.get("connection_retry_interval")?)
+        .set_max_time(row.get("max_time")?)
+        .set_max_envelope_size(row.get("max_envelope_size")?)
+        .set_enabled(row.get("enabled")?)
+        .set_read_existing_events(row.get("read_existing_events")?)
+        .set_content_format(content_format)
+        .set_ignore_channel_error(row.get("ignore_channel_error")?)
+        .set_princs_filter(princs_filter)
+        .set_outputs(outputs);
+
+    // This needs to be done at the end because version is updated each time
+    // a "set_" function is called
+    subscription.set_internal_version(InternalVersion(Uuid::parse_str(&version)?));
+
+    Ok(subscription)
 }
 
-fn row_to_heartbeat(row: &Row) -> Result<HeartbeatData, rusqlite::Error> {
+fn row_to_heartbeat(row: &Row) -> Result<HeartbeatData> {
     let subscription = row_to_subscription(row)?;
     let heartbeat = HeartbeatData::new(
         row.get("machine")?,
@@ -379,7 +360,7 @@ impl Database for SQLiteDatabase {
                     JOIN subscriptions ON subscriptions.uuid = heartbeats.subscription
                     "#,
                 )?;
-                let rows = statement.query_map((), row_to_heartbeat)?;
+                let rows = statement.query_and_then((), row_to_heartbeat)?;
 
                 let mut heartbeats = Vec::new();
                 for heartbeat in rows {
@@ -407,7 +388,7 @@ impl Database for SQLiteDatabase {
                     WHERE subscription = :subscription"#,
                 )?;
                 let rows = statement
-                    .query_map(&[(":subscription", &subscription_owned)], row_to_heartbeat)?;
+                    .query_and_then(&[(":subscription", &subscription_owned)], row_to_heartbeat)?;
 
                 let mut heartbeats = Vec::new();
                 for heartbeat in rows {
@@ -525,7 +506,7 @@ impl Database for SQLiteDatabase {
                     FROM subscriptions
                 "#,
                 )?;
-                let rows = statement.query_map((), row_to_subscription)?;
+                let rows = statement.query_and_then((), row_to_subscription)?;
 
                 let mut subscriptions = Vec::new();
                 for subscription in rows {
@@ -537,11 +518,6 @@ impl Database for SQLiteDatabase {
             .map_err(|err| anyhow!(format!("{}", err)))?
     }
 
-    async fn get_subscription(&self, version: &str) -> Result<Option<SubscriptionData>> {
-        self.get_subscription_by_field("version", version.to_string())
-            .await
-    }
-
     async fn get_subscription_by_identifier(
         &self,
         identifier: &str,
@@ -551,37 +527,39 @@ impl Database for SQLiteDatabase {
             .get()
             .await?
             .interact(move |conn| {
-                conn.query_row(
-                    r#"SELECT *
-                    FROM subscriptions
-                    WHERE name = :identifier OR uuid = :identifier"#,
-                    &[(":identifier", &identifier)],
-                    row_to_subscription,
+                optional(
+                    conn.query_row_and_then(
+                        r#"SELECT *
+                        FROM subscriptions
+                        WHERE name = :identifier OR uuid = :identifier"#,
+                        &[(":identifier", &identifier)],
+                        row_to_subscription,
+                    )
                 )
-                .optional()
-                .map_err(|err| anyhow!(err))
             })
             .await
             .map_err(|err| anyhow!(format!("{}", err)))?
     }
 
-    async fn store_subscription(&self, subscription: SubscriptionData) -> Result<()> {
+    async fn store_subscription(&self, subscription: &SubscriptionData) -> Result<()> {
+        let subscription = subscription.clone();
         let count = self
             .pool
             .get()
             .await?
             .interact(move |conn| {
                 conn.execute(
-                    r#"INSERT INTO subscriptions (uuid, version, name, uri, query,
+                    r#"INSERT INTO subscriptions (uuid, version, revision, name, uri, query,
                     heartbeat_interval, connection_retry_count, connection_retry_interval,
                     max_time, max_envelope_size, enabled, read_existing_events, content_format, 
                     ignore_channel_error, princs_filter_op, princs_filter_value, outputs)
-                    VALUES (:uuid, :version, :name, :uri, :query,
+                    VALUES (:uuid, :version, :revision, :name, :uri, :query,
                         :heartbeat_interval, :connection_retry_count, :connection_retry_interval,
                         :max_time, :max_envelope_size, :enabled, :read_existing_events, :content_format,
                         :ignore_channel_error, :princs_filter_op, :princs_filter_value, :outputs)
                     ON CONFLICT (uuid) DO UPDATE SET 
                         version = excluded.version,
+                        revision = excluded.revision,
                         name = excluded.name,
                         uri = excluded.uri,
                         query = excluded.query,
@@ -598,8 +576,9 @@ impl Database for SQLiteDatabase {
                         princs_filter_value = excluded.princs_filter_value,
                         outputs = excluded.outputs"#,
                     named_params! {
-                        ":uuid": subscription.uuid(),
-                        ":version": subscription.version(),
+                        ":uuid": subscription.uuid_string(),
+                        ":version": subscription.internal_version().to_string(),
+                        ":revision": subscription.revision(),
                         ":name": subscription.name(),
                         ":uri": subscription.uri(),
                         ":query": subscription.query(),

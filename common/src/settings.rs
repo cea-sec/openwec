@@ -20,6 +20,7 @@ pub enum Database {
 }
 
 #[derive(Debug, Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
 pub struct Tls {
     server_certificate: String,
     server_private_key: String,
@@ -41,6 +42,7 @@ impl Tls {
 }
 
 #[derive(Debug, Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
 pub struct Collector {
     hostname: String,
     listen_address: String,
@@ -71,6 +73,7 @@ impl Collector {
 }
 
 #[derive(Debug, Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
 pub struct Kerberos {
     service_principal_name: String,
 }
@@ -88,6 +91,7 @@ impl Kerberos {
 }
 
 #[derive(Debug, Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
 pub struct SQLite {
     path: String,
 }
@@ -107,6 +111,7 @@ pub enum PostgresSslMode {
 }
 
 #[derive(Debug, Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
 pub struct Postgres {
     host: String,
     port: u16,
@@ -120,6 +125,7 @@ pub struct Postgres {
 }
 
 impl Postgres {
+    #[cfg(test)]
     pub fn new(
         host: &str,
         port: u16,
@@ -198,6 +204,7 @@ impl FromStr for LoggingType {
 }
 
 #[derive(Debug, Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
 pub struct Logging {
     verbosity: Option<String>,
     access_logs: Option<String>,
@@ -238,6 +245,7 @@ impl Logging {
 }
 
 #[derive(Debug, Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
 pub struct Server {
     db_sync_interval: Option<u64>,
     flush_heartbeats_interval: Option<u64>,
@@ -283,12 +291,30 @@ impl Server {
     }
 }
 
+#[derive(Debug, Deserialize, Clone, Default)]
+#[serde(deny_unknown_fields)]
+pub struct Cli {
+    // When set, subscriptions can only be written using 
+    // openwec subscriptions load`, defaults to false.
+    #[serde(default)]
+    read_only_subscriptions: bool,
+}
+
+impl Cli {
+    pub fn read_only_subscriptions(&self) -> bool {
+        self.read_only_subscriptions
+    }
+}
+
 #[derive(Debug, Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
 pub struct Settings {
     collectors: Vec<Collector>,
     database: Database,
     server: Server,
     logging: Logging,
+    #[serde(default)]
+    cli: Cli
 }
 
 impl std::str::FromStr for Settings {
@@ -321,6 +347,10 @@ impl Settings {
 
     pub fn logging(&self) -> &Logging {
         &self.logging
+    }
+
+    pub fn cli(&self) -> &Cli {
+        &self.cli
     }
 }
 
@@ -457,5 +487,42 @@ mod tests {
         assert_eq!(s.server().tcp_keepalive_time(), 7200);
         assert!(s.server().tcp_keepalive_intvl().is_none());
         assert!(s.server().tcp_keepalive_probes().is_none());
+        assert_eq!(s.cli().read_only_subscriptions(), false);
+    }
+
+    const CONFIG_TLS_POSTGRES_WITH_CLI: &str = r#"
+        [server]
+
+        [logging]
+        access_logs = "/tmp/toto"
+        server_logs_pattern = "toto"
+        access_logs_pattern = "tutu"
+
+        [database]
+        type =  "Postgres"
+        host = "localhost"
+        port = 26257
+        dbname = "test"
+        user = "root"
+        password = ""
+
+        [[collectors]]
+        hostname = "wec.windomain.local"
+        listen_address = "0.0.0.0"
+
+        [collectors.authentication]
+        type = "Tls"
+        server_certificate = "/etc/server_certificate.pem"
+        server_private_key = "/etc/server_private_key.pem"
+        ca_certificate = "/etc/ca_certificate.pem"
+
+        [cli]
+        read_only_subscriptions = true
+    "#;
+
+    #[test]
+    fn test_settings_tls_postgres_with_cli() {
+        let s = Settings::from_str(CONFIG_TLS_POSTGRES_WITH_CLI).unwrap();
+        assert_eq!(s.cli().read_only_subscriptions(), true);
     }
 }

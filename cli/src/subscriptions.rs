@@ -1,8 +1,9 @@
 use common::{
     database::Db,
     encoding::decode_utf16le,
+    settings::Settings,
     subscription::{
-        ContentFormat, FileConfiguration, KafkaConfiguration, PrincsFilter, PrincsFilterOperation,
+        ContentFormat, FilesConfiguration, KafkaConfiguration, PrincsFilterOperation,
         RedisConfiguration, SubscriptionData, SubscriptionMachineState, SubscriptionOutput,
         SubscriptionOutputDriver, SubscriptionOutputFormat, TcpConfiguration,
         UnixDatagramConfiguration,
@@ -13,55 +14,73 @@ use std::{
     collections::{HashMap, HashSet},
     fs::File,
     io::{BufReader, Read},
+    path::Path,
     str::FromStr,
     time::SystemTime,
 };
+use uuid::Uuid;
 
 use anyhow::{anyhow, bail, ensure, Context, Result};
 use clap::ArgMatches;
 use log::{debug, info, warn};
+use std::io::Write;
 
-use crate::utils::{self, confirm};
+use crate::{
+    config, skell::{get_full_skell_content, get_minimal_skell_content}, utils::{self, confirm}
+};
 
 enum ImportFormat {
     OpenWEC,
     Windows,
 }
 
-pub async fn run(db: &Db, matches: &ArgMatches) -> Result<()> {
+pub async fn run(db: &Db, matches: &ArgMatches, settings: &Settings) -> Result<()> {
     match matches.subcommand() {
         Some(("new", matches)) => {
+            check_subscriptions_ro(settings)?;
             new(db, matches).await?;
         }
         Some(("show", matches)) => {
             show(db, matches).await?;
         }
         Some(("edit", matches)) => {
+            check_subscriptions_ro(settings)?;
             edit(db, matches).await?;
         }
         Some(("export", matches)) => {
             export(db, matches).await?;
         }
         Some(("import", matches)) => {
+            check_subscriptions_ro(settings)?;
             import(db, matches).await?;
         }
         Some(("delete", matches)) => {
+            check_subscriptions_ro(settings)?;
             delete(db, matches).await?;
         }
         Some(("machines", matches)) => {
             machines(db, matches).await?;
         }
         Some(("duplicate", matches)) => {
+            check_subscriptions_ro(settings)?;
             duplicate(db, matches).await?;
         }
         Some(("enable", matches)) => {
+            check_subscriptions_ro(settings)?;
             set_enable(db, matches, true).await?;
         }
         Some(("disable", matches)) => {
+            check_subscriptions_ro(settings)?;
             set_enable(db, matches, false).await?;
         }
         Some(("reload", matches)) => {
             reload(db, matches).await?;
+        }
+        Some(("load", matches)) => {
+            load(db, matches).await?;
+        }
+        Some(("skell", matches)) => {
+            skell(db, matches).await?;
         }
         _ => {
             list(db, matches).await?;
@@ -98,8 +117,6 @@ async fn show(db: &Db, matches: &ArgMatches) -> Result<()> {
         .context("Failed to retrieve subscription from database")?;
 
     println!("{}", subscription);
-    println!("Event filter query:\n");
-    println!("{}", subscription.query());
     Ok(())
 }
 
@@ -117,7 +134,7 @@ async fn duplicate(db: &Db, matches: &ArgMatches) -> Result<()> {
             .expect("Required by clap")
             .to_string(),
     );
-    db.store_subscription(new).await?;
+    db.store_subscription(&new).await?;
 
     Ok(())
 }
@@ -133,7 +150,7 @@ async fn export(db: &Db, matches: &ArgMatches) -> Result<()> {
             .context("Failed to retrieve subscriptions from database")?
     };
 
-    let res = serde_json::to_string(&subscriptions)?;
+    let res = common::models::export::serialize(&subscriptions)?;
     println!("{}", res);
     Ok(())
 }
@@ -339,7 +356,7 @@ async fn edit(db: &Db, matches: &ArgMatches) -> Result<()> {
         subscription.name(),
         subscription.uuid()
     );
-    db.store_subscription(subscription).await?;
+    db.store_subscription(&subscription).await?;
     Ok(())
 }
 
@@ -364,37 +381,55 @@ async fn new(db: &Db, matches: &ArgMatches) -> Result<()> {
             .expect("Defaulted by clap"),
     )?;
 
-    let subscription = SubscriptionData::new(
+    let mut subscription = SubscriptionData::new(
         matches.get_one::<String>("name").expect("Required by clap"),
-        matches.get_one::<String>("uri").map(|e| e.as_str()),
         &query,
-        matches.get_one::<u32>("heartbeat-interval"),
-        matches.get_one::<u16>("connection-retry-count"),
-        matches.get_one::<u32>("connection-retry-interval"),
-        matches.get_one::<u32>("max-time"),
-        matches.get_one::<u32>("max-envelope-size"),
-        false,
-        *matches
-            .get_one::<bool>("read-existing-events")
-            .expect("defaulted by clap"),
-        content_format,
-        *matches
-            .get_one::<bool>("ignore-channel-error")
-            .expect("Defaulted by clap"),
-        PrincsFilter::empty(),
-        None,
     );
+    subscription
+        .set_uri(matches.get_one::<String>("uri").cloned())
+        .set_enabled(false)
+        .set_read_existing_events(
+            *matches
+                .get_one::<bool>("read-existing-events")
+                .expect("defaulted by clap"),
+        )
+        .set_content_format(content_format)
+        .set_ignore_channel_error(
+            *matches
+                .get_one::<bool>("ignore-channel-error")
+                .expect("Defaulted by clap"),
+        );
+
+    if let Some(heartbeat_interval) = matches.get_one::<u32>("heartbeat-interval") {
+        subscription.set_heartbeat_interval(*heartbeat_interval);
+    }
+
+    if let Some(connection_retry_count) = matches.get_one::<u16>("connection-retry-count") {
+        subscription.set_connection_retry_count(*connection_retry_count);
+    }
+
+    if let Some(connection_retry_interval) = matches.get_one::<u32>("connection-retry-interval") {
+        subscription.set_connection_retry_interval(*connection_retry_interval);
+    }
+
+    if let Some(max_time) = matches.get_one::<u32>("max-time") {
+        subscription.set_max_time(*max_time);
+    }
+
+    if let Some(max_envelope_size) = matches.get_one::<u32>("max-envelope-size") {
+        subscription.set_max_envelope_size(*max_envelope_size);
+    }
+
     debug!(
         "Subscription that is going to be inserted: {:?}",
         subscription
     );
-    let name = subscription.name().to_owned();
-    db.store_subscription(subscription).await?;
+    db.store_subscription(&subscription).await?;
     println!(
         "Subscription {} has been created successfully. \
         You need to configure its outputs using `openwec subscriptions edit {} outputs add --help`. \
         When you are ready, you can enable it using `openwec subscriptions edit {} --enable",
-        name, name, name
+        subscription.name(), subscription.name(), subscription.name()
     );
     Ok(())
 }
@@ -425,7 +460,7 @@ async fn import(db: &Db, matches: &ArgMatches) -> Result<()> {
         subscription.set_enabled(false);
 
         debug!("Store {:?}", subscription);
-        db.store_subscription(subscription)
+        db.store_subscription(&subscription)
             .await
             .context("Failed to store subscription")?;
     }
@@ -438,8 +473,11 @@ async fn import(db: &Db, matches: &ArgMatches) -> Result<()> {
     Ok(())
 }
 
-fn import_openwec(reader: BufReader<File>) -> Result<Vec<SubscriptionData>> {
-    Ok(serde_json::from_reader(reader)?)
+fn import_openwec(mut reader: BufReader<File>) -> Result<Vec<SubscriptionData>> {
+    let mut buffer = String::new();
+    reader.read_to_string(&mut buffer)?;
+
+    common::models::export::parse(&buffer)
 }
 
 fn import_windows(mut reader: BufReader<File>) -> Result<Vec<SubscriptionData>> {
@@ -456,10 +494,13 @@ fn import_windows(mut reader: BufReader<File>) -> Result<Vec<SubscriptionData>> 
         "Invalid subscription format"
     );
 
-    let mut data = SubscriptionData::empty();
+    // We initialize subscription data with empty name and query
+    // They will be overwritten later
+    let mut data = SubscriptionData::new("", "");
+
     for node in root.children() {
         if node.has_tag_name("SubscriptionId") && node.text().is_some() {
-            data.set_name(node.text().map(String::from).unwrap())
+            data.set_name(node.text().map(String::from).unwrap());
         } else if node.has_tag_name("SubscriptionType") && node.text().is_some() {
             ensure!(
                 node.text().map(String::from).unwrap() == "SourceInitiated",
@@ -482,7 +523,7 @@ fn import_windows(mut reader: BufReader<File>) -> Result<Vec<SubscriptionData>> 
                         if batching_node.has_tag_name("MaxLatencyTime")
                             && batching_node.text().is_some()
                         {
-                            data.set_max_time(batching_node.text().unwrap().parse::<u32>()?)
+                            data.set_max_time(batching_node.text().unwrap().parse::<u32>()?);
                         }
                     }
                 } else if delivery_node.has_tag_name("PushSettings") {
@@ -520,7 +561,7 @@ async fn delete(db: &Db, matches: &ArgMatches) -> Result<()> {
     {
         return Ok(());
     }
-    db.delete_subscription(subscription.uuid()).await
+    db.delete_subscription(&subscription.uuid_string()).await
 }
 
 async fn edit_filter(subscription: &mut SubscriptionData, matches: &ArgMatches) -> Result<()> {
@@ -621,14 +662,11 @@ async fn outputs(subscription: &mut SubscriptionData, matches: &ArgMatches) -> R
 }
 
 async fn outputs_add(subscription: &mut SubscriptionData, matches: &ArgMatches) -> Result<()> {
-    let format: SubscriptionOutputFormat = match matches
-        .get_one::<String>("format")
-        .ok_or_else(|| anyhow!("Missing format argument"))?
-    {
-        x if x == "raw" => SubscriptionOutputFormat::Raw,
-        x if x == "json" => SubscriptionOutputFormat::Json,
-        _ => bail!("Invalid output format"),
-    };
+    let format: SubscriptionOutputFormat = SubscriptionOutputFormat::from_str(
+        matches
+            .get_one::<String>("format")
+            .ok_or_else(|| anyhow!("Missing format argument"))?,
+    )?;
     let output = match matches.subcommand() {
         Some(("tcp", matches)) => SubscriptionOutput::new(
             format,
@@ -671,7 +709,7 @@ fn outputs_add_tcp(matches: &ArgMatches) -> Result<TcpConfiguration> {
         .get_one::<u16>("port")
         .ok_or_else(|| anyhow!("Missing TCP port"))?;
 
-    info!("Adding TCP output : {}:{}", addr, port);
+    info!("Adding TCP output: {}:{}", addr, port);
     Ok(TcpConfiguration::new(addr.clone(), *port))
 }
 
@@ -684,7 +722,7 @@ fn outputs_add_redis(matches: &ArgMatches) -> Result<RedisConfiguration> {
         .get_one::<String>("list")
         .ok_or_else(|| anyhow!("Missing Redis list"))?;
 
-    info!("Adding Redis output : address: {}, list {}", addr, list);
+    info!("Adding Redis output: address: {}, list {}", addr, list);
     Ok(RedisConfiguration::new(addr.clone(), list.clone()))
 }
 
@@ -713,7 +751,7 @@ fn outputs_add_kafka(matches: &ArgMatches) -> Result<KafkaConfiguration> {
     Ok(KafkaConfiguration::new(topic.clone(), options_hashmap))
 }
 
-fn outputs_add_files(matches: &ArgMatches) -> Result<FileConfiguration> {
+fn outputs_add_files(matches: &ArgMatches) -> Result<FilesConfiguration> {
     let base = matches
         .get_one::<String>("base")
         .ok_or_else(|| anyhow!("Missing files base path"))?
@@ -728,7 +766,7 @@ fn outputs_add_files(matches: &ArgMatches) -> Result<FileConfiguration> {
         .expect("defaulted by clap")
         .to_owned();
 
-    let config = FileConfiguration::new(base, split_on_addr_index, append_node_name, filename);
+    let config = FilesConfiguration::new(base, split_on_addr_index, append_node_name, filename);
     info!("Adding Files output with config {:?}", config);
     Ok(config)
 }
@@ -739,7 +777,7 @@ fn outputs_add_unix_datagram(matches: &ArgMatches) -> Result<UnixDatagramConfigu
         .ok_or_else(|| anyhow!("Missing UnixDatagram path"))?
         .to_owned();
 
-    info!("Adding UnixDatagram output : {}", path);
+    info!("Adding UnixDatagram output: {}", path);
     Ok(UnixDatagramConfiguration::new(path))
 }
 
@@ -838,7 +876,7 @@ async fn machines(db: &Db, matches: &ArgMatches) -> Result<()> {
     };
 
     let machines = db
-        .get_machines(subscription.uuid(), start_heartbeat_interval, state)
+        .get_machines(&subscription.uuid_string(), start_heartbeat_interval, state)
         .await
         .context("Failed to retrieve machines for subscription")?;
 
@@ -871,7 +909,7 @@ async fn set_enable(db: &Db, matches: &ArgMatches, value: bool) -> Result<()> {
     }
 
     for subscription in to_store {
-        db.store_subscription(subscription.clone())
+        db.store_subscription(&subscription)
             .await
             .context("Failed to store subscription in db")?;
         if value {
@@ -888,8 +926,8 @@ async fn reload(db: &Db, matches: &ArgMatches) -> Result<()> {
     let mut subscriptions = find_subscriptions(db, matches).await?;
 
     for subscription in subscriptions.iter_mut() {
-        subscription.update_version();
-        db.store_subscription(subscription.clone())
+        subscription.update_internal_version();
+        db.store_subscription(subscription)
             .await
             .context("Failed to store subscription in db")?;
         println!("+ Subscription {} has been reloaded", subscription.name());
@@ -897,6 +935,104 @@ async fn reload(db: &Db, matches: &ArgMatches) -> Result<()> {
 
     Ok(())
 }
+
+async fn load(db: &Db, matches: &ArgMatches) -> Result<()> {
+    let path = matches
+        .get_one::<String>("path")
+        .ok_or_else(|| anyhow!("Missing argument path"))?;
+    let keep = matches.get_one::<bool>("keep").expect("Defaulted by clap");
+    let yes = matches.get_one::<bool>("yes").expect("Defaulted by clap");
+    let revision = matches.get_one::<String>("revision");
+
+    let path_obj = Path::new(path);
+    if !path_obj.exists() {
+        bail!("Path {} does not exist", path_obj.display());
+    }
+
+    if path_obj.is_file() && !keep && !yes && !confirm(&format!("Are you sure that you want to remove all existing subscriptions to keep the only one described in {}? Use -k/--keep otherwise.", path_obj.display())) {
+        println!("Aborted");
+        return Ok(())
+    }
+
+    let subscriptions =
+        config::load_from_path(path, revision).context("Failed to load config files")?;
+
+    if subscriptions.is_empty() {
+        bail!("Could not find any subscriptions");
+    }
+
+    for subscription in subscriptions.iter() {
+        if !check_query_size(subscription.query()).with_context(|| {
+            format!(
+                "Failed to check query size for subscription '{}' ({})",
+                subscription.name(),
+                subscription.uuid()
+            )
+        })? {
+            println!("Aborted");
+            return Ok(());
+        }
+    }
+    // Build a set of subscriptions uuids
+    let mut uuids = HashSet::new();
+
+    // Insert or update subscriptions
+    for subscription in subscriptions.iter() {
+        println!("+ Load subscription {}", subscription.name());
+        db.store_subscription(subscription)
+            .await
+            .context("Failed to store subscription in db")?;
+        uuids.insert(subscription.uuid());
+    }
+
+    if !keep {
+        // Remove other subscriptions
+        let all_subscriptions = db.get_subscriptions().await?;
+        for subscription in all_subscriptions.iter() {
+            if !uuids.contains(subscription.uuid()) {
+                println!("+ Remove subscription {}", subscription.name());
+                db.delete_subscription(&subscription.uuid_string()).await?;
+            }
+        }
+    }
+
+    Ok(())
+}
+
+async fn skell(_db: &Db, matches: &ArgMatches) -> Result<()> {
+    let path = matches
+        .get_one::<String>("path")
+        .ok_or_else(|| anyhow!("Missing argument path"))?;
+
+    let uuid = Uuid::new_v4();
+    let name: String = match matches.get_one::<String>("name") {
+        Some(name) => name.clone(),
+        None => format!("subscription-{}", uuid),
+    };
+    let now = chrono::Local::now();
+
+    let content = if *matches
+        .get_one::<bool>("minimal")
+        .expect("defaulted by clap")
+    {
+        get_minimal_skell_content(uuid, &name, now)
+    } else {
+        get_full_skell_content(uuid, &name, now)
+    };
+
+    if path.as_str() == "-" {
+        println!("{}", content);
+    } else {
+        let mut output = File::create(path)?;
+        output.write_all(content.as_bytes())?;
+    }
+
+    Ok(())
+}
+
+/***
+ * Helpers
+***/
 
 async fn find_subscription(db: &Db, matches: &ArgMatches) -> Result<SubscriptionData> {
     let identifier = matches
@@ -932,4 +1068,11 @@ async fn find_subscriptions(db: &Db, matches: &ArgMatches) -> Result<Vec<Subscri
             }
         }
     }
+}
+
+fn check_subscriptions_ro(settings: &Settings) -> Result<()> {
+    if settings.cli().read_only_subscriptions() {
+        bail!("Subscriptions can only be edited using `openwec subscriptions load` because `cli.read_only_subscriptions` is set in settings.")
+    }
+    Ok(())
 }

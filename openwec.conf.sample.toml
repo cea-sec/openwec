@@ -242,3 +242,15 @@
 # server_private_key = "/etc/server-key.pem"
 
 ## End of TLS configuration
+
+##########################
+##     Cli settings     ##
+##########################
+
+# [cli]
+
+# [Optional]
+# If set, subscriptions can only be updated using `openwec subscriptions load` command.
+# This is useful if you want to rely on files to configure your subscriptions
+# and want to enforce that subscriptions can not be updated directly.
+# read_only_subscriptions = false
