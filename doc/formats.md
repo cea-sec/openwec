@@ -10,6 +10,52 @@ Using this format, you get the exact event received by OpenWEC (no parsing happe
 
 The XML schema is defined in the Windows SDK (see [event.xsd](event.xsd)).
 
+## Json Raw format
+
+OpenWEC can add useful metadata to events, such as:
+- The Windows client principal that sent an event
+- The Windows client IP address that sent an event
+- The time when the event was received
+- the OpenWEC subscription that received the event
+- ...
+
+This format enables you to retrieve these data while getting the events in Raw XML format (with no parsing).
+
+The JSON document generated uses the following structure:
+```json
+event := {
+    "meta": openwec_data,
+    /* Raw XML event */
+    "data": string,
+}
+
+openwec_data := {
+    /* IP Address of the Windows client */
+    "IpAddress": string,
+    /* Time when the event was received by OpenWEC */
+    "TimeReceived": date,
+    /* Principal of the Windows client */
+    "Principal": string,
+    /* OpenWEC node that received the event.
+      Only present if server.node_name configuration setting is set */
+    "Node": string,
+    "Subscription": {
+        "Name": string,
+        "Version": string,
+        "Uuid": string,
+        "Uri": string,
+        /* Only if revision is set for this subscription */
+        "Revision": string
+    },
+    /* Only in case of error during event parsing or serializing */
+    "Error": {
+        "OriginalContent": string,
+        "Type": string,
+        "Message": string
+    }
+}
+```
+
 ### Json format
 
 Using this format, raw XML events are parsed and then serialized using Json.
@@ -43,7 +89,9 @@ openwec_data := {
         "Name": string,
         "Version": string,
         "Uuid": string,
-        "Uri": string
+        "Uri": string,
+        /* Only if revision is set for this subscription */
+        "Revision": string
     },
     /* Only in case of error during event parsing or serializing */
     "Error": {
@@ -195,6 +243,11 @@ processing_error_data := {
 }
 ```
 
-## How to add a new formatter ?
+## How to add a new format ?
 
-TODO
+- Create a new dedicated module in `server::formats` with a structure that implements `OutputFormat`
+- Add a new variant to `common::subscription::SubscriptionOutputFormat`
+- Fix all the compiler errors about missing variant in matches :-)
+- Adapt import/export format in `common::models::export` (version don't need to be changed if only new variants are added)
+- Adapt config format in `common::models::config`
+- Add documentation in `doc/formats.md`
