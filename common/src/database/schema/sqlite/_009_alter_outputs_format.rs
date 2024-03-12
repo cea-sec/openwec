@@ -104,7 +104,7 @@ fn old_to_new_output(old: &OldSubscriptionOutput) -> NewSubscriptionOutput {
 }
 
 fn new_to_old_output(new: &NewSubscriptionOutput) -> OldSubscriptionOutput {
-    let enabled = new.enabled.clone();
+    let enabled = new.enabled;
     let format = new.format.clone();
     match &new.driver {
         SubscriptionOutputDriver::Files(config) => {
