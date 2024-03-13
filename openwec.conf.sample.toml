@@ -37,7 +37,7 @@
 # [Optional]
 # Set node name
 # This may be used by outputs. Unset by default.
-# node_name = unsef
+# node_name = unset
 
 # [Optional]
 # Keytab file path that contains secrets for Kerberos SPNs used by collectors.
