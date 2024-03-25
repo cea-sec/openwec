@@ -203,7 +203,7 @@ impl FromStr for LoggingType {
     }
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Clone, Default)]
 #[serde(deny_unknown_fields)]
 pub struct Logging {
     verbosity: Option<String>,
@@ -312,6 +312,7 @@ pub struct Settings {
     collectors: Vec<Collector>,
     database: Database,
     server: Server,
+    #[serde(default)]
     logging: Logging,
     #[serde(default)]
     cli: Cli
@@ -365,10 +366,6 @@ mod tests {
         tcp_keepalive_intvl = 1
         tcp_keepalive_probes = 10
 
-        [logging]
-        verbosity = "debug"
-        server_logs = "stdout"
-
         [database]
         type =  "SQLite"
         path = "/tmp/toto.sqlite"
@@ -411,9 +408,9 @@ mod tests {
 
         assert_eq!(sqlite.path(), "/tmp/toto.sqlite");
 
-        assert_eq!(s.logging().verbosity().unwrap(), "debug");
+        assert!(s.logging().verbosity().is_none());
         assert!(s.logging().access_logs().is_none());
-        assert_eq!(s.logging().server_logs(), LoggingType::Stdout);
+        assert_eq!(s.logging().server_logs(), LoggingType::Stderr);
         assert_eq!(s.server().tcp_keepalive_time(), 3600);
         assert_eq!(s.server().tcp_keepalive_intvl().unwrap(), 1);
         assert_eq!(s.server().tcp_keepalive_probes().unwrap(), 10);
@@ -424,6 +421,7 @@ mod tests {
 
         [logging]
         access_logs = "/tmp/toto"
+        server_logs = "stdout"
         server_logs_pattern = "toto"
         access_logs_pattern = "tutu"
 
@@ -481,7 +479,7 @@ mod tests {
             s.logging().access_logs(),
             Some(LoggingType::File("/tmp/toto".to_string()))
         );
-        assert_eq!(s.logging().server_logs(), LoggingType::Stderr,);
+        assert_eq!(s.logging().server_logs(), LoggingType::Stdout);
         assert_eq!(s.logging().server_logs_pattern().unwrap(), "toto");
         assert_eq!(s.logging().access_logs_pattern(), "tutu");
         assert_eq!(s.server().tcp_keepalive_time(), 7200);

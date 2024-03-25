@@ -67,7 +67,7 @@
 ##   Logging settings   ##
 ##########################
 
-[logging]
+# [logging]
 
 # [Optional]
 # Set server logging verbosity
