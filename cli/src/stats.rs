@@ -41,7 +41,7 @@ pub async fn stats_text(
         let interval = interval.unwrap_or_else(|| subscription.heartbeat_interval()) as i64;
         let start_heartbeat_interval = now - interval;
         let stats = db
-            .get_stats(subscription.uuid(), start_heartbeat_interval)
+            .get_stats(&subscription.uuid_string(), start_heartbeat_interval)
             .await?;
 
         let start_heartbeat_interval_date = timestamp_to_local_date(start_heartbeat_interval)?;
@@ -79,7 +79,7 @@ pub async fn stats_json(
         let interval = interval.unwrap_or_else(|| subscription.heartbeat_interval()) as i64;
         let start_heartbeat_interval = now - interval;
         let stats = db
-            .get_stats(subscription.uuid(), start_heartbeat_interval)
+            .get_stats(&subscription.uuid_string(), start_heartbeat_interval)
             .await?;
 
         let start_heartbeat_interval_date = timestamp_to_local_date(start_heartbeat_interval)?;

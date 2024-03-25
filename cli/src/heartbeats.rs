@@ -26,7 +26,7 @@ async fn find_subscription(db: &Db, matches: &ArgMatches) -> Result<Option<Subsc
 
 pub async fn run(db: &Db, matches: &ArgMatches) -> Result<()> {
     let subscription = find_subscription(db, matches).await?;
-    let subscription_uuid = subscription.map(|sub| sub.uuid().to_owned());
+    let subscription_uuid = subscription.map(|sub| sub.uuid_string());
 
     let heartbeats = if let Some(machine) = matches.get_one::<String>("machine") {
         db.get_heartbeats_by_machine(machine, subscription_uuid.as_deref())

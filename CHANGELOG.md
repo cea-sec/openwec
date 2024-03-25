@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0]
+
 ### Added
 
 - Add OpenWEC node name (if configured) in JSON format output (#2)
@@ -16,6 +18,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add a setting to configure `heartbeats_queue_size` (#37)
 - Add Tls support for encryption and authentication (#36)
 - Add support for output events to redis list (#45)
+- Add TCP keepalive settings (with sensible defaults) in server settings (#56)
+- Add support for output events to unix domain socket (#60)
+- Add configuration files for subscriptions coming with two openwec cli subcommands (`subscriptions load` and `subscriptions skell`)
+- Add `cli.read_only_subscriptions` setting to disable the cli features which edit subscriptions (except `subscriptions load`)
+- Add `RawJson` format which enables to retrieve events in raw format while also getting the metadata added by OpenWEC
+- Add the subscription revision in OpenWEC events metadata
 
 ### Changed
 
@@ -26,8 +34,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Breaking change**: Keytab file path must be specified only once for all collectors (using Kerberos authentication)
 - A malformed event will no longer stop the event stream (for a computer/subscription) because formatters are not allowed to fail. In problematic cases, some work is done to try to recover the raw data of the event, and an `OpenWEC.Error` field is added (in the JSON formatter) to help catch the problem (#47)
 - **Breaking change**: Split access and server logs. Configuration file format has been updated. (#52)
-- Ensure that openwecd shutdowns gracefully even if hyper server is not responding
-- Improve the logging of failed Kerberos authentications: missing authorization header warning is now in DEBUG level
+- Ensure that openwecd shutdowns gracefully even if hyper server is not responding (#65)
+- Improve the logging of failed Kerberos authentications: missing authorization header warning is now in DEBUG level (#65)
+- Rework output drivers and output formats architecture
+- Change the outputs storage format in database
+- Rework the import/export format to enable compatibility between OpenWEC versions
+- Each subscription has now two "versions": a public one sent to clients (derived from subscription parameters) and a private one used for synchronization between openwec nodes
 
 ### Fixed
 

@@ -1,30 +1,28 @@
 use anyhow::{bail, Context, Result};
 use async_trait::async_trait;
-use common::subscription::{ RedisConfiguration};
+use common::subscription::RedisConfiguration;
 use log::debug;
 
-use std::{sync::Arc};
+use std::sync::Arc;
 use futures_util::stream::FuturesUnordered;
 use futures_util::StreamExt;
-use crate::{event::EventMetadata, formatter::Format, output::Output};
+use crate::{event::EventMetadata, output::OutputDriver};
 
 pub struct OutputRedis {
-    format: Format,
     config: RedisConfiguration,
     producer: redis::Client,
 }
 
 impl OutputRedis {
-    pub fn new(format: Format, config: &RedisConfiguration) -> Result<Self> {
+    pub fn new(config: &RedisConfiguration) -> Result<Self> {
 
         let client = redis::Client::open(format!("redis://{}/", config.addr())).context("Could not open redis connection")?;
 
         debug!(
-            "Initialize redis output with format {:?} and config {:?}",
-            format, config
+            "Initialize redis output with config {:?}",
+            config
         );
         Ok(OutputRedis {
-            format,
             config: config.clone(),
             producer: client,
         })
@@ -32,14 +30,12 @@ impl OutputRedis {
 }
 
 #[async_trait]
-impl Output for OutputRedis {
+impl OutputDriver for OutputRedis {
     async fn write(
         &self,
         _metadata: Arc<EventMetadata>,
         events: Arc<Vec<Arc<String>>>,
     ) -> Result<()> {
-
-
         let mut results = FuturesUnordered::new();
         let cmd = redis::cmd("LPUSH");
 
@@ -65,13 +61,5 @@ impl Output for OutputRedis {
         }
 
         Ok(())
-    }
-
-    fn describe(&self) -> String {
-        format!("Redis (list {})", self.config.list())
-    }
-
-    fn format(&self) -> &Format {
-        &self.format
     }
 }

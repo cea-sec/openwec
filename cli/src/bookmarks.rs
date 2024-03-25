@@ -39,7 +39,7 @@ async fn show(db: &Db, matches: &ArgMatches) -> Result<()> {
         })?;
 
     if let Some(machine) = machine {
-        let bookmark = db.get_bookmark(&machine, subscription.uuid()).await?;
+        let bookmark = db.get_bookmark(&machine, &subscription.uuid_string()).await?;
         match bookmark {
             Some(str) => {
                 println!("{}", str)
@@ -51,7 +51,7 @@ async fn show(db: &Db, matches: &ArgMatches) -> Result<()> {
             ),
         };
     } else {
-        for data in db.get_bookmarks(subscription.uuid()).await? {
+        for data in db.get_bookmarks(&subscription.uuid_string()).await? {
             println!("{}:{}", data.machine, data.bookmark);
         }
     }
@@ -82,7 +82,8 @@ async fn delete(db: &Db, matches: &ArgMatches) -> Result<()> {
     };
 
     if utils::confirm(&message) {
-        db.delete_bookmarks(machine.as_deref(), subscription.as_ref().map(|x| x.uuid()))
+        let uuid_opt = subscription.map(|x| x.uuid_string());
+        db.delete_bookmarks(machine.as_deref(), uuid_opt.as_deref())
             .await?;
         println!("Done");
     } else {
@@ -125,7 +126,7 @@ async fn copy(db: &Db, matches: &ArgMatches) -> Result<()> {
         })?;
 
     if let Some(machine) = machine {
-        let existing_bookmark = db.get_bookmark(&machine, destination.uuid()).await?;
+        let existing_bookmark = db.get_bookmark(&machine, &destination.uuid_string()).await?;
         if existing_bookmark.is_some() {
             println!(
                 "WARNING: A bookmark for {} already exists within subscription \"{}\"",
@@ -135,7 +136,7 @@ async fn copy(db: &Db, matches: &ArgMatches) -> Result<()> {
         }
 
         let bookmark = db
-            .get_bookmark(&machine, source.uuid())
+            .get_bookmark(&machine, &source.uuid_string())
             .await?
             .ok_or_else(|| {
                 anyhow!(
@@ -150,7 +151,7 @@ async fn copy(db: &Db, matches: &ArgMatches) -> Result<()> {
             return Ok(());
         }
 
-        db.store_bookmark(&machine, destination.uuid(), &bookmark)
+        db.store_bookmark(&machine, &destination.uuid_string(), &bookmark)
             .await?;
         println!("1 bookmark copied");
     } else {
@@ -160,8 +161,8 @@ async fn copy(db: &Db, matches: &ArgMatches) -> Result<()> {
         };
 
         let mut counter: usize = 0;
-        for data in db.get_bookmarks(source.uuid()).await? {
-            db.store_bookmark(&data.machine, destination.uuid(), &data.bookmark)
+        for data in db.get_bookmarks(&source.uuid_string()).await? {
+            db.store_bookmark(&data.machine, &destination.uuid_string(), &data.bookmark)
                 .await?;
             counter += 1;
         }

@@ -1,10 +1,10 @@
 use anyhow::{anyhow, bail, ensure, Context, Result};
-use common::utils::new_uuid;
 use log::{debug, trace};
 use quick_xml::events::{BytesText, Event};
 use quick_xml::reader::Reader;
 use quick_xml::writer::Writer;
 use roxmltree::{Document, Node};
+use uuid::Uuid;
 use std::collections::HashMap;
 use std::sync::Arc;
 use xmlparser::XmlCharExt;
@@ -38,6 +38,10 @@ pub const ACTION_SUBSCRIPTION_END: &str =
     "http://schemas.xmlsoap.org/ws/2004/08/eventing/SubscriptionEnd";
 pub const ACTION_HEARTBEAT: &str = "http://schemas.dmtf.org/wbem/wsman/1/wsman/Heartbeat";
 pub const ACTION_ACK: &str = "http://schemas.dmtf.org/wbem/wsman/1/wsman/Ack";
+
+pub fn new_uuid() -> String {
+    format!("uuid:{}", Uuid::new_v4().to_string().to_uppercase())
+}
 
 pub trait Serializable {
     fn serialize<W: std::io::Write>(&self, writer: &mut Writer<W>) -> quick_xml::Result<()>;

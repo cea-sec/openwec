@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::{event::EventMetadata, formatter::Format, output::Output};
+use crate::{event::EventMetadata, output::OutputDriver};
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use common::subscription::TcpConfiguration;
@@ -29,8 +29,7 @@ fn send_response(sender: oneshot::Sender<Result<()>>, msg: Result<()>) {
 }
 
 pub async fn run(
-    addr: String,
-    port: u16,
+    config: TcpConfiguration,
     mut task_rx: mpsc::Receiver<WriteTCPMessage>,
     cancellation_token: CancellationToken,
 ) {
@@ -40,13 +39,13 @@ pub async fn run(
             Some(message) = task_rx.recv() => {
                 // Establish TCP connection if not already done
                 if stream_opt.is_none() {
-                    match TcpStream::connect((addr.as_str(), port)).await {
+                    match TcpStream::connect((config.addr(), config.port())).await {
                         Ok(stream) => {
                             stream_opt = Some(stream);
                         },
                         Err(e) => {
-                            warn!("Failed to connect to {}:{}: {}", addr, port, e);
-                            send_response(message.resp, Err(anyhow!(format!("Failed to connect to {}:{}: {}", addr, port, e))));
+                            warn!("Failed to connect to {}:{}: {}", config.addr(), config.port(), e);
+                            send_response(message.resp, Err(anyhow!(format!("Failed to connect to {}:{}: {}", config.addr(), config.port(), e))));
                             continue;
                         }
                     };
@@ -56,7 +55,7 @@ pub async fn run(
                     Some(stream) => stream,
                     None => {
                         warn!("TCP stream is unset !");
-                        send_response(message.resp, Err(anyhow!(format!("TCP stream of {}:{} is unset!", addr, port))));
+                        send_response(message.resp, Err(anyhow!(format!("TCP stream of {}:{} is unset!", config.addr(), config.port()))));
                         continue;
                     }
                 };
@@ -64,7 +63,7 @@ pub async fn run(
                 // Write data to stream
                 if let Err(e) = stream.write_all(message.content.as_bytes()).await {
                     stream_opt = None;
-                    send_response(message.resp, Err(anyhow!(format!("Failed to write in TCP connection ({}:{}): {}", addr, port, e))));
+                    send_response(message.resp, Err(anyhow!(format!("Failed to write in TCP connection ({}:{}): {}", config.addr(), config.port(), e))));
                     continue;
                 }
 
@@ -75,24 +74,19 @@ pub async fn run(
             }
         };
     }
-    info!("Exiting TCP output task ({}:{})", addr, port);
+    info!("Exiting TCP output task ({}:{})", config.addr(), config.port());
 }
 
 pub struct OutputTcp {
-    format: Format,
-    addr: String,
-    port: u16,
     task_tx: mpsc::Sender<WriteTCPMessage>,
     task_ct: CancellationToken,
 }
 
 impl OutputTcp {
-    pub fn new(format: Format, config: &TcpConfiguration) -> Result<Self> {
+    pub fn new(config: &TcpConfiguration) -> Result<Self> {
         debug!(
-            "Initialize TCP output with format {:?} and peer {}:{}",
-            format,
-            config.addr(),
-            config.port()
+            "Initialize TCP output with config {:?}",
+            config,
         );
 
         // Create a communication channel with the task responsible for file management
@@ -103,16 +97,12 @@ impl OutputTcp {
         let task_ct = CancellationToken::new();
         let cloned_task_ct = task_ct.clone();
 
-        let addr = config.addr().to_string();
-        let port = config.port();
+        let config_cloned = config.clone();
 
         // Launch the task responsible for handling the TCP connection
-        tokio::spawn(async move { run(addr, port, task_rx, cloned_task_ct).await });
+        tokio::spawn(async move { run(config_cloned, task_rx, cloned_task_ct).await });
 
         Ok(OutputTcp {
-            format,
-            addr: config.addr().to_string(),
-            port: config.port(),
             task_tx,
             task_ct,
         })
@@ -120,7 +110,7 @@ impl OutputTcp {
 }
 
 #[async_trait]
-impl Output for OutputTcp {
+impl OutputDriver for OutputTcp {
     async fn write(
         &self,
         _metadata: Arc<EventMetadata>,
@@ -143,14 +133,6 @@ impl Output for OutputTcp {
         rx.await??;
 
         Ok(())
-    }
-
-    fn describe(&self) -> String {
-        format!("TCP ({}:{})", self.addr, self.port)
-    }
-
-    fn format(&self) -> &Format {
-        &self.format
     }
 }
 

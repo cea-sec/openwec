@@ -2,11 +2,9 @@
 
 Outputs answer the question "*what should openwec do with collected events?*". For one subscription, you may configure multiple outputs.
 
-Each output is in fact composed of two elements:
-1. an output type
-2. a format
+Each output is composed of two elements: a **driver** and a **format**.
 
-The output type determines where the event will be sent or stored, whereas the format describes how it will be formatted. Formarts are described in [Formats](formats.md).
+The driver determines where the event will be sent or stored, whereas the format describes how it will be formatted. Formarts are described in [Formats](formats.md).
 
 When an event is received for one subscription, it must be processed successfully by all its outputs. If one output fails, for example if there is no space left on device for a `Files` type output, an error is returned to the client which will try to resend the event later.
 
@@ -15,6 +13,10 @@ When OpenWEC server starts, it retrieves all currently active subscriptions from
 When a subscription is updated or reloaded, all its outputs instances are dropped and initialized again.
 
 Note: OpenWEC does not guarantee that an event will not be written multiple times. Indeed, if one output fails to write a batch of events, these events will not be acknowledged to the client that sent them and it will try to send them again later.
+
+Subscription outputs can be configured using:
+- subscription configuration files (see [Subscription](subscription.md))
+- openwec command line interface
 
 ## Commands
 
@@ -28,13 +30,13 @@ This command prints the current outputs of the subscription.
 
 ```
 $ openwec subscriptions edit my-subscription outputs
-0: Format: Json, Output: Files(FileConfiguration { base: "/var/events/", split_on_addr_index: None, append_node_name: false, filename: "messages" })
-1: Format: Json, Output: Tcp(dc.windomain.local:12000)
+0: Enabled: true, Format: Json, Driver: Files(FilesConfiguration { base: "/var/events/", split_on_addr_index: None, append_node_name: false, filename: "messages" })
+1: Enabled: true, Format: Json, Driver: Tcp(dc.windomain.local:12000)
 ```
 
 The subscription `my-subscription` has two outputs configured:
-* the first one is a `Files` output using `Json` format.
-* the second one is a `Tcp` output using `Json` format.
+* the first uses the `Files` driver and the `Json` format.
+* the second one uses the `Tcp` driver and the `Json` format.
 
 The index number at the beginning of each line can be used to delete the corresponding output.
 
@@ -42,7 +44,7 @@ The index number at the beginning of each line can be used to delete the corresp
 
 This command adds an output to a subscription.
 
-You must specify a format (see [Formats](formats.md)) and an output type (see below).
+You must specify a format (see [Formats](formats.md)) and a driver (see below).
 
 #### Example
 
@@ -50,7 +52,7 @@ You must specify a format (see [Formats](formats.md)) and an output type (see be
 $ openwec subscriptions edit my-subscription outputs add --format json files [...]
 ```
 
-This command adds a `Files` output using `Json` format.
+This command adds an output using `Files` driver and `Json` format.
 
 ### `openwec subscriptions edit <identifier> outputs delete`
 
@@ -67,11 +69,11 @@ $ openwec subscriptions edit my-subscription outputs delete 0
 This command deletes the first output of the subscription `my-subscription`.
 
 
-## Output types
+## Drivers 
 
 ### Files
 
-This output type stores events in files on the collector filesystem.
+The Files driver stores events in files on the collector filesystem.
 
 For a given subscription, all events sent by a given Windows client will be stored in the following path:
 ```
@@ -86,7 +88,7 @@ where:
 * `node_name` (optional): when you use a multi-node setup, you may want to add the node's name in the path. The node's name is configured in server settings, but you can choose to add it or not in each output settings.
 * `filename`: the name of the file, configured in each output settings. It defaults to `messages`.
 
-When a `Files` output is initialized, it creates a blank hash table which will contains openned file descriptors. Therefore, each file is openned once.
+When the `Files` driver is initialized, it creates a blank hash table which will contain openned file descriptors. Therefore, each file is openned once.
 
 You may want to tell OpenWEC to close all its file descriptors and to open them again. This can be done using `openwec subscriptions reload <subscription>`: the subscription outputs will be reloaded at the next "subscriptions reload" tick. You may want to reload subscriptions immediatly by sending a `SIGHUP` signal to `openwecd` process after executing the `openwec subscriptions reload` command.
 
@@ -118,7 +120,7 @@ $ openwec subscriptions edit my-subscription outputs add --format <format> files
 
 ### Kafka
 
-This output type sends events in a Kafka topic.
+The Kafka driver sends events in a Kafka topic.
 
 For a given subscription, all events will be sent in the configured Kafka topic. You may want to add additionnal options to the inner Kafka client, such as `bootstrap.servers`.
 
@@ -132,16 +134,23 @@ $ openwec subscriptions edit my-subscription outputs add --format <format> kafka
 
 ### TCP
 
-This output type send events in a "raw" TCP connection.
+The TCP driver send events in a "raw" TCP connection.
 
 The TCP connection is established when the first event has to be sent. It is kept openned as long as possible, and re-established if required.
 
 You must provide an IP address or a hostname and a port to connect to.
 
+#### Examples
+
+* Send events to a TCP server `my.server.windomain.local` using port `12000`:
+
+```
+$ openwec subscriptions edit my-subscription outputs add --format <format> tcp my.server.windomain.local 12000
+```
+
 ### UNIX domain socket
 
-This output type sends events to a UNIX domain socket. The output can be used to forward events to a local output for
-further processing.
+The Unix datagram driver sends events to a Unix domain socket of type `SOCK_DGRAM`.
 
 The connection is established when the first event has to be sent.
 
@@ -155,24 +164,15 @@ The path of the receiver socket is the only mandatory parameter.
 $ openwec subscriptions edit my-subscription outputs add --format raw unixdatagram /run/openwec.sock
 ```
 
-#### Examples
-
-* Send events to a TCP server `my.server.windomain.local` using port `12000`:
-
-```
-$ openwec subscriptions edit my-subscription outputs add --format <format> tcp my.server.windomain.local 12000
-```
-
 ### Redis
 
-This output type sends events to a Redis list using the [LPUSH command](https://redis.io/commands/lpush/)
+The Redis driver sends events to a Redis list using the [LPUSH command](https://redis.io/commands/lpush/)
 
 You must provide:
 - a redis server address containing the IP and port to connect to.
 - a list name
 
 TODO:
-
 - [ ] implement TLS connections to redis
 - [ ] support redis auth
 - [ ] ...
@@ -185,6 +185,16 @@ TODO:
 $ openwec subscriptions edit my-test-subscription outputs add --format <format> redis 127.0.0.1:6377 wec
 ```
 
-## How to add a new output type ?
+## How to add a new driver ?
 
-TODO
+To add an output driver, you need to:
+- in `common`:
+    - add a new variant to `common::subscription::SubscriptionOutputDriver` with a decicated configuration structure.
+    - adapt `common::models::config` and `common::models::export`.
+- in `server`:
+    - create a dedicated module in `server::drivers` that contains a struct which implements the `OutputDriver` trait.
+    - initialize the output in `server::output::Output::new`.
+- in `cli`:
+    - add a subcommand to create an output using the driver in `cli::main` and handle it in `cli::subscriptions`.
+    - add a config template of an output using the driver in `cli::skell`.
+- add documentation in `doc/outputs.md`.

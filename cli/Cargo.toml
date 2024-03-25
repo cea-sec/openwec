@@ -1,6 +1,6 @@
 [package]
 name = "cli"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 
 [[bin]]
@@ -18,3 +18,7 @@ log = "0.4.19"
 serde_json = "1.0.97"
 tokio = { version = "1.35.1", features = ["full"] }
 roxmltree = "0.19.0"
+serde = { version = "1.0", features = ["derive"] }
+uuid = { version = "1.7.0", features = ["v4", "fast-rng"] }
+chrono = { version  = "0.4.26", default-features = false, features = ["clock"] }
+strum = { version = "0.26.1", features = ["derive"] }

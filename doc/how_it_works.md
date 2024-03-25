@@ -26,27 +26,26 @@ See the [documentation page about subscriptions](subscription.md) for more infor
 
 ## Outputs
 
-Each output is actually made up of two elements:
-1. an output type
-2. a format
+Each output is composed of two elements: a **driver** and a **format**.
 
 
-### Output Types
+### Drivers
 
-Output types answer the question "*what should openwec do with collected events*".
+Drivers answer the question "*what should openwec do with collected events*".
 
-Currently there are several supported output types:
+Currently there are several supported drivers:
 * `Files`: Events are stored in files in a tree architecture. You need to provide some information, such as the base path.
 * `TCP`: Events are sent to a TCP server. You must specify a host and port.
 * `Kafka`: Events are sent in a Kafka topic. You need to specify the name of the Kafka topic and the usual Kafka settings such as *bootstrap servers*.
+* `UnixDatagram`: Events are sent in a Unix domain socket.
+* `Redis`: Events are sent in a Redis Queue.
 
 ## Formats
 
-The OpenWEC server can parse each event and format it differently. There are currently two formatters available:
+The OpenWEC server can parse each event and format it. There are several formatters available:
 * `Raw`: as its name suggests, it does nothing to the events. It just writes raw XML data. *Warning: each event may contain EOL characters which are neither filtered nor transformed*.
 * `Json`: format events in Json. Json schema is documented [there](formats.md). When using the `Json` formatter, OpenWEC parses XML events and is able to add useful data such as the Kerberos principal or the IP address that sent the event.
-
-
+* `RawJson`: encapsulates the raw XML data in a json document. OpenWEC does not parse the XML event, but can still add useful metadata such as the Kerberos principal or the IP address that sent the event.
 
 ## Bookmarks
 

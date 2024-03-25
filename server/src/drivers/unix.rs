@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::{event::EventMetadata, formatter::Format, output::Output};
+use crate::{event::EventMetadata, output::OutputDriver};
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use common::subscription::UnixDatagramConfiguration;
@@ -88,15 +88,13 @@ pub async fn run(
 }
 
 pub struct OutputUnixDatagram {
-    format: Format,
-    path: String,
     task_tx: mpsc::Sender<WriteUnixDatagramMessage>,
     task_ct: CancellationToken,
 }
 
 impl OutputUnixDatagram {
-    pub fn new(format: Format, config: &UnixDatagramConfiguration) -> Result<Self> {
-        debug!("Initialize UnixDatagram output with format {:?} and path {}", format, config.path());
+    pub fn new(config: &UnixDatagramConfiguration) -> Result<Self> {
+        debug!("Initialize UnixDatagram output with path {}", config.path());
 
         let (task_tx, task_rx) = mpsc::channel(32);
 
@@ -108,8 +106,6 @@ impl OutputUnixDatagram {
         tokio::spawn(async move { run(path, task_rx, cloned_task_ct).await });
 
         Ok(OutputUnixDatagram {
-            format,
-            path: config.path().to_string(),
             task_tx,
             task_ct,
         })
@@ -117,7 +113,7 @@ impl OutputUnixDatagram {
 }
 
 #[async_trait]
-impl Output for OutputUnixDatagram {
+impl OutputDriver for OutputUnixDatagram {
     async fn write(
         &self,
         _metadata: Arc<EventMetadata>,
@@ -131,14 +127,6 @@ impl Output for OutputUnixDatagram {
         rx.await??;
 
         Ok(())
-    }
-
-    fn describe(&self) -> String {
-        format!("UnixDatagram ({})", self.path)
-    }
-
-    fn format(&self) -> &Format {
-        &self.format
     }
 }
 

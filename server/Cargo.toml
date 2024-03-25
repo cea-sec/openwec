@@ -1,6 +1,6 @@
 [package]
 name = "server"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 
 [[bin]]
@@ -28,7 +28,7 @@ rdkafka = { version = "0.36.0", features = ["zstd", "libz", "external-lz4"] }
 regex = "1.9.0"
 lazy_static = "1.4.0"
 uuid = { version = "1.7.0", features = ["v4", "fast-rng"] }
-serde = { version = "1.0.164", features = ["derive"] }
+serde = { version = "1.0.164", features = ["derive", "rc"] }
 serde_json = "1.0.97"
 async-trait = "0.1.68"
 chrono = { version  = "0.4.26", default-features = false, features = ["clock"] }

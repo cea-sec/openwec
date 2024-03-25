@@ -1,21 +1,17 @@
 use crate::{
-    event::EventMetadata,
-    formatter::Format,
-    heartbeat::{store_heartbeat, WriteHeartbeatMessage},
-    soap::{
+    event::{EventData, EventMetadata}, heartbeat::{store_heartbeat, WriteHeartbeatMessage}, output::get_formatter, soap::{
         Body, Header, Message, OptionSetValue, Subscription as SoapSubscription, SubscriptionBody,
         ACTION_ACK, ACTION_END, ACTION_ENUMERATE, ACTION_ENUMERATE_RESPONSE, ACTION_EVENTS,
         ACTION_HEARTBEAT, ACTION_SUBSCRIBE, ACTION_SUBSCRIPTION_END, ANONYMOUS, RESOURCE_EVENT_LOG,
-    },
-    subscription::{Subscription, Subscriptions},
-    RequestCategory, RequestData, AuthenticationContext,
+    }, subscription::{Subscription, Subscriptions}, AuthenticationContext, RequestCategory, RequestData
 };
 use common::{
     database::Db,
-    settings::{Collector, Server},
+    settings::{Collector, Server}, subscription::{PublicVersion, SubscriptionOutputFormat},
 };
 use http::status::StatusCode;
 use log::{debug, error, warn};
+use uuid::Uuid;
 use std::{collections::HashMap, sync::Arc};
 use tokio::{sync::mpsc, task::JoinSet};
 
@@ -170,7 +166,7 @@ async fn handle_enumerate(
         );
 
         let mut bookmark: Option<String> = db
-            .get_bookmark(request_data.principal(), subscription_data.uuid())
+            .get_bookmark(request_data.principal(), &subscription_data.uuid_string())
             .await
             .context("Failed to retrieve current bookmark from database")?;
 
@@ -186,9 +182,11 @@ async fn handle_enumerate(
             bookmark
         );
 
+        let public_version = subscription.public_version_string();
+
         let body = SubscriptionBody {
             heartbeat_interval: subscription_data.heartbeat_interval() as u64,
-            identifier: subscription_data.version().to_owned(),
+            identifier: subscription.public_version_string(),
             bookmark,
             query: subscription_data.query().to_owned(),
             address: match auth_ctx {
@@ -196,13 +194,13 @@ async fn handle_enumerate(
                     "http://{}:{}/wsman/subscriptions/{}",
                     collector.hostname(),
                     collector.listen_port(),
-                    subscription_data.version()
+                    public_version, 
                 ),
                 AuthenticationContext::Tls(_,_) => format!(
                     "https://{}:{}/wsman/subscriptions/{}",
                     collector.hostname(),
                     collector.listen_port(),
-                    subscription_data.version()
+                    public_version, 
                 )
             },
             connection_retry_count: subscription_data.connection_retry_count(),
@@ -216,7 +214,7 @@ async fn handle_enumerate(
         };
 
         res_subscriptions.push(SoapSubscription {
-            identifier: subscription_data.version().to_owned(),
+            identifier: public_version,
             header,
             body,
         });
@@ -234,18 +232,20 @@ async fn handle_heartbeat(
     request_data: &RequestData,
     message: &Message,
 ) -> Result<Response> {
-    let version = message
+    let public_version = message
         .header()
         .identifier()
         .ok_or_else(|| anyhow!("Missing field identifier"))?;
 
-    if !check_sub_request_data(request_data, version) {
+    let public_version_uuid = PublicVersion(Uuid::parse_str(public_version)?);
+
+    if !check_sub_request_data(request_data, public_version) {
         return Ok(Response::err(StatusCode::BAD_REQUEST));
     }
 
     let subscription = {
         let subscriptions = subscriptions.read().unwrap();
-        match subscriptions.get(version) {
+        match subscriptions.get(&public_version_uuid) {
             Some(subscription) => subscription.to_owned(),
             None => {
                 warn!(
@@ -253,7 +253,7 @@ async fn handle_heartbeat(
                     request_data.remote_addr().ip(),
                     request_data.remote_addr().port(),
                     request_data.principal(),
-                    version
+                    public_version
                 );
                 return Ok(Response::err(StatusCode::BAD_REQUEST));
             }
@@ -267,7 +267,7 @@ async fn handle_heartbeat(
             request_data.remote_addr().port(),
             request_data.principal(),
             subscription.data().name(),
-            subscription.uuid()
+            subscription.uuid_string()
         );
         return Ok(Response::err(StatusCode::FORBIDDEN));
     }
@@ -278,14 +278,14 @@ async fn handle_heartbeat(
         request_data.remote_addr().port(),
         request_data.principal(),
         subscription.data().name(),
-        subscription.uuid(),
+        subscription.uuid_string(),
     );
 
     store_heartbeat(
         heartbeat_tx,
         request_data.principal(),
         request_data.remote_addr().ip().to_string(),
-        subscription.uuid(),
+        &subscription.uuid_string(),
         false,
     )
     .await
@@ -302,22 +302,24 @@ async fn handle_events(
     message: &Message,
 ) -> Result<Response> {
     if let Some(Body::Events(events)) = &message.body {
-        let version = message
+        let public_version = message
             .header()
             .identifier()
             .ok_or_else(|| anyhow!("Missing field identifier"))?;
 
-        if !check_sub_request_data(request_data, version) {
+        if !check_sub_request_data(request_data, public_version) {
             return Ok(Response::err(StatusCode::BAD_REQUEST));
         }
 
+        let public_version_uuid = PublicVersion(Uuid::parse_str(public_version)?);
+
         let subscription: Arc<Subscription> = {
             let subscriptions = subscriptions.read().unwrap();
-            let subscription = subscriptions.get(version);
+            let subscription = subscriptions.get(&public_version_uuid);
             match subscription {
                 Some(subscription) => subscription.to_owned(),
                 None => {
-                    warn!("Unknown subscription version {}", version);
+                    warn!("Unknown subscription version {}", public_version);
                     return Ok(Response::err(StatusCode::NOT_FOUND));
                 }
             }
@@ -330,7 +332,7 @@ async fn handle_events(
                 request_data.remote_addr().port(),
                 request_data.principal(), 
                 subscription.data().name(),
-                subscription.uuid(),
+                subscription.uuid_string(),
             );
             return Ok(Response::err(StatusCode::FORBIDDEN));
         }
@@ -341,7 +343,7 @@ async fn handle_events(
             request_data.remote_addr().port(),
             request_data.principal(),
             subscription.data().name(),
-            subscription.uuid()
+            subscription.uuid_string()
         );
 
         let metadata = Arc::new(EventMetadata::new(
@@ -351,12 +353,22 @@ async fn handle_events(
             &subscription,
         ));
 
+        let need_to_parse_event = subscription.formats().iter().any(|format| format.needs_parsed_event());
+
+        let mut events_data = Vec::with_capacity(events.len());
+        for raw in events.iter() {
+            // If need_to_parse_event is set to true, EventData parses the raw event
+            // into an Event struct (once for all formatters).
+            events_data.push(EventData::new(raw.clone(), need_to_parse_event))
+        }
+
         // Build event strings for all formats
-        let mut formatted_events: HashMap<Format, Arc<Vec<Arc<String>>>> = HashMap::new();
+        let mut formatted_events: HashMap<SubscriptionOutputFormat, Arc<Vec<Arc<String>>>> = HashMap::new();
         for format in subscription.formats() {
             let mut content = Vec::new();
-            for raw in events.iter() {
-                if let Some(str) = format.format(&metadata, raw.clone()) {
+            let formatter = get_formatter(format);
+            for event_data in events_data.iter() {
+                if let Some(str) = formatter.format(&metadata, event_data) {
                     content.push(str.clone())
                 }
             }
@@ -367,17 +379,16 @@ async fn handle_events(
 
         // Spawn tasks to write events to every outputs of the subscription
         for output in subscription.outputs() {
-            let output = output.clone();
-            let metadata = metadata.clone();
-            let format = output.format();
+            let output_cloned = output.clone();
+            let metadata_cloned = metadata.clone();
             let content = formatted_events
-                .get(format)
-                .ok_or_else(|| anyhow!("Could not get formatted event for format {:?}", format))?
+                .get(output_cloned.format())
+                .ok_or_else(|| anyhow!("Could not get formatted event for format {:?}", output_cloned.format()))?
                 .clone();
 
             handles.spawn(async move {
-                output.write(metadata, content).await.with_context(|| {
-                    format!("Failed to write event to output {}", output.describe())
+                output_cloned.write(metadata_cloned, content).await.with_context(|| {
+                    format!("Failed to write event to output {}", output_cloned.describe())
                 })
             });
         }
@@ -407,7 +418,7 @@ async fn handle_events(
             .bookmarks()
             .ok_or_else(|| anyhow!("Missing bookmarks in request payload"))?;
         // Store bookmarks and heartbeats
-        db.store_bookmark(request_data.principal(), subscription.uuid(), bookmark)
+        db.store_bookmark(request_data.principal(), &subscription.uuid_string(), bookmark)
             .await
             .context("Failed to store bookmarks")?;
 
@@ -417,14 +428,14 @@ async fn handle_events(
             request_data.remote_addr().port(),
             request_data.principal(),
             subscription.data().name(),
-            subscription.uuid(),
+            subscription.uuid_string(),
             bookmark
         );
         store_heartbeat(
             heartbeat_tx,
             request_data.principal(),
             request_data.remote_addr().ip().to_string(),
-            subscription.uuid(),
+            &subscription.uuid_string(),
             true,
         )
         .await

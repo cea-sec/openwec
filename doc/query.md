@@ -36,15 +36,15 @@ We recommend that you generate a list of the channels available in your environm
 
 ### Editing the query of an existing subscription
 
-When editing the query of an existing subscription, **you should not add a new channel**. If you do, for each client for which OpenWEC has a bookmark, you will retrieve all existing events for the newly added channel **regardless** of the subscription's `read_existing_events' parameter. You have two (bad) options:
+When editing the query of an existing subscription, **you should not add a new channel**. If you do, for each client for which OpenWEC has a bookmark, you will retrieve all existing events for the newly added channel **regardless** of the subscription's `read_existing_events` parameter. You have two (bad) options:
 * Either accept that you will retrieve a lot of events (the number depends on the added channel).
 * Either delete all existing bookmarks for this subscription. If you do this, you will probably lose logs.
 
-This is because a bookmark already exists for the client, so it will be sent when the client enumerates the subscription. However, this bookmark does not contain the newly added channel. Therefore, the Windows client (strangely) assumes that you want to retrieve all its events, including the existing ones, regardless of the `read_existing_events' setting.
+This is because a bookmark already exists for the client, so it will be sent when the client enumerates the subscription. However, this bookmark does not contain the newly added channel. Therefore, the Windows client (strangely) assumes that you want to retrieve all its events, including the existing ones, regardless of the `read_existing_events` setting.
 
 ### Query size
 
-We understand that the event filter query must retrieve events from a maximum of 256 different channels.
+It seems that event filter queries must retrieve events from a maximum of 256 different channels.
 
 If your query contains more channels, it will be considered invalid by Windows clients.
 

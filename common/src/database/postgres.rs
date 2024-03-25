@@ -31,8 +31,7 @@ use crate::bookmark::BookmarkData;
 use crate::heartbeat::{HeartbeatKey, HeartbeatsCache};
 use crate::settings::PostgresSslMode;
 use crate::subscription::{
-    ContentFormat, PrincsFilter, SubscriptionMachine, SubscriptionMachineState,
-    SubscriptionStatsCounters,
+    ContentFormat, InternalVersion, PrincsFilter, SubscriptionMachine, SubscriptionMachineState, SubscriptionStatsCounters
 };
 use crate::{
     database::Database, heartbeat::HeartbeatData, settings::Postgres,
@@ -53,6 +52,7 @@ use std::{
 };
 use tokio_postgres::types::ToSql;
 use tokio_postgres::{NoTls, Row};
+use uuid::Uuid;
 
 use super::schema::{Migration, MigrationBase, Version};
 
@@ -142,32 +142,6 @@ impl PostgresDatabase {
         }
     }
 
-    async fn get_subscription_by_field(
-        &self,
-        field: &str,
-        value: &str,
-    ) -> Result<Option<SubscriptionData>> {
-        let res = self
-            .pool
-            .get()
-            .await?
-            .query_opt(
-                format!(
-                    r#"SELECT * 
-                FROM subscriptions
-                WHERE {} = $1"#,
-                    field
-                )
-                .as_str(),
-                &[&value],
-            )
-            .await?;
-        Ok(match res {
-            Some(row) => Some(row_to_subscription(&row)?),
-            None => None,
-        })
-    }
-
     async fn get_heartbeats_by_field(
         &self,
         field: &str,
@@ -242,24 +216,28 @@ fn row_to_subscription(row: &Row) -> Result<SubscriptionData> {
         row.try_get("princs_filter_value")?,
     )?;
 
-    Ok(SubscriptionData::from(
-        row.try_get("uuid")?,
-        row.try_get("version")?,
-        row.try_get("name")?,
-        row.try_get("uri")?,
-        row.try_get("query")?,
-        heartbeat_interval.try_into()?,
-        connection_retry_count.try_into()?,
-        connection_retry_interval.try_into()?,
-        max_time.try_into()?,
-        max_envelope_size.try_into()?,
-        row.try_get("enabled")?,
-        row.try_get("read_existing_events")?,
-        ContentFormat::from_str(row.try_get("content_format")?)?,
-        row.try_get("ignore_channel_error")?,
-        princs_filter,
-        outputs,
-    ))
+    let mut subscription = SubscriptionData::new(row.try_get("name")?, row.try_get("query")?);
+    subscription
+        .set_uuid(Uuid::parse_str(row.try_get("uuid")?)?)
+        .set_uri(row.try_get("uri")?)
+        .set_revision(row.try_get("revision")?)
+        .set_heartbeat_interval(heartbeat_interval.try_into()?)
+        .set_connection_retry_count(connection_retry_count.try_into()?)
+        .set_connection_retry_interval(connection_retry_interval.try_into()?)
+        .set_max_time(max_time.try_into()?)
+        .set_max_envelope_size(max_envelope_size.try_into()?)
+        .set_enabled(row.try_get("enabled")?)
+        .set_read_existing_events(row.try_get("read_existing_events")?)
+        .set_content_format(ContentFormat::from_str(row.try_get("content_format")?)?)
+        .set_ignore_channel_error(row.try_get("ignore_channel_error")?)
+        .set_princs_filter(princs_filter)
+        .set_outputs(outputs);
+
+    // This needs to be done at the end because version is updated each time
+    // a "set_" function is called
+    subscription.set_internal_version(InternalVersion(Uuid::parse_str(row.try_get("version")?)?));
+
+    Ok(subscription)
 }
 
 fn row_to_heartbeat(row: &Row) -> Result<HeartbeatData> {
@@ -606,10 +584,6 @@ impl Database for PostgresDatabase {
         Ok(subscriptions)
     }
 
-    async fn get_subscription(&self, version: &str) -> Result<Option<SubscriptionData>> {
-        self.get_subscription_by_field("version", version).await
-    }
-
     async fn get_subscription_by_identifier(
         &self,
         identifier: &str,
@@ -632,7 +606,7 @@ impl Database for PostgresDatabase {
         })
     }
 
-    async fn store_subscription(&self, subscription: SubscriptionData) -> Result<()> {
+    async fn store_subscription(&self, subscription: &SubscriptionData) -> Result<()> {
         let heartbeat_interval: i32 = subscription.heartbeat_interval().try_into()?;
         let connection_retry_count: i32 = subscription.connection_retry_count().into();
         let connection_retry_interval: i32 = subscription.connection_retry_interval().try_into()?;
@@ -643,13 +617,14 @@ impl Database for PostgresDatabase {
             .get()
             .await?
             .execute(
-                r#"INSERT INTO subscriptions (uuid, version, name, uri, query,
+                r#"INSERT INTO subscriptions (uuid, version, revision, name, uri, query,
                     heartbeat_interval, connection_retry_count, connection_retry_interval,
                     max_time, max_envelope_size, enabled, read_existing_events, content_format,
                     ignore_channel_error, princs_filter_op, princs_filter_value, outputs)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
                     ON CONFLICT (uuid) DO UPDATE SET 
                         version = excluded.version,
+                        revision = excluded.revision,
                         name = excluded.name,
                         uri = excluded.uri,
                         query = excluded.query,
@@ -666,8 +641,9 @@ impl Database for PostgresDatabase {
                         princs_filter_value = excluded.princs_filter_value,
                         outputs = excluded.outputs"#,
                 &[
-                    &subscription.uuid(),
-                    &subscription.version(),
+                    &subscription.uuid_string(),
+                    &subscription.internal_version().to_string(),
+                    &subscription.revision(),
                     &subscription.name(),
                     &subscription.uri(),
                     &subscription.query(),
