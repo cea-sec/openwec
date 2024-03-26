@@ -149,7 +149,7 @@ mod v1 {
     }
 
     #[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize)]
-    pub(super)enum SubscriptionOutputDriver {
+    pub(super) enum SubscriptionOutputDriver {
         Files(FilesConfiguration),
         Kafka(KafkaConfiguration),
         Tcp(TcpConfiguration),
@@ -215,7 +215,9 @@ mod v1 {
                     crate::subscription::SubscriptionOutputFormat::Json
                 }
                 SubscriptionOutputFormat::Raw => crate::subscription::SubscriptionOutputFormat::Raw,
-                SubscriptionOutputFormat::RawJson => crate::subscription::SubscriptionOutputFormat::RawJson,
+                SubscriptionOutputFormat::RawJson => {
+                    crate::subscription::SubscriptionOutputFormat::RawJson
+                }
             }
         }
     }
@@ -227,7 +229,9 @@ mod v1 {
                     SubscriptionOutputFormat::Json
                 }
                 crate::subscription::SubscriptionOutputFormat::Raw => SubscriptionOutputFormat::Raw,
-                crate::subscription::SubscriptionOutputFormat::RawJson => SubscriptionOutputFormat::RawJson,
+                crate::subscription::SubscriptionOutputFormat::RawJson => {
+                    SubscriptionOutputFormat::RawJson
+                }
             }
         }
     }
@@ -351,7 +355,7 @@ mod v1 {
     impl From<SubscriptionData> for crate::subscription::SubscriptionData {
         fn from(value: SubscriptionData) -> Self {
             let mut data = crate::subscription::SubscriptionData::new(&value.name, &value.query);
-            data.set_uuid(value.uuid)
+            data.set_uuid(crate::subscription::SubscriptionUuid(value.uuid))
                 .set_uri(value.uri)
                 .set_heartbeat_interval(value.heartbeat_interval)
                 .set_connection_retry_count(value.connection_retry_count)
@@ -374,7 +378,7 @@ mod v1 {
         fn from(value: crate::subscription::SubscriptionData) -> Self {
             // Note: internal version is not exported nor set
             Self {
-                uuid: *value.uuid(),
+                uuid: value.uuid().0,
                 name: value.name().to_string(),
                 uri: value.uri().cloned(),
                 revision: value.revision().cloned(),
@@ -462,13 +466,13 @@ mod tests {
 
         let mut imported_subscriptions = parse(&content)?;
         assert_eq!(imported_subscriptions.len(), 1);
-        
+
         let mut imported_subscription = imported_subscriptions.pop().unwrap();
 
         // Internal version is generated randomly during import, so we need to set it
         // to be able to compare
         imported_subscription.set_internal_version(subscription.internal_version());
-        
+
         assert_eq!(subscription, imported_subscription);
 
         Ok(())

@@ -144,7 +144,9 @@ impl From<SubscriptionOutputFormat> for crate::subscription::SubscriptionOutputF
         match value {
             SubscriptionOutputFormat::Json => crate::subscription::SubscriptionOutputFormat::Json,
             SubscriptionOutputFormat::Raw => crate::subscription::SubscriptionOutputFormat::Raw,
-            SubscriptionOutputFormat::RawJson => crate::subscription::SubscriptionOutputFormat::RawJson
+            SubscriptionOutputFormat::RawJson => {
+                crate::subscription::SubscriptionOutputFormat::RawJson
+            }
         }
     }
 }
@@ -273,7 +275,7 @@ impl TryFrom<Subscription> for crate::subscription::SubscriptionData {
     fn try_from(subscription: Subscription) -> std::prelude::v1::Result<Self, Self::Error> {
         let mut data =
             crate::subscription::SubscriptionData::new(&subscription.name, &subscription.query);
-        data.set_uuid(subscription.uuid);
+        data.set_uuid(crate::subscription::SubscriptionUuid(subscription.uuid));
         data.set_name(subscription.name.clone());
         data.set_query(subscription.query.clone());
         if let Some(filter) = subscription.filter {
@@ -296,7 +298,10 @@ impl TryFrom<Subscription> for crate::subscription::SubscriptionData {
     }
 }
 
-pub fn parse(content: &str, revision: Option<&String>) -> Result<crate::subscription::SubscriptionData> {
+pub fn parse(
+    content: &str,
+    revision: Option<&String>,
+) -> Result<crate::subscription::SubscriptionData> {
     let subscription: Subscription = toml::from_str(content).context("Error while parsing TOML")?;
     let mut data: SubscriptionData = subscription.try_into()?;
     data.set_revision(revision.cloned());
@@ -397,7 +402,9 @@ path = "/tmp/openwec.socket"
         let mut expected =
             crate::subscription::SubscriptionData::new("my-subscription", "a wonderful query\n");
         expected
-            .set_uuid(Uuid::from_str("b00bf259-3ba9-4faf-b58e-d0e9a3275778")?)
+            .set_uuid(crate::subscription::SubscriptionUuid(Uuid::from_str(
+                "b00bf259-3ba9-4faf-b58e-d0e9a3275778",
+            )?))
             .set_uri(Some("toto".to_string()))
             .set_enabled(true)
             .set_heartbeat_interval(32)
@@ -509,7 +516,9 @@ path = "/tmp/my.socket"
         let mut expected =
             crate::subscription::SubscriptionData::new("minimal", "a very small query\n");
         expected
-            .set_uuid(Uuid::from_str("b00bf259-3ba9-4faf-b58e-d0e9a3757798")?)
+            .set_uuid(crate::subscription::SubscriptionUuid(Uuid::from_str(
+                "b00bf259-3ba9-4faf-b58e-d0e9a3757798",
+            )?))
             .set_outputs(vec![crate::subscription::SubscriptionOutput::new(
                 crate::subscription::SubscriptionOutputFormat::Json,
                 crate::subscription::SubscriptionOutputDriver::UnixDatagram(

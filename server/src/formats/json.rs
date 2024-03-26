@@ -448,7 +448,7 @@ mod tests {
     use std::{net::SocketAddr, str::FromStr, sync::Arc};
 
     use chrono::Utc;
-    use common::subscription::SubscriptionData;
+    use common::subscription::{SubscriptionData, SubscriptionUuid};
     use serde_json::Value;
     use uuid::Uuid;
 
@@ -458,7 +458,6 @@ mod tests {
         output::OutputFormat,
         subscription::Subscription,
     };
-
 
     const EVENT_4688: &str = r#"<Event xmlns='http://schemas.microsoft.com/win/2004/08/events/event'><System><Provider Name='Microsoft-Windows-Security-Auditing' Guid='{54849625-5478-4994-a5ba-3e3b0328c30d}'/><EventID>4688</EventID><Version>2</Version><Level>0</Level><Task>13312</Task><Opcode>0</Opcode><Keywords>0x8020000000000000</Keywords><TimeCreated SystemTime='2022-12-14T16:06:51.0643605Z'/><EventRecordID>114689</EventRecordID><Correlation/><Execution ProcessID='4' ThreadID='196'/><Channel>Security</Channel><Computer>win10.windomain.local</Computer><Security/></System><EventData><Data Name='SubjectUserSid'>S-1-5-18</Data><Data Name='SubjectUserName'>WIN10$</Data><Data Name='SubjectDomainName'>WINDOMAIN</Data><Data Name='SubjectLogonId'>0x3e7</Data><Data Name='NewProcessId'>0x3a8</Data><Data Name='NewProcessName'>C:\Program Files (x86)\Microsoft\EdgeUpdate\MicrosoftEdgeUpdate.exe</Data><Data Name='TokenElevationType'>%%1936</Data><Data Name='ProcessId'>0x240</Data><Data Name='CommandLine'></Data><Data Name='TargetUserSid'>S-1-0-0</Data><Data Name='TargetUserName'>-</Data><Data Name='TargetDomainName'>-</Data><Data Name='TargetLogonId'>0x0</Data><Data Name='ParentProcessName'>C:\Windows\System32\services.exe</Data><Data Name='MandatoryLabel'>S-1-16-16384</Data></EventData><RenderingInfo Culture='en-US'><Message>A new process has been created.
 
@@ -494,11 +493,13 @@ Type 3 is a limited token with administrative privileges removed and administrat
 
     #[test]
     fn test_serialize_4688_event_data() {
-        // Generate metadata 
+        // Generate metadata
 
         let mut subscription_data = SubscriptionData::new("Test", "");
         subscription_data
-            .set_uuid(Uuid::from_str("8B18D83D-2964-4F35-AC3B-6F4E6FFA727B").unwrap())
+            .set_uuid(SubscriptionUuid(
+                Uuid::from_str("8B18D83D-2964-4F35-AC3B-6F4E6FFA727B").unwrap(),
+            ))
             .set_uri(Some("/this/is/a/test".to_string()))
             .set_revision(Some("1234".to_string()));
         let subscription = Subscription::try_from(subscription_data).unwrap();
@@ -544,8 +545,9 @@ Licensing Status=
     #[test]
     fn test_serialize_1003_event_data_unamed() {
         let mut subscription_data = SubscriptionData::new("Test", "");
-        subscription_data
-            .set_uuid(Uuid::from_str("8B18D83D-2964-4F35-AC3B-6F4E6FFA727B").unwrap());
+        subscription_data.set_uuid(SubscriptionUuid(
+            Uuid::from_str("8B18D83D-2964-4F35-AC3B-6F4E6FFA727B").unwrap(),
+        ));
         let subscription = Subscription::try_from(subscription_data).unwrap();
 
         let mut metadata = EventMetadata::new(
@@ -580,11 +582,13 @@ ADDITIONAL INFO
 If this computer is a domain controller for the specified domain, it sets up the secure session to the primary domain controller emulator in the specified domain. Otherwise, this computer sets up the secure session to any domain controller in the specified domain.</Message><Level>Error</Level><Task></Task><Opcode>Info</Opcode><Channel></Channel><Provider></Provider><Keywords><Keyword>Classic</Keyword></Keywords></RenderingInfo></Event>"#;
     const EVENT_5719_JSON: &str = r#"{"System":{"Provider":{"Name":"NETLOGON"},"EventID":5719,"EventIDQualifiers":0,"Version":0,"Level":2,"Task":0,"Opcode":0,"Keywords":"0x80000000000000","TimeCreated":"2022-12-14T16:04:59.0817047Z","EventRecordID":9466,"Correlation":{},"Execution":{"ProcessID":0,"ThreadID":0},"Channel":"System","Computer":"win10.windomain.local"},"EventData":{"Data":["WINDOMAIN","%%1311"],"Binary":"5E0000C0"},"RenderingInfo":{"Message":"This computer was not able to set up a secure session with a domain controller in domain WINDOMAIN due to the following:\nWe can't sign you in with this credential because your domain isn't available. Make sure your device is connected to your organization's network and try again. If you previously signed in on this device with another credential, you can sign in with that credential.\nThis may lead to authentication problems. Make sure that this computer is connected to the network. If the problem persists, please contact your domain administrator.\n\nADDITIONAL INFO\nIf this computer is a domain controller for the specified domain, it sets up the secure session to the primary domain controller emulator in the specified domain. Otherwise, this computer sets up the secure session to any domain controller in the specified domain.","Level":"Error","Opcode":"Info","Keywords":["Classic"],"Culture":"en-US"},"OpenWEC":{"IpAddress":"192.168.58.100","TimeReceived":"2022-12-14T16:07:02.919+00:00","Principal":"WIN10$@WINDOMAIN.LOCAL","Node":"openwec","Subscription":{"Uuid":"8B18D83D-2964-4F35-AC3B-6F4E6FFA727B","Version":"188BB736-9441-5C66-188B-B73694415C66","Name":"Test","Uri":"/this/is/a/test", "Revision": "babar"}}}"#;
 
-     #[test]
-     fn test_serialize_5719_event_data_binary() {
+    #[test]
+    fn test_serialize_5719_event_data_binary() {
         let mut subscription_data = SubscriptionData::new("Test", "");
         subscription_data
-            .set_uuid(Uuid::from_str("8B18D83D-2964-4F35-AC3B-6F4E6FFA727B").unwrap())
+            .set_uuid(SubscriptionUuid(
+                Uuid::from_str("8B18D83D-2964-4F35-AC3B-6F4E6FFA727B").unwrap(),
+            ))
             .set_uri(Some("/this/is/a/test".to_string()))
             .set_revision(Some("babar".to_string()));
         let subscription = Subscription::try_from(subscription_data).unwrap();
@@ -611,7 +615,7 @@ If this computer is a domain controller for the specified domain, it sets up the
         let expected_value: Value = serde_json::from_str(EVENT_5719_JSON).unwrap();
 
         assert_eq!(event_json_value, expected_value);
-     }
+    }
 
     const EVENT_6013: &str = r#"<Event xmlns='http://schemas.microsoft.com/win/2004/08/events/event'><System><Provider Name='EventLog'/><EventID Qualifiers='32768'>6013</EventID><Version>0</Version><Level>4</Level><Task>0</Task><Opcode>0</Opcode><Keywords>0x80000000000000</Keywords><TimeCreated SystemTime='2022-12-14T16:04:43.7965565Z'/><EventRecordID>9427</EventRecordID><Correlation/><Execution ProcessID='0' ThreadID='0'/><Channel>System</Channel><Computer>win10.windomain.local</Computer><Security/></System><EventData><Data></Data><Data></Data><Data></Data><Data></Data><Data>6</Data><Data>60</Data><Data>0 Coordinated Universal Time</Data><Binary>31002E003100000030000000570069006E0064006F0077007300200031003000200045006E007400650072007000720069007300650020004500760061006C0075006100740069006F006E000000310030002E0030002E003100390030003400330020004200750069006C0064002000310039003000340033002000200000004D0075006C0074006900700072006F0063006500730073006F007200200046007200650065000000310039003000340031002E00760062005F00720065006C0065006100730065002E003100390031003200300036002D00310034003000360000003600320031003400640066003100630000004E006F007400200041007600610069006C00610062006C00650000004E006F007400200041007600610069006C00610062006C00650000003900000031000000320030003400380000003400300039000000770069006E00310030002E00770069006E0064006F006D00610069006E002E006C006F00630061006C0000000000</Binary></EventData><RenderingInfo Culture='en-US'><Message>The system uptime is 6 seconds.</Message><Level>Information</Level><Task></Task><Opcode></Opcode><Channel></Channel><Provider></Provider><Keywords><Keyword>Classic</Keyword></Keywords></RenderingInfo></Event>"#;
     const EVENT_6013_JSON: &str = r#"{"System":{"Provider":{"Name":"EventLog"},"EventID":6013,"EventIDQualifiers":32768,"Version":0,"Level":4,"Task":0,"Opcode":0,"Keywords":"0x80000000000000","TimeCreated":"2022-12-14T16:04:43.7965565Z","EventRecordID":9427,"Correlation":{},"Execution":{"ProcessID":0,"ThreadID":0},"Channel":"System","Computer":"win10.windomain.local"},"EventData":{"Data":["6","60","0 Coordinated Universal Time"],"Binary":"31002E003100000030000000570069006E0064006F0077007300200031003000200045006E007400650072007000720069007300650020004500760061006C0075006100740069006F006E000000310030002E0030002E003100390030003400330020004200750069006C0064002000310039003000340033002000200000004D0075006C0074006900700072006F0063006500730073006F007200200046007200650065000000310039003000340031002E00760062005F00720065006C0065006100730065002E003100390031003200300036002D00310034003000360000003600320031003400640066003100630000004E006F007400200041007600610069006C00610062006C00650000004E006F007400200041007600610069006C00610062006C00650000003900000031000000320030003400380000003400300039000000770069006E00310030002E00770069006E0064006F006D00610069006E002E006C006F00630061006C0000000000"},"RenderingInfo":{"Message":"The system uptime is 6 seconds.","Level":"Information","Keywords":["Classic"],"Culture":"en-US"},"OpenWEC":{"IpAddress":"192.168.58.100","TimeReceived":"2022-12-14T16:07:02.524+00:00","Principal":"WIN10$@WINDOMAIN.LOCAL","Subscription":{"Uuid":"8B18D83D-2964-4F35-AC3B-6F4E6FFA727B","Version":"188BB736-9441-5C66-188B-B73694415C66","Name":"Test","Uri":"/this/is/a/test"}}}"#;
@@ -620,7 +624,9 @@ If this computer is a domain controller for the specified domain, it sets up the
     fn test_serialize_6013_event_data_unamed_empty() {
         let mut subscription_data = SubscriptionData::new("Test", "");
         subscription_data
-            .set_uuid(Uuid::from_str("8B18D83D-2964-4F35-AC3B-6F4E6FFA727B").unwrap())
+            .set_uuid(SubscriptionUuid(
+                Uuid::from_str("8B18D83D-2964-4F35-AC3B-6F4E6FFA727B").unwrap(),
+            ))
             .set_uri(Some("/this/is/a/test".to_string()));
         let subscription = Subscription::try_from(subscription_data).unwrap();
 
@@ -635,7 +641,7 @@ If this computer is a domain controller for the specified domain, it sets up the
                 .unwrap()
                 .with_timezone(&Utc),
         );
-        
+
         let event_data = EventData::new(Arc::new(EVENT_6013.to_string()), true);
 
         assert!(event_data.event().unwrap().additional.error.is_none());
@@ -655,7 +661,9 @@ If this computer is a domain controller for the specified domain, it sets up the
     fn test_serialize_1100_user_data() {
         let mut subscription_data = SubscriptionData::new("Test", "");
         subscription_data
-            .set_uuid(Uuid::from_str("8B18D83D-2964-4F35-AC3B-6F4E6FFA727B").unwrap())
+            .set_uuid(SubscriptionUuid(
+                Uuid::from_str("8B18D83D-2964-4F35-AC3B-6F4E6FFA727B").unwrap(),
+            ))
             .set_uri(Some("/this/is/a/test".to_string()));
         let subscription = Subscription::try_from(subscription_data).unwrap();
 
@@ -681,7 +689,6 @@ If this computer is a domain controller for the specified domain, it sets up the
         let expected_value: Value = serde_json::from_str(EVENT_1100_JSON).unwrap();
 
         assert_eq!(event_json_value, expected_value);
-
     }
 
     const EVENT_111: &str = r#"<Event xmlns='http://schemas.microsoft.com/win/2004/08/events/event'><System><Provider Name='Microsoft-Windows-EventForwarder'/><EventID>111</EventID><TimeCreated SystemTime='2023-02-14T09:14:23.175Z'/><Computer>win10.windomain.local</Computer></System><SubscriptionBookmarkEvent><SubscriptionId></SubscriptionId></SubscriptionBookmarkEvent></Event>"#;
@@ -691,7 +698,9 @@ If this computer is a domain controller for the specified domain, it sets up the
     fn test_serialize_111() {
         let mut subscription_data = SubscriptionData::new("Test", "");
         subscription_data
-            .set_uuid(Uuid::from_str("8B18D83D-2964-4F35-AC3B-6F4E6FFA727B").unwrap())
+            .set_uuid(SubscriptionUuid(
+                Uuid::from_str("8B18D83D-2964-4F35-AC3B-6F4E6FFA727B").unwrap(),
+            ))
             .set_uri(Some("/this/is/a/test".to_string()));
         let subscription = Subscription::try_from(subscription_data).unwrap();
 

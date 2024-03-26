@@ -4,9 +4,9 @@ use quick_xml::events::{BytesText, Event};
 use quick_xml::reader::Reader;
 use quick_xml::writer::Writer;
 use roxmltree::{Document, Node};
-use uuid::Uuid;
 use std::collections::HashMap;
 use std::sync::Arc;
+use uuid::Uuid;
 use xmlparser::XmlCharExt;
 
 const SOAP_ENVELOPE_NS: &str = "http://www.w3.org/2003/05/soap-envelope";
@@ -379,9 +379,8 @@ impl Header {
         self.bookmarks.as_ref()
     }
 
-    /// Get a reference to the header's identifier.
-    pub fn identifier(&self) -> Option<&String> {
-        self.identifier.as_ref()
+    pub fn to(&self) -> Option<&String> {
+        self.to.as_ref()
     }
 }
 

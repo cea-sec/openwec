@@ -1,17 +1,16 @@
 use crate::{
-    event::{EventData, EventMetadata}, heartbeat::{store_heartbeat, WriteHeartbeatMessage}, output::get_formatter, soap::{
+    event::{EventData, EventMetadata}, get_subscription_uuid_with_regex, heartbeat::{store_heartbeat, WriteHeartbeatMessage}, output::get_formatter, soap::{
         Body, Header, Message, OptionSetValue, Subscription as SoapSubscription, SubscriptionBody,
         ACTION_ACK, ACTION_END, ACTION_ENUMERATE, ACTION_ENUMERATE_RESPONSE, ACTION_EVENTS,
         ACTION_HEARTBEAT, ACTION_SUBSCRIBE, ACTION_SUBSCRIPTION_END, ANONYMOUS, RESOURCE_EVENT_LOG,
-    }, subscription::{Subscription, Subscriptions}, AuthenticationContext, RequestCategory, RequestData
+    }, subscription::{Subscription, Subscriptions}, AuthenticationContext, RequestCategory, RequestData, URL_SUBSCRIPTION_RE
 };
 use common::{
     database::Db,
-    settings::{Collector, Server}, subscription::{PublicVersion, SubscriptionOutputFormat},
+    settings::{Collector, Server}, subscription::{SubscriptionOutputFormat, SubscriptionUuid},
 };
 use http::status::StatusCode;
 use log::{debug, error, warn};
-use uuid::Uuid;
 use std::{collections::HashMap, sync::Arc};
 use tokio::{sync::mpsc, task::JoinSet};
 
@@ -32,22 +31,29 @@ impl Response {
     }
 }
 
-fn check_sub_request_data(request_data: &RequestData, version: &str) -> bool {
-    let uri_version = if let RequestCategory::Subscription(version) = request_data.category() {
-        version
+/// Retrieve subscription uuid from request URI and message Header,
+/// check that both are equal and return the uuid
+fn get_subscription_uuid(request_data: &RequestData, header: &Header) -> Result<SubscriptionUuid> {
+    let uri_subscription_uuid = if let RequestCategory::Subscription(uuid) = request_data.category() {
+        uuid
     } else {
-        error!("Request URI is incoherent with body message");
-        return false;
+        bail!("Request URI does not contain subscription uuid");
     };
 
-    if version != uri_version {
-        error!(
-            "URI identifier and message identifier do not match: {} != {}",
-            uri_version, version
+    let header_subscription_uuid =  if let Some(to) = header.to() {
+        get_subscription_uuid_with_regex(to, &URL_SUBSCRIPTION_RE)?
+    } else {
+        bail!("Could not find message header `To`");
+    };
+
+    if header_subscription_uuid != *uri_subscription_uuid {
+        bail!(
+            "Subscription UUID in URI and in message header do not match: {} != {}",
+            uri_subscription_uuid, header_subscription_uuid 
         );
-        return false;
     }
-    true
+
+    Ok(header_subscription_uuid)
 }
 
 async fn handle_enumerate(
@@ -194,13 +200,13 @@ async fn handle_enumerate(
                     "http://{}:{}/wsman/subscriptions/{}",
                     collector.hostname(),
                     collector.listen_port(),
-                    public_version, 
+                    subscription_data.uuid_string(), 
                 ),
                 AuthenticationContext::Tls(_,_) => format!(
                     "https://{}:{}/wsman/subscriptions/{}",
                     collector.hostname(),
                     collector.listen_port(),
-                    public_version, 
+                    subscription_data.uuid_string(), 
                 )
             },
             connection_retry_count: subscription_data.connection_retry_count(),
@@ -232,20 +238,17 @@ async fn handle_heartbeat(
     request_data: &RequestData,
     message: &Message,
 ) -> Result<Response> {
-    let public_version = message
-        .header()
-        .identifier()
-        .ok_or_else(|| anyhow!("Missing field identifier"))?;
-
-    let public_version_uuid = PublicVersion(Uuid::parse_str(public_version)?);
-
-    if !check_sub_request_data(request_data, public_version) {
-        return Ok(Response::err(StatusCode::BAD_REQUEST));
-    }
+    let subscription_uuid = match get_subscription_uuid(request_data, message.header()) {
+        Ok(uuid) => uuid,
+        Err(e) => {
+            error!("{}", e);
+            return Ok(Response::err(StatusCode::BAD_REQUEST));
+        }
+    };
 
     let subscription = {
         let subscriptions = subscriptions.read().unwrap();
-        match subscriptions.get(&public_version_uuid) {
+        match subscriptions.get(&subscription_uuid) {
             Some(subscription) => subscription.to_owned(),
             None => {
                 warn!(
@@ -253,9 +256,9 @@ async fn handle_heartbeat(
                     request_data.remote_addr().ip(),
                     request_data.remote_addr().port(),
                     request_data.principal(),
-                    public_version
+                    subscription_uuid
                 );
-                return Ok(Response::err(StatusCode::BAD_REQUEST));
+                return Ok(Response::err(StatusCode::NOT_FOUND));
             }
         }
     };
@@ -302,24 +305,21 @@ async fn handle_events(
     message: &Message,
 ) -> Result<Response> {
     if let Some(Body::Events(events)) = &message.body {
-        let public_version = message
-            .header()
-            .identifier()
-            .ok_or_else(|| anyhow!("Missing field identifier"))?;
-
-        if !check_sub_request_data(request_data, public_version) {
-            return Ok(Response::err(StatusCode::BAD_REQUEST));
-        }
-
-        let public_version_uuid = PublicVersion(Uuid::parse_str(public_version)?);
+        let subscription_uuid = match get_subscription_uuid(request_data, message.header()) {
+            Ok(uuid) => uuid,
+            Err(e) => {
+                error!("{}", e);
+                return Ok(Response::err(StatusCode::BAD_REQUEST));
+            }
+        };
 
         let subscription: Arc<Subscription> = {
             let subscriptions = subscriptions.read().unwrap();
-            let subscription = subscriptions.get(&public_version_uuid);
+            let subscription = subscriptions.get(&subscription_uuid);
             match subscription {
                 Some(subscription) => subscription.to_owned(),
                 None => {
-                    warn!("Unknown subscription version {}", public_version);
+                    warn!("Unknown subscription uuid {}", subscription_uuid);
                     return Ok(Response::err(StatusCode::NOT_FOUND));
                 }
             }

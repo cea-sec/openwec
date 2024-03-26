@@ -31,7 +31,8 @@ use crate::bookmark::BookmarkData;
 use crate::heartbeat::{HeartbeatKey, HeartbeatsCache};
 use crate::settings::PostgresSslMode;
 use crate::subscription::{
-    ContentFormat, InternalVersion, PrincsFilter, SubscriptionMachine, SubscriptionMachineState, SubscriptionStatsCounters
+    ContentFormat, InternalVersion, PrincsFilter, SubscriptionMachine, SubscriptionMachineState,
+    SubscriptionStatsCounters, SubscriptionUuid,
 };
 use crate::{
     database::Database, heartbeat::HeartbeatData, settings::Postgres,
@@ -218,7 +219,7 @@ fn row_to_subscription(row: &Row) -> Result<SubscriptionData> {
 
     let mut subscription = SubscriptionData::new(row.try_get("name")?, row.try_get("query")?);
     subscription
-        .set_uuid(Uuid::parse_str(row.try_get("uuid")?)?)
+        .set_uuid(SubscriptionUuid(Uuid::parse_str(row.try_get("uuid")?)?))
         .set_uri(row.try_get("uri")?)
         .set_revision(row.try_get("revision")?)
         .set_heartbeat_interval(heartbeat_interval.try_into()?)

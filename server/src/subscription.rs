@@ -1,7 +1,10 @@
 use anyhow::Result;
 use common::{
     database::Db,
-    subscription::{InternalVersion, PublicVersion, SubscriptionData, SubscriptionOutputFormat},
+    subscription::{
+        InternalVersion, PublicVersion, SubscriptionData, SubscriptionOutputFormat,
+        SubscriptionUuid,
+    },
 };
 use itertools::Itertools;
 use log::{debug, info, warn};
@@ -79,8 +82,8 @@ impl Subscription {
 }
 
 /// In-memory map of currently active subscriptions
-/// <public version> => <subscription>
-pub type Subscriptions = Arc<RwLock<HashMap<PublicVersion, Arc<Subscription>>>>;
+/// <subscription_uuid> => <subscription>
+pub type Subscriptions = Arc<RwLock<HashMap<SubscriptionUuid, Arc<Subscription>>>>;
 
 pub async fn reload_subscriptions_task(db: Db, subscriptions: Subscriptions, interval: u64) {
     info!("reload_subscriptions task started");
@@ -114,7 +117,8 @@ async fn reload_subscriptions(
 ) -> Result<()> {
     let db_subscriptions = db.get_subscriptions().await?;
 
-    let mut active_subscriptions: HashSet<InternalVersion> = HashSet::with_capacity(db_subscriptions.len());
+    let mut active_subscriptions: HashSet<InternalVersion> =
+        HashSet::with_capacity(db_subscriptions.len());
 
     // Take a write lock on subscriptions
     // It will be released at the end of the function
@@ -172,7 +176,7 @@ async fn reload_subscriptions(
 
                 if let Some(old_subscription) = old_subscription {
                     info!("Subscription {} has been updated", subscription_data.name());
-                    mem_subscriptions.remove(&old_subscription.public_version);
+                    mem_subscriptions.remove(old_subscription.data().uuid());
                 } else {
                     info!("Subscription {} has been created", subscription_data.name());
                 }
@@ -180,30 +184,37 @@ async fn reload_subscriptions(
                 // Initialize the new subscription and add it to in-memory subscriptions
                 let new_subscription = Arc::new(Subscription::try_from(subscription_data.clone())?);
                 // mem_subscriptions is indexed on public version
-                mem_subscriptions.insert(new_subscription.public_version, new_subscription);
+                mem_subscriptions.insert(*new_subscription.data().uuid(), new_subscription);
             }
         }
     }
 
-    debug!("Active subscriptions internal versions are: {:?}", active_subscriptions);
+    debug!(
+        "Active subscriptions internal versions are: {:?}",
+        active_subscriptions
+    );
 
     // Make a list of subscriptions that need to be removed from in-memory subscriptions
     // These subscriptions have been disabled or deleted
-    let mut to_delete = HashSet::new();
+    let mut to_delete: HashSet<SubscriptionUuid> = HashSet::new();
     for subscription in mem_subscriptions.values() {
         if !active_subscriptions.contains(&subscription.data().internal_version()) {
-            debug!("Mark subscription {} as 'to delete' (public version: {})",  subscription.data().name(), subscription.public_version);
-            to_delete.insert(subscription.public_version);
+            debug!(
+                "Mark subscription {} as 'to delete' (public version: {})",
+                subscription.data().name(),
+                subscription.public_version
+            );
+            to_delete.insert(*subscription.data().uuid());
         }
     }
 
     // Remove listed subscriptions
-    for public_version in to_delete {
+    for subscription_uuid in to_delete {
         info!(
-            "Remove public version {} from in memory subscriptions",
-            public_version
+            "Remove subscription uuid {} from in memory subscriptions",
+            subscription_uuid
         );
-        mem_subscriptions.remove(&public_version);
+        mem_subscriptions.remove(&subscription_uuid);
     }
 
     if mem_subscriptions.is_empty() {

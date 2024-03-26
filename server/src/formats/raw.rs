@@ -1,6 +1,9 @@
 use std::sync::Arc;
 
-use crate::{event::{EventData, EventMetadata}, output::OutputFormat};
+use crate::{
+    event::{EventData, EventMetadata},
+    output::OutputFormat,
+};
 
 pub struct RawFormat;
 
@@ -15,10 +18,15 @@ mod tests {
     use std::{net::SocketAddr, str::FromStr, sync::Arc};
 
     use chrono::Utc;
-    use common::subscription::SubscriptionData;
+    use common::subscription::{SubscriptionData, SubscriptionUuid};
     use uuid::Uuid;
 
-    use crate::{event::{EventData, EventMetadata}, formats::raw::RawFormat, output::OutputFormat, subscription::Subscription};
+    use crate::{
+        event::{EventData, EventMetadata},
+        formats::raw::RawFormat,
+        output::OutputFormat,
+        subscription::Subscription,
+    };
 
     const EVENT_4688: &str = r#"<Event xmlns='http://schemas.microsoft.com/win/2004/08/events/event'><System><Provider Name='Microsoft-Windows-Security-Auditing' Guid='{54849625-5478-4994-a5ba-3e3b0328c30d}'/><EventID>4688</EventID><Version>2</Version><Level>0</Level><Task>13312</Task><Opcode>0</Opcode><Keywords>0x8020000000000000</Keywords><TimeCreated SystemTime='2022-12-14T16:06:51.0643605Z'/><EventRecordID>114689</EventRecordID><Correlation/><Execution ProcessID='4' ThreadID='196'/><Channel>Security</Channel><Computer>win10.windomain.local</Computer><Security/></System><EventData><Data Name='SubjectUserSid'>S-1-5-18</Data><Data Name='SubjectUserName'>WIN10$</Data><Data Name='SubjectDomainName'>WINDOMAIN</Data><Data Name='SubjectLogonId'>0x3e7</Data><Data Name='NewProcessId'>0x3a8</Data><Data Name='NewProcessName'>C:\Program Files (x86)\Microsoft\EdgeUpdate\MicrosoftEdgeUpdate.exe</Data><Data Name='TokenElevationType'>%%1936</Data><Data Name='ProcessId'>0x240</Data><Data Name='CommandLine'></Data><Data Name='TargetUserSid'>S-1-0-0</Data><Data Name='TargetUserName'>-</Data><Data Name='TargetDomainName'>-</Data><Data Name='TargetLogonId'>0x0</Data><Data Name='ParentProcessName'>C:\Windows\System32\services.exe</Data><Data Name='MandatoryLabel'>S-1-16-16384</Data></EventData><RenderingInfo Culture='en-US'><Message>A new process has been created.
 
@@ -56,7 +64,9 @@ Type 3 is a limited token with administrative privileges removed and administrat
         // Generate metadata (which should be ignored)
         let mut subscription_data = SubscriptionData::new("Test", "");
         subscription_data
-            .set_uuid(Uuid::from_str("8B18D83D-2964-4F35-AC3B-6F4E6FFA727B").unwrap())
+            .set_uuid(SubscriptionUuid(
+                Uuid::from_str("8B18D83D-2964-4F35-AC3B-6F4E6FFA727B").unwrap(),
+            ))
             .set_uri(Some("/this/is/a/test".to_string()))
             .set_revision(Some("1234".to_string()));
         let subscription = Subscription::try_from(subscription_data).unwrap();
@@ -83,6 +93,4 @@ Type 3 is a limited token with administrative privileges removed and administrat
 
         assert_eq!(result.as_str(), EVENT_4688);
     }
-
-
 }

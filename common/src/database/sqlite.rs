@@ -41,7 +41,7 @@ use crate::bookmark::BookmarkData;
 use crate::database::Database;
 use crate::heartbeat::{HeartbeatData, HeartbeatsCache};
 use crate::subscription::{
-    ContentFormat, InternalVersion, PrincsFilter, SubscriptionData, SubscriptionMachine, SubscriptionMachineState, SubscriptionStatsCounters
+    ContentFormat, InternalVersion, PrincsFilter, SubscriptionData, SubscriptionMachine, SubscriptionMachineState, SubscriptionStatsCounters, SubscriptionUuid
 };
 
 use super::schema::{Migration, MigrationBase, Version};
@@ -168,7 +168,7 @@ fn row_to_subscription(row: &Row) -> Result<SubscriptionData> {
     let princs_filter = PrincsFilter::from(row.get("princs_filter_op")?, row.get("princs_filter_value")?)?;
 
     let mut subscription= SubscriptionData::new(&name, &query);
-    subscription.set_uuid(Uuid::parse_str(&uuid)?)
+    subscription.set_uuid(SubscriptionUuid(Uuid::parse_str(&uuid)?))
         .set_uri(row.get("uri")?)
         .set_revision(row.get("revision")?)
         .set_heartbeat_interval(row.get("heartbeat_interval")?)

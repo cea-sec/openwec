@@ -1,5 +1,8 @@
 use std::{
-    collections::{HashMap, HashSet}, fmt::{Display, Formatter}, hash::{Hash, Hasher}, str::FromStr
+    collections::{HashMap, HashSet},
+    fmt::{Display, Formatter},
+    hash::{Hash, Hasher},
+    str::FromStr,
 };
 
 use anyhow::{anyhow, bail, Result};
@@ -200,11 +203,15 @@ impl Display for SubscriptionOutput {
         write!(
             f,
             "Enabled: {:?}, Format: {}, Driver: {:?}",
-            self.enabled, self.format.as_ref(), self.driver
+            self.enabled,
+            self.format.as_ref(),
+            self.driver
         )
     }
 }
-#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize, Hash, VariantNames, AsRefStr, EnumString)]
+#[derive(
+    Debug, Clone, Eq, PartialEq, Serialize, Deserialize, Hash, VariantNames, AsRefStr, EnumString,
+)]
 #[strum(serialize_all = "snake_case", ascii_case_insensitive)]
 pub enum SubscriptionOutputFormat {
     Json,
@@ -268,10 +275,7 @@ impl PrincsFilter {
     }
 
     pub fn new(operation: Option<PrincsFilterOperation>, princs: HashSet<String>) -> Self {
-        Self {
-            operation,
-            princs
-        }
+        Self { operation, princs }
     }
 
     pub fn from(operation: Option<String>, princs: Option<String>) -> Result<Self> {
@@ -374,7 +378,14 @@ impl FromStr for ContentFormat {
     }
 }
 
+#[derive(Debug, PartialEq, Clone, Eq, Hash, Copy, Serialize)]
+pub struct SubscriptionUuid(pub Uuid);
 
+impl Display for SubscriptionUuid {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
 // Internal version and public version are both uuids
 // We use the newtype pattern so that the compiler can check that
 // we don't use one instead of the other
@@ -419,7 +430,7 @@ pub struct SubscriptionParameters {
 #[derive(Debug, PartialEq, Clone, Eq)]
 pub struct SubscriptionData {
     // Unique identifier of the subscription
-    uuid: Uuid,
+    uuid: SubscriptionUuid,
     // Internal version, NOT the version of the subscription sent to clients
     // It is generated when the subscription is created and updated every time
     // there is a change in the subscription.
@@ -447,11 +458,19 @@ impl Display for SubscriptionData {
         writeln!(f, "Subscription {}", self.name())?;
         writeln!(f, "\tUUID: {}", self.uuid())?;
         writeln!(f, "\tInternal version: {}", self.internal_version())?;
-        writeln!(f, "\tPublic version: {}", self.public_version().unwrap_or_default())?;
-        writeln!(f, "\tRevision: {}", match self.revision() {
-            Some(revision) => revision,
-            None => "Not configured"
-        })?;
+        writeln!(
+            f,
+            "\tPublic version: {}",
+            self.public_version().unwrap_or_default()
+        )?;
+        writeln!(
+            f,
+            "\tRevision: {}",
+            match self.revision() {
+                Some(revision) => revision,
+                None => "Not configured",
+            }
+        )?;
         writeln!(
             f,
             "\tURI: {}",
@@ -509,7 +528,7 @@ impl Display for SubscriptionData {
 impl SubscriptionData {
     pub fn new(name: &str, query: &str) -> Self {
         Self {
-            uuid: Uuid::new_v4(),
+            uuid: SubscriptionUuid(Uuid::new_v4()),
             internal_version: InternalVersion(Uuid::new_v4()),
             revision: None,
             uri: None,
@@ -528,7 +547,7 @@ impl SubscriptionData {
                 read_existing_events: DEFAULT_READ_EXISTING_EVENTS,
                 content_format: DEFAULT_CONTENT_FORMAT,
                 ignore_channel_error: DEFAULT_IGNORE_CHANNEL_ERROR,
-            }
+            },
         }
     }
 
@@ -552,16 +571,16 @@ impl SubscriptionData {
 
     pub fn update_uuid(&mut self) {
         // This should only be used when duplicating an existing subscription
-        self.uuid = Uuid::new_v4();
+        self.uuid = SubscriptionUuid(Uuid::new_v4());
     }
 
-    pub fn set_uuid(&mut self, uuid: Uuid) -> &mut Self {
+    pub fn set_uuid(&mut self, uuid: SubscriptionUuid) -> &mut Self {
         self.uuid = uuid;
         self
     }
 
     /// Get a reference to the subscription's uuid.
-    pub fn uuid(&self) -> &Uuid {
+    pub fn uuid(&self) -> &SubscriptionUuid {
         &self.uuid
     }
 
