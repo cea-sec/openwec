@@ -32,7 +32,7 @@ serde = { version = "1.0.164", features = ["derive"] }
 serde_json = "1.0.97"
 async-trait = "0.1.68"
 chrono = { version  = "0.4.26", default-features = false, features = ["clock"] }
-clap = { version = "4.4.2", features = ["cargo"] }
+clap = { version = "4.5.4", features = ["cargo"] }
 futures-util = "0.3.28"
 xmlparser = "0.13.5"
 itertools = "0.12.0"
