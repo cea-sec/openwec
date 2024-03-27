@@ -523,4 +523,48 @@ mod tests {
         let s = Settings::from_str(CONFIG_TLS_POSTGRES_WITH_CLI).unwrap();
         assert_eq!(s.cli().read_only_subscriptions(), true);
     }
+
+    const GETTING_STARTED: &str = r#"
+        [server]
+        keytab = "/etc/wec.windomain.local.keytab"
+
+        [database]
+        type = "SQLite"
+        # You need to create /var/db/openwec yourself
+        path = "/var/db/openwec/db.sqlite"
+
+        [[collectors]]
+        hostname = "wec.windomain.local"
+        listen_address = "0.0.0.0"
+
+        [collectors.authentication]
+        type = "Kerberos"
+        service_principal_name = "http/wec.windomain.local@WINDOMAIN.LOCAL"   
+    "#;
+
+    #[test]
+    fn test_getting_started() {
+        let s = Settings::from_str(GETTING_STARTED).unwrap();
+        assert_eq!(s.collectors().len(), 1);
+        let collector = &s.collectors()[0];
+        assert_eq!(collector.hostname(), "wec.windomain.local");
+        assert_eq!(collector.listen_address(), "0.0.0.0");
+
+        let kerberos = match collector.authentication() {
+            Authentication::Kerberos(kerb) => kerb,
+            _ => panic!("Wrong authentication type"),
+        };
+        assert_eq!(s.server().keytab().unwrap(), "/etc/wec.windomain.local.keytab");
+        assert_eq!(
+            kerberos.service_principal_name(),
+            "http/wec.windomain.local@WINDOMAIN.LOCAL"
+        );
+
+        let sqlite = match s.database() {
+            Database::SQLite(sqlite) => sqlite,
+            _ => panic!("Wrong database type"),
+        };
+
+        assert_eq!(sqlite.path(), "/var/db/openwec/db.sqlite");
+    }
 }
