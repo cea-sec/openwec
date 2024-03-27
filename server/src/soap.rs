@@ -49,7 +49,7 @@ pub trait Serializable {
 
 #[derive(Debug)]
 pub struct Subscription {
-    pub identifier: String,
+    pub version: String,
     pub header: Header,
     pub body: SubscriptionBody,
 }
@@ -63,7 +63,7 @@ impl Serializable for Subscription {
                 writer
                     .create_element("m:Version")
                     .write_text_content(BytesText::new(
-                        format!("uuid:{}", self.identifier).as_str(),
+                        format!("uuid:{}", self.version).as_str(),
                     ))?;
                 writer
                     .create_element("s:Envelope")
@@ -97,6 +97,8 @@ pub struct SubscriptionBody {
     pub max_time: u32,
     pub max_envelope_size: u32,
     pub thumbprint: Option<String>,
+    pub public_version: String,
+    pub revision: Option<String>,
 }
 
 impl Serializable for SubscriptionBody {
@@ -114,11 +116,19 @@ impl Serializable for SubscriptionBody {
                                     .create_element("a:Address")
                                     .write_text_content(BytesText::new(&self.address))?;
                                 writer
-                                    .create_element("a:ReferenceProperties")
+                                    .create_element("a:ReferenceParameters")
                                     .write_inner_content(|writer| {
                                         writer
                                             .create_element("e:Identifier")
                                             .write_text_content(BytesText::new(&self.identifier))?;
+                                        writer
+                                            .create_element("Version")
+                                            .write_text_content(BytesText::new(&self.public_version))?;
+                                        if let Some(revision) = &self.revision {
+                                            writer
+                                                .create_element("Revision")
+                                                .write_text_content(BytesText::new(revision))?;
+                                        }
                                         Ok::<(), quick_xml::Error>(())
                                     })?;
                                 Ok::<(), quick_xml::Error>(())
@@ -138,13 +148,19 @@ impl Serializable for SubscriptionBody {
                                             .create_element("a:Address")
                                             .write_text_content(BytesText::new(&self.address))?;
                                         writer
-                                            .create_element("a:ReferenceProperties")
+                                            .create_element("a:ReferenceParameters")
                                             .write_inner_content(|writer| {
                                                 writer
                                                     .create_element("e:Identifier")
-                                                    .write_text_content(BytesText::new(
-                                                        &self.identifier,
-                                                    ))?;
+                                                    .write_text_content(BytesText::new(&self.identifier))?;
+                                                writer
+                                                    .create_element("Version")
+                                                    .write_text_content(BytesText::new(&self.public_version))?;
+                                                if let Some(revision) = &self.revision {
+                                                    writer
+                                                        .create_element("Revision")
+                                                        .write_text_content(BytesText::new(revision))?;
+                                                }
                                                 Ok::<(), quick_xml::Error>(())
                                             })?;
                                         writer
@@ -322,6 +338,9 @@ pub struct Header {
     identifier: Option<String>,
     bookmarks: Option<String>,
     ack_requested: Option<bool>,
+    // Specific to Events and OpenWEC
+    version: Option<String>,
+    revision: Option<String>,
 }
 
 impl Header {
@@ -342,6 +361,8 @@ impl Header {
             ack_requested: None,
             bookmarks: None,
             identifier: None,
+            version: None,
+            revision: None
         }
     }
     pub fn new(
@@ -371,6 +392,8 @@ impl Header {
             ack_requested: None,
             bookmarks: None,
             identifier: None,
+            version: None,
+            revision: None
         }
     }
 
@@ -381,6 +404,18 @@ impl Header {
 
     pub fn to(&self) -> Option<&String> {
         self.to.as_ref()
+    }
+
+    pub fn identifier(&self) -> Option<&String> {
+        self.identifier.as_ref()
+    }
+    
+    pub fn version(&self) -> Option<&String> {
+        self.version.as_ref()
+    }
+    
+    pub fn revision(&self) -> Option<&String> {
+        self.revision.as_ref()
     }
 }
 
@@ -609,6 +644,8 @@ impl Message {
                 ack_requested: None,
                 bookmarks: None,
                 identifier: None,
+                version: None,
+                revision: None
             },
             body,
         })
@@ -662,6 +699,12 @@ fn parse_header(header_node: Node) -> Result<Header> {
             ));
         } else if tag == (EVENTING_NS, "Identifier").into() {
             header.identifier = node.text().map(String::from)
+        } else if tag == "Version".into() {
+            // specific to OpenWEC
+            header.version = node.text().map(String::from)
+        } else if tag == "Revision".into() {
+            // specific to OpenWEC
+            header.revision = node.text().map(String::from)
         }
     }
     Ok(header)

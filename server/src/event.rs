@@ -507,6 +507,8 @@ impl EventMetadata {
         principal: &str,
         node_name: Option<String>,
         subscription: &Subscription,
+        public_version: String,
+        subscription_revision: Option<String>,
     ) -> Self {
         EventMetadata {
             addr: *addr,
@@ -514,10 +516,10 @@ impl EventMetadata {
             node_name,
             time_received: Utc::now(),
             subscription_uuid: subscription.data().uuid_string(),
-            subscription_version: subscription.public_version_string(),
+            subscription_version: public_version,
             subscription_name: subscription.data().name().to_owned(),
             subscription_uri: subscription.data().uri().cloned(),
-            subscription_revision: subscription.data().revision().cloned(),
+            subscription_revision,
         }
     }
 

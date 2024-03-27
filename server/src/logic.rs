@@ -11,6 +11,7 @@ use common::{
 };
 use http::status::StatusCode;
 use log::{debug, error, warn};
+use uuid::Uuid;
 use std::{collections::HashMap, sync::Arc};
 use tokio::{sync::mpsc, task::JoinSet};
 
@@ -46,10 +47,16 @@ fn get_subscription_uuid(request_data: &RequestData, header: &Header) -> Result<
         bail!("Could not find message header `To`");
     };
 
-    if header_subscription_uuid != *uri_subscription_uuid {
+    let identifier_subscription_guid = if let Some(identifier) = header.identifier() {
+        SubscriptionUuid(Uuid::parse_str(identifier)?)
+    } else {
+        bail!("Could not find identifier in message header");
+    };
+
+    if header_subscription_uuid != *uri_subscription_uuid  || header_subscription_uuid != identifier_subscription_guid {
         bail!(
-            "Subscription UUID in URI and in message header do not match: {} != {}",
-            uri_subscription_uuid, header_subscription_uuid 
+            "Subscription UUID in URI and in message header do not match: {} != {} or {} != {}",
+            uri_subscription_uuid, header_subscription_uuid, header_subscription_uuid, identifier_subscription_guid
         );
     }
 
@@ -189,10 +196,13 @@ async fn handle_enumerate(
         );
 
         let public_version = subscription.public_version_string();
+        let identifier = subscription.uuid_string();
 
         let body = SubscriptionBody {
             heartbeat_interval: subscription_data.heartbeat_interval() as u64,
-            identifier: subscription.public_version_string(),
+            identifier: identifier.clone(),
+            public_version: public_version.clone(),
+            revision: subscription_data.revision().cloned(),
             bookmark,
             query: subscription_data.query().to_owned(),
             address: match auth_ctx {
@@ -200,13 +210,13 @@ async fn handle_enumerate(
                     "http://{}:{}/wsman/subscriptions/{}",
                     collector.hostname(),
                     collector.listen_port(),
-                    subscription_data.uuid_string(), 
+                    identifier
                 ),
                 AuthenticationContext::Tls(_,_) => format!(
                     "https://{}:{}/wsman/subscriptions/{}",
                     collector.hostname(),
                     collector.listen_port(),
-                    subscription_data.uuid_string(), 
+                    identifier
                 )
             },
             connection_retry_count: subscription_data.connection_retry_count(),
@@ -220,7 +230,7 @@ async fn handle_enumerate(
         };
 
         res_subscriptions.push(SoapSubscription {
-            identifier: public_version,
+            version: public_version,
             header,
             body,
         });
@@ -346,11 +356,21 @@ async fn handle_events(
             subscription.uuid_string()
         );
 
+        // Retrieve the public version sent by the client, not the one stored in memory
+        let public_version = if let Some(public_version) = message.header().version() {
+            public_version
+        } else {
+            warn!("Missing subscription version in message events");
+            return Ok(Response::err(StatusCode::BAD_REQUEST));
+        };
+
         let metadata = Arc::new(EventMetadata::new(
             request_data.remote_addr(),
             request_data.principal(),
             server.node_name().cloned(),
             &subscription,
+            public_version.clone(), 
+            message.header().revision().cloned(),
         ));
 
         let need_to_parse_event = subscription.formats().iter().any(|format| format.needs_parsed_event());

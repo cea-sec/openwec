@@ -500,8 +500,7 @@ Type 3 is a limited token with administrative privileges removed and administrat
             .set_uuid(SubscriptionUuid(
                 Uuid::from_str("8B18D83D-2964-4F35-AC3B-6F4E6FFA727B").unwrap(),
             ))
-            .set_uri(Some("/this/is/a/test".to_string()))
-            .set_revision(Some("1234".to_string()));
+            .set_uri(Some("/this/is/a/test".to_string()));
         let subscription = Subscription::try_from(subscription_data).unwrap();
 
         let mut metadata = EventMetadata::new(
@@ -509,6 +508,8 @@ Type 3 is a limited token with administrative privileges removed and administrat
             "WIN10$@WINDOMAIN.LOCAL",
             Some("openwec".to_owned()),
             &subscription,
+            "188BB736-9441-5C66-188B-B73694415C66".to_string(),
+            Some("1234".to_string())
         );
         metadata.set_time_received(
             chrono::DateTime::parse_from_rfc3339("2022-12-14T17:07:03.331+01:00")
@@ -555,6 +556,8 @@ Licensing Status=
             "WIN10$@WINDOMAIN.LOCAL",
             Some("openwec".to_owned()),
             &subscription,
+            "188BB736-9441-5C66-188B-B73694415C66".to_string(),
+            None
         );
         metadata.set_time_received(
             chrono::DateTime::parse_from_rfc3339("2022-12-14T17:07:03.324+01:00")
@@ -598,6 +601,8 @@ If this computer is a domain controller for the specified domain, it sets up the
             "WIN10$@WINDOMAIN.LOCAL",
             Some("openwec".to_owned()),
             &subscription,
+            "188BB736-9441-5C66-188B-B73694415C66".to_string(),
+            Some("babar".to_string())
         );
         metadata.set_time_received(
             chrono::DateTime::parse_from_rfc3339("2022-12-14T17:07:02.919+01:00")
@@ -635,6 +640,8 @@ If this computer is a domain controller for the specified domain, it sets up the
             "WIN10$@WINDOMAIN.LOCAL",
             None,
             &subscription,
+            "188BB736-9441-5C66-188B-B73694415C66".to_string(),
+            None,
         );
         metadata.set_time_received(
             chrono::DateTime::parse_from_rfc3339("2022-12-14T17:07:02.524+01:00")
@@ -672,6 +679,8 @@ If this computer is a domain controller for the specified domain, it sets up the
             "WIN10$@WINDOMAIN.LOCAL",
             Some("openwec".to_owned()),
             &subscription,
+            "188BB736-9441-5C66-188B-B73694415C66".to_string(),
+            None
         );
         metadata.set_time_received(
             chrono::DateTime::parse_from_rfc3339("2022-12-14T17:07:02.156+01:00")
@@ -709,6 +718,8 @@ If this computer is a domain controller for the specified domain, it sets up the
             "WIN10$@WINDOMAIN.LOCAL",
             Some("other_node".to_owned()),
             &subscription,
+            "188BB736-9441-5C66-188B-B73694415C66".to_string(),
+            None
         );
         metadata.set_time_received(
             chrono::DateTime::parse_from_rfc3339("2022-12-14T17:07:02.156+01:00")
