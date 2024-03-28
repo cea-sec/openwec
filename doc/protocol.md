@@ -900,7 +900,7 @@ As specified in MS-WSMV, when the collector receives an Enumerate message, it mu
 </xs:complexType>
 ```
 
-`Version` is a GUID which changes each time the Subscription is modified.
+`Version` is a GUID which changes each time the Subscription is modified. It must be unique for each subscription.
 `Envelope` must contain a `SubscribeMsg`.
 
 The client then needs to extracts those `SubscribeMsg`.
@@ -925,7 +925,7 @@ In its Header we have:
 In its Body we have:
 - `e:EndTo`: if there is an issue with the subscription, the client sends a `SubscriptionEnd` at the specified address.
     - `a:Address`: an URL on the collector specific to the current client (ended with a specific UUID).
-    - `a:ReferenceProperties`/`e:Identifier`: the subscription version GUID.
+    - `a:ReferenceProperties` contains a set of parameters that the client must send without modification to the server (cf DSP0226 1.1.0 5.1.2.1). The Windows collector sets `e:Identifier` as the subscription version GUID.
 - `e:Delivery`: According to Microsoft documentation, the following mode are supported:
     - `http://schemas.xmlsoap.org/ws/2004/08/eventing/DeliveryModes/Push`: every SOAP message contains one event, without ACK or SOAP response. Event transmission is asynchronous.
     - `http://schemas.dmtf.org/wbem/wsman/1/wsman/PushWithAck`: every SOAP message contains one event, each one needs to be acknowledged before the next one is sent. The sender has a waiting list of events to send.
@@ -944,7 +944,7 @@ In its Body we have:
         </wsman:MaxEnvelopeSize> ?
     </wse:Delivery>
     ```
-    - `e:NotifyTo`: endpoint to send events to.
+    - `e:NotifyTo`: endpoint to send events to. (see EndTo)
     - `w:MaxTime`: max time between the moment the sender starts encoding the first event and the moment it sends the batch of events. PT30.000S is equivalent to "Minimize Latency" configuration.
     - `w:MaxEnvelopeSize`: max size in bytes of SOAP envelopes.
         - `@Policy`: defines what to do when events are too big:
