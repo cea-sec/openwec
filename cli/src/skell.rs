@@ -202,7 +202,7 @@ pub fn get_minimal_skell_content(uuid: Uuid, name: &str, now: DateTime<Local>) -
 [[outputs]]
 driver = "Files"
 format = "Raw"
-config = {{ base = "/var/log/openwec/" }}
+config = { base = "/var/log/openwec/" }
 "#,
     );
     content
