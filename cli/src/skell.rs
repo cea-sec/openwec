@@ -136,6 +136,10 @@ fn get_outputs() -> String {
 # Outputs
 #
 
+# For each output, you must configure a driver and a format.
+# The format can be one of: "Raw", "JsonRaw", "Json", "Nxlog"
+# The driver can be one of: "Files", "Kafka", "Tcp", "Redis", "UnixDatagram"
+
 # Configure a Files output
 # [[outputs]]
 # driver = "Files"

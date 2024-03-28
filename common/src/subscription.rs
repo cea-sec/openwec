@@ -217,6 +217,7 @@ pub enum SubscriptionOutputFormat {
     Json,
     Raw,
     RawJson,
+    Nxlog,
 }
 
 impl SubscriptionOutputFormat {
@@ -227,6 +228,7 @@ impl SubscriptionOutputFormat {
             SubscriptionOutputFormat::Raw => false,
             SubscriptionOutputFormat::RawJson => false,
             SubscriptionOutputFormat::Json => true,
+            SubscriptionOutputFormat::Nxlog => true,
         }
     }
 }

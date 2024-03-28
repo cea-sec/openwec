@@ -50,3 +50,4 @@ socket2 = "0.5.6"
 http-body-util = "0.1"
 ppp = "2.2.0"
 tokio-rustls = "0.26.0"
+strum = { version = "0.26.1", features = ["derive"] }

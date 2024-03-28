@@ -11,7 +11,7 @@ use crate::{
         files::OutputFiles, kafka::OutputKafka, redis::OutputRedis, tcp::OutputTcp,
         unix::OutputUnixDatagram,
     },
-    event::{EventData, EventMetadata}, formats::{json::JsonFormat, raw::RawFormat, raw_json::RawJsonFormat},
+    event::{EventData, EventMetadata}, formats::{json::JsonFormat, nxlog::NxlogFormat, raw::RawFormat, raw_json::RawJsonFormat},
 
 };
 
@@ -91,6 +91,7 @@ pub fn get_formatter(format :&SubscriptionOutputFormat) -> Box<dyn OutputFormat>
     match format {
         SubscriptionOutputFormat::Json => Box::new(JsonFormat),
         SubscriptionOutputFormat::Raw => Box::new(RawFormat),
-        SubscriptionOutputFormat::RawJson => Box::new(RawJsonFormat)
+        SubscriptionOutputFormat::RawJson => Box::new(RawJsonFormat),
+        SubscriptionOutputFormat::Nxlog => Box::new(NxlogFormat)
     }
 }

@@ -206,6 +206,7 @@ mod v1 {
         Json,
         Raw,
         RawJson,
+        Nxlog,
     }
 
     impl From<SubscriptionOutputFormat> for crate::subscription::SubscriptionOutputFormat {
@@ -215,9 +216,8 @@ mod v1 {
                     crate::subscription::SubscriptionOutputFormat::Json
                 }
                 SubscriptionOutputFormat::Raw => crate::subscription::SubscriptionOutputFormat::Raw,
-                SubscriptionOutputFormat::RawJson => {
-                    crate::subscription::SubscriptionOutputFormat::RawJson
-                }
+                SubscriptionOutputFormat::RawJson => crate::subscription::SubscriptionOutputFormat::RawJson,
+                SubscriptionOutputFormat::Nxlog => crate::subscription::SubscriptionOutputFormat::Nxlog,
             }
         }
     }
@@ -229,9 +229,8 @@ mod v1 {
                     SubscriptionOutputFormat::Json
                 }
                 crate::subscription::SubscriptionOutputFormat::Raw => SubscriptionOutputFormat::Raw,
-                crate::subscription::SubscriptionOutputFormat::RawJson => {
-                    SubscriptionOutputFormat::RawJson
-                }
+                crate::subscription::SubscriptionOutputFormat::RawJson => SubscriptionOutputFormat::RawJson,
+                crate::subscription::SubscriptionOutputFormat::Nxlog => SubscriptionOutputFormat::Nxlog,
             }
         }
     }

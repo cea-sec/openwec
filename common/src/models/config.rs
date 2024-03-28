@@ -137,6 +137,7 @@ enum SubscriptionOutputFormat {
     Json,
     Raw,
     RawJson,
+    Nxlog
 }
 
 impl From<SubscriptionOutputFormat> for crate::subscription::SubscriptionOutputFormat {
@@ -144,9 +145,8 @@ impl From<SubscriptionOutputFormat> for crate::subscription::SubscriptionOutputF
         match value {
             SubscriptionOutputFormat::Json => crate::subscription::SubscriptionOutputFormat::Json,
             SubscriptionOutputFormat::Raw => crate::subscription::SubscriptionOutputFormat::Raw,
-            SubscriptionOutputFormat::RawJson => {
-                crate::subscription::SubscriptionOutputFormat::RawJson
-            }
+            SubscriptionOutputFormat::RawJson => crate::subscription::SubscriptionOutputFormat::RawJson,
+            SubscriptionOutputFormat::Nxlog => crate::subscription::SubscriptionOutputFormat::Nxlog
         }
     }
 }
@@ -382,7 +382,7 @@ port = 8080
 ## Redis output
 [[outputs]]
 driver = "Redis"
-format = "Json"
+format = "Nxlog"
 enabled = false
 
 [outputs.config]
@@ -456,7 +456,7 @@ path = "/tmp/openwec.socket"
                 true,
             ),
             crate::subscription::SubscriptionOutput::new(
-                crate::subscription::SubscriptionOutputFormat::Json,
+                crate::subscription::SubscriptionOutputFormat::Nxlog,
                 crate::subscription::SubscriptionOutputDriver::Redis(
                     crate::subscription::RedisConfiguration::new(
                         "localhost".to_string(),
