@@ -45,7 +45,8 @@ openwec_data := {
         "Uuid": string,
         "Uri": string,
         /* Only if revision is set for this subscription */
-        "Revision": string
+        "ServerRevision": string,
+        "ClientRevision": string
     },
     /* Only in case of error during event parsing or serializing */
     "Error": {
@@ -91,7 +92,8 @@ openwec_data := {
         "Uuid": string,
         "Uri": string,
         /* Only if revision is set for this subscription */
-        "Revision": string
+        "ServerRevision": string,
+        "ClientRevision": string
     },
     /* Only in case of error during event parsing or serializing */
     "Error": {

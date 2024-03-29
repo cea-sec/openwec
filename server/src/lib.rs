@@ -20,7 +20,6 @@ use common::database::{db_from_settings, schema_is_up_to_date, Db};
 use common::encoding::decode_utf16le;
 use common::settings::{Authentication, Kerberos, Tls};
 use common::settings::{Collector, Server as ServerSettings, Settings};
-use common::subscription::SubscriptionUuid;
 use core::pin::Pin;
 use futures::Future;
 use futures_util::{future::join_all, StreamExt};
@@ -35,11 +34,9 @@ use hyper::server::conn::AddrStream;
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Request, Response, Server};
 use kerberos::AuthenticationError;
-use lazy_static::lazy_static;
 use libgssapi::error::MajorFlags;
 use log::{debug, error, info, trace, warn};
 use quick_xml::writer::Writer;
-use regex::Regex;
 use soap::Serializable;
 use std::boxed::Box;
 use std::collections::HashMap;
@@ -59,31 +56,13 @@ use tokio::sync::{mpsc, oneshot};
 use tokio_rustls::server::TlsStream;
 use tokio_rustls::TlsAcceptor;
 use tokio_util::sync::CancellationToken;
-use uuid::Uuid;
 
 use crate::logging::ACCESS_LOGGER;
 use crate::tls::{make_config, subject_from_cert};
 
 pub enum RequestCategory {
     Enumerate(String),
-    Subscription(SubscriptionUuid),
-}
-
-lazy_static! {
-    static ref URI_SUBSCRIPTION_RE: Regex = Regex::new(r"^/wsman/subscriptions/([0-9A-Fa-f]{8}\b-[0-9A-Fa-f]{4}\b-[0-9A-Fa-f]{4}\b-[0-9A-Fa-f]{4}\b-[0-9A-F]{12})$").expect("Failed to compile SUBSCRIPTION regular expression");
-    static ref URL_SUBSCRIPTION_RE: Regex = Regex::new(r"/wsman/subscriptions/([0-9A-Fa-f]{8}\b-[0-9A-Fa-f]{4}\b-[0-9A-Fa-f]{4}\b-[0-9A-Fa-f]{4}\b-[0-9A-F]{12})$").expect("Failed to compile SUBSCRIPTION regular expression");
-}
-
-pub fn get_subscription_uuid_with_regex(value: &str, regex: &Regex) -> Result<SubscriptionUuid> {
-    if let Some(c) = regex.captures(value) {
-        Ok(SubscriptionUuid(Uuid::parse_str(
-            c.get(1)
-                .ok_or_else(|| anyhow!("Could not get uuid from URI"))?
-                .as_str(),
-        )?))
-    } else {
-        bail!("Failed to capture uuid")
-    }
+    Subscription,
 }
 
 impl TryFrom<&Request<Body>> for RequestCategory {
@@ -93,8 +72,8 @@ impl TryFrom<&Request<Body>> for RequestCategory {
             bail!("Invalid HTTP method {}", req.method());
         }
 
-        if let Ok(uuid) = get_subscription_uuid_with_regex(req.uri().path(), &URI_SUBSCRIPTION_RE) {
-            Ok(Self::Subscription(uuid))
+        if req.uri().path().starts_with("/wsman/subscriptions/") {
+            Ok(Self::Subscription)
         } else {
             Ok(Self::Enumerate(req.uri().to_string()))
         }

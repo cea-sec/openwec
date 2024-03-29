@@ -498,7 +498,8 @@ pub struct EventMetadata {
     subscription_version: String,
     subscription_name: String,
     subscription_uri: Option<String>,
-    subscription_revision: Option<String>,
+    subscription_client_revision: Option<String>,
+    subscription_server_revision: Option<String>,
 }
 
 impl EventMetadata {
@@ -508,7 +509,7 @@ impl EventMetadata {
         node_name: Option<String>,
         subscription: &Subscription,
         public_version: String,
-        subscription_revision: Option<String>,
+        client_revision: Option<String>,
     ) -> Self {
         EventMetadata {
             addr: *addr,
@@ -519,7 +520,8 @@ impl EventMetadata {
             subscription_version: public_version,
             subscription_name: subscription.data().name().to_owned(),
             subscription_uri: subscription.data().uri().cloned(),
-            subscription_revision,
+            subscription_client_revision: client_revision,
+            subscription_server_revision: subscription.data().revision().cloned(),
         }
     }
 
@@ -561,8 +563,12 @@ impl EventMetadata {
         self.subscription_uri.as_ref()
     }
 
-    pub fn subscription_revision(&self) -> Option<&String> {
-        self.subscription_revision.as_ref()
+    pub fn subscription_client_revision(&self) -> Option<&String> {
+        self.subscription_client_revision.as_ref()
+    }
+
+    pub fn subscription_server_revision(&self) -> Option<&String> {
+        self.subscription_server_revision.as_ref()
     }
 }
 

@@ -119,13 +119,23 @@ The OpenWEC server does not load subscription configuration files automatically 
 
 To use configuration files, edit them and then run `openwec subscriptions load`. In a multi-node environment, the `load` command only needs to be run once.
 
-When running `openwec subscriptions load`, you can use the `--revision` flag to specify a revision string that represents the configuration version. For example, you can use the result of `git rev-parse --short HEAD` if your configuration files are versioned using `git`. The revision string will then be included with the metadata that OpenWEC adds for each event received (except in `Raw` format).
+### Revisions
 
-You can disable all cli commands that edit subscriptions using the OpenWEC setting `cli.read_only_subscriptions`.
+When using the `openwec subscriptions load` command, you can use the `--revision` flag to specify a revision string that represents the configuration version. For example, you can use the output of `git rev-parse --short HEAD` if your configuration files are versioned using `git`. 
 
+When a client retrieves its subscriptions, it also receives the associated revision strings. Later, when pushing events or sending heartbeats, the revision string is included as metadata. The revision string received by OpenWEC within events is called `ClientRevision` because it represents the revision "used" by the client at that time. The revision string is not used to compute the subscription version that clients use to determine whether the subscription has been updated since their last `Refresh`. This is because some configuration updates may only affect "server" parameters (i.e. outputs), and we do not want all clients to refresh the subscription unnecessarily. However, if the configuration update affects "client" parameters (such as query), the subscription version is updated and clients will retrieve the new version of the subscription configuration with the new revision string on the next `Refresh`.
+
+When OpenWEC receives an event within a subscription, it processes the event by sending it to the designated outputs using the latest available configuration for that subscription. The revision of the configuration used by OpenWEC is called `ServerRevision`, which may differ from the `ClientRevision`.
+
+Both `ClientRevision` and `ServerRevision` are included with the metadata that OpenWEC adds for each event received (except in `Raw` format).
+
+
+### Configuration files vs cli
 There are a number of advantages to using configuration files in place of the cli:
 - configuration files can be versioned, and their revision can be included in the metadata of each event received. This is very useful for tracing the query responsible for retrieving events.
 - the cli can be difficult to use for editing complex subscriptions.
+
+You can disable all cli commands that edit subscriptions using the OpenWEC setting `cli.read_only_subscriptions`.
 
 ## Command line interface
 

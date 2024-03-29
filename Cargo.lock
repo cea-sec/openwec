@@ -1915,7 +1915,6 @@ dependencies = [
  "hyper",
  "itertools",
  "itoa",
- "lazy_static",
  "libgssapi",
  "log",
  "log-mdc",

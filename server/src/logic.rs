@@ -1,9 +1,9 @@
 use crate::{
-    event::{EventData, EventMetadata}, get_subscription_uuid_with_regex, heartbeat::{store_heartbeat, WriteHeartbeatMessage}, output::get_formatter, soap::{
+    event::{EventData, EventMetadata}, heartbeat::{store_heartbeat, WriteHeartbeatMessage}, output::get_formatter, soap::{
         Body, Header, Message, OptionSetValue, Subscription as SoapSubscription, SubscriptionBody,
         ACTION_ACK, ACTION_END, ACTION_ENUMERATE, ACTION_ENUMERATE_RESPONSE, ACTION_EVENTS,
         ACTION_HEARTBEAT, ACTION_SUBSCRIBE, ACTION_SUBSCRIPTION_END, ANONYMOUS, RESOURCE_EVENT_LOG,
-    }, subscription::{Subscription, Subscriptions}, AuthenticationContext, RequestCategory, RequestData, URL_SUBSCRIPTION_RE
+    }, subscription::{Subscription, Subscriptions}, AuthenticationContext, RequestCategory, RequestData
 };
 use common::{
     database::Db,
@@ -30,37 +30,6 @@ impl Response {
     pub fn err(status_code: StatusCode) -> Self {
         Response::Err(status_code)
     }
-}
-
-/// Retrieve subscription uuid from request URI and message Header,
-/// check that both are equal and return the uuid
-fn get_subscription_uuid(request_data: &RequestData, header: &Header) -> Result<SubscriptionUuid> {
-    let uri_subscription_uuid = if let RequestCategory::Subscription(uuid) = request_data.category() {
-        uuid
-    } else {
-        bail!("Request URI does not contain subscription uuid");
-    };
-
-    let header_subscription_uuid =  if let Some(to) = header.to() {
-        get_subscription_uuid_with_regex(to, &URL_SUBSCRIPTION_RE)?
-    } else {
-        bail!("Could not find message header `To`");
-    };
-
-    let identifier_subscription_guid = if let Some(identifier) = header.identifier() {
-        SubscriptionUuid(Uuid::parse_str(identifier)?)
-    } else {
-        bail!("Could not find identifier in message header");
-    };
-
-    if header_subscription_uuid != *uri_subscription_uuid  || header_subscription_uuid != identifier_subscription_guid {
-        bail!(
-            "Subscription UUID in URI and in message header do not match: {} != {} or {} != {}",
-            uri_subscription_uuid, header_subscription_uuid, header_subscription_uuid, identifier_subscription_guid
-        );
-    }
-
-    Ok(header_subscription_uuid)
 }
 
 async fn handle_enumerate(
@@ -248,12 +217,11 @@ async fn handle_heartbeat(
     request_data: &RequestData,
     message: &Message,
 ) -> Result<Response> {
-    let subscription_uuid = match get_subscription_uuid(request_data, message.header()) {
-        Ok(uuid) => uuid,
-        Err(e) => {
-            error!("{}", e);
-            return Ok(Response::err(StatusCode::BAD_REQUEST));
-        }
+    let subscription_uuid = if let Some(identifier) = message.header().identifier() {
+        SubscriptionUuid(Uuid::parse_str(identifier)?)
+    } else {
+        error!("Could not find identifier in message header");
+        return Ok(Response::err(StatusCode::BAD_REQUEST));
     };
 
     let subscription = {
@@ -315,12 +283,11 @@ async fn handle_events(
     message: &Message,
 ) -> Result<Response> {
     if let Some(Body::Events(events)) = &message.body {
-        let subscription_uuid = match get_subscription_uuid(request_data, message.header()) {
-            Ok(uuid) => uuid,
-            Err(e) => {
-                error!("{}", e);
-                return Ok(Response::err(StatusCode::BAD_REQUEST));
-            }
+        let subscription_uuid = if let Some(identifier) = message.header().identifier() {
+            SubscriptionUuid(Uuid::parse_str(identifier)?)
+        } else {
+            error!("Could not find identifier in message header");
+            return Ok(Response::err(StatusCode::BAD_REQUEST));
         };
 
         let subscription: Arc<Subscription> = {

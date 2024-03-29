@@ -402,10 +402,6 @@ impl Header {
         self.bookmarks.as_ref()
     }
 
-    pub fn to(&self) -> Option<&String> {
-        self.to.as_ref()
-    }
-
     pub fn identifier(&self) -> Option<&String> {
         self.identifier.as_ref()
     }
