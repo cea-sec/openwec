@@ -213,6 +213,8 @@ struct SubscriptionOptions {
     pub read_existing_events: Option<bool>,
     pub content_format: Option<ContentFormat>,
     pub ignore_channel_error: Option<bool>,
+    pub locale: Option<String>,
+    pub data_locale: Option<String>,
 }
 
 impl SubscriptionOptions {
@@ -254,6 +256,9 @@ impl SubscriptionOptions {
         if let Some(ignore_channel_error) = self.ignore_channel_error {
             data.set_ignore_channel_error(ignore_channel_error);
         }
+
+        data.set_locale(self.locale.clone());
+        data.set_data_locale(self.data_locale.clone());
     }
 }
 #[derive(Debug, PartialEq, Clone, Eq, Deserialize)]

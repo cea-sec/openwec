@@ -88,6 +88,15 @@ fn get_options() -> String {
 # are to result in termination of the processing by clients.
 # ignore_channel_error = {}
 
+# This option determines the language in which openwec wants the
+# rendering info data to be translated.
+# Defaults to unset, meaning OpenWEC lets the clent choose.
+# locale =
+
+# This option determines the language in which openwec wants the
+# numerical data to be formatted.
+# Defaults to unset, meaning OpenWEC lets the clent choose.
+# data_locale =
 "#,
         format_bool(DEFAULT_ENABLED),
         DEFAULT_HEARTBEAT_INTERVAL,

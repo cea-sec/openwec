@@ -425,6 +425,8 @@ pub struct SubscriptionParameters {
     pub read_existing_events: bool,
     pub content_format: ContentFormat,
     pub ignore_channel_error: bool,
+    pub locale: Option<String>,
+    pub data_locale: Option<String>,
 }
 
 #[derive(Debug, PartialEq, Clone, Eq)]
@@ -499,6 +501,22 @@ impl Display for SubscriptionData {
         writeln!(f, "\tRead existing events: {}", self.read_existing_events())?;
         writeln!(f, "\tContent format: {}", self.content_format())?;
         writeln!(f, "\tIgnore channel error: {}", self.ignore_channel_error())?;
+        writeln!(
+            f,
+            "\tLocale: {}",
+            match self.locale() {
+                Some(locale) => locale,
+                None => "Not configured",
+            }
+        )?;
+        writeln!(
+            f,
+            "\tData Locale: {}",
+            match self.data_locale() {
+                Some(data_locale) => data_locale,
+                None => "Not configured",
+            }
+        )?;
         match self.princs_filter().operation() {
             None => {
                 writeln!(f, "\tPrincipal filter: Not configured")?;
@@ -547,6 +565,8 @@ impl SubscriptionData {
                 read_existing_events: DEFAULT_READ_EXISTING_EVENTS,
                 content_format: DEFAULT_CONTENT_FORMAT,
                 ignore_channel_error: DEFAULT_IGNORE_CHANNEL_ERROR,
+                locale: None,
+                data_locale: None,
             },
         }
     }
@@ -824,6 +844,26 @@ impl SubscriptionData {
 
     pub fn update_internal_version(&mut self) {
         self.internal_version = InternalVersion(Uuid::new_v4());
+    }
+
+    pub fn locale(&self) -> Option<&String> {
+        self.parameters.locale.as_ref()
+    }
+
+    pub fn set_locale(&mut self, locale: Option<String>) -> &mut Self {
+        self.parameters.locale = locale;
+        self.update_internal_version();
+        self
+    }
+
+    pub fn data_locale(&self) -> Option<&String> {
+        self.parameters.data_locale.as_ref()
+    }
+
+    pub fn set_data_locale(&mut self, locale: Option<String>) -> &mut Self {
+        self.parameters.data_locale = locale;
+        self.update_internal_version();
+        self
     }
 }
 

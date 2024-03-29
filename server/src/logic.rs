@@ -195,7 +195,9 @@ async fn handle_enumerate(
             thumbprint: match auth_ctx {
                 AuthenticationContext::Tls(_, thumbprint) => Some(thumbprint.clone()),
                 AuthenticationContext::Kerberos(_) => None
-            }
+            },
+            locale: subscription_data.locale().cloned(),
+            data_locale: subscription_data.data_locale().cloned(),
         };
 
         res_subscriptions.push(SoapSubscription {

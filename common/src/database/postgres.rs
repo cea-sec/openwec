@@ -231,6 +231,8 @@ fn row_to_subscription(row: &Row) -> Result<SubscriptionData> {
         .set_read_existing_events(row.try_get("read_existing_events")?)
         .set_content_format(ContentFormat::from_str(row.try_get("content_format")?)?)
         .set_ignore_channel_error(row.try_get("ignore_channel_error")?)
+        .set_locale(row.try_get("locale")?)
+        .set_data_locale(row.try_get("data_locale")?)
         .set_princs_filter(princs_filter)
         .set_outputs(outputs);
 
@@ -621,8 +623,9 @@ impl Database for PostgresDatabase {
                 r#"INSERT INTO subscriptions (uuid, version, revision, name, uri, query,
                     heartbeat_interval, connection_retry_count, connection_retry_interval,
                     max_time, max_envelope_size, enabled, read_existing_events, content_format,
-                    ignore_channel_error, princs_filter_op, princs_filter_value, outputs)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+                    ignore_channel_error, princs_filter_op, princs_filter_value, outputs, locale,
+                    data_locale)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
                     ON CONFLICT (uuid) DO UPDATE SET 
                         version = excluded.version,
                         revision = excluded.revision,
@@ -640,7 +643,9 @@ impl Database for PostgresDatabase {
                         ignore_channel_error = excluded.ignore_channel_error,
                         princs_filter_op = excluded.princs_filter_op,
                         princs_filter_value = excluded.princs_filter_value,
-                        outputs = excluded.outputs"#,
+                        outputs = excluded.outputs,
+                        locale = excluded.locale,
+                        data_locale = excluded.data_locale"#,
                 &[
                     &subscription.uuid_string(),
                     &subscription.internal_version().to_string(),
@@ -663,6 +668,8 @@ impl Database for PostgresDatabase {
                         .map(|x| x.to_string()),
                     &subscription.princs_filter().princs_to_opt_string(),
                     &serde_json::to_string(subscription.outputs())?.as_str(),
+                    &subscription.locale(),
+                    &subscription.data_locale()
                 ],
             )
             .await?;

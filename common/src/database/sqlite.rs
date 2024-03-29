@@ -180,6 +180,8 @@ fn row_to_subscription(row: &Row) -> Result<SubscriptionData> {
         .set_read_existing_events(row.get("read_existing_events")?)
         .set_content_format(content_format)
         .set_ignore_channel_error(row.get("ignore_channel_error")?)
+        .set_locale(row.get("locale")?)
+        .set_data_locale(row.get("data_locale")?)
         .set_princs_filter(princs_filter)
         .set_outputs(outputs);
 
@@ -552,11 +554,13 @@ impl Database for SQLiteDatabase {
                     r#"INSERT INTO subscriptions (uuid, version, revision, name, uri, query,
                     heartbeat_interval, connection_retry_count, connection_retry_interval,
                     max_time, max_envelope_size, enabled, read_existing_events, content_format, 
-                    ignore_channel_error, princs_filter_op, princs_filter_value, outputs)
+                    ignore_channel_error, princs_filter_op, princs_filter_value, outputs, locale,
+                    data_locale)
                     VALUES (:uuid, :version, :revision, :name, :uri, :query,
                         :heartbeat_interval, :connection_retry_count, :connection_retry_interval,
                         :max_time, :max_envelope_size, :enabled, :read_existing_events, :content_format,
-                        :ignore_channel_error, :princs_filter_op, :princs_filter_value, :outputs)
+                        :ignore_channel_error, :princs_filter_op, :princs_filter_value, :outputs,
+                        :locale, :data_locale)
                     ON CONFLICT (uuid) DO UPDATE SET 
                         version = excluded.version,
                         revision = excluded.revision,
@@ -574,7 +578,9 @@ impl Database for SQLiteDatabase {
                         ignore_channel_error = excluded.ignore_channel_error,
                         princs_filter_op = excluded.princs_filter_op,
                         princs_filter_value = excluded.princs_filter_value,
-                        outputs = excluded.outputs"#,
+                        outputs = excluded.outputs,
+                        locale = excluded.locale,
+                        data_locale = excluded.data_locale"#,
                     named_params! {
                         ":uuid": subscription.uuid_string(),
                         ":version": subscription.internal_version().to_string(),
@@ -594,6 +600,8 @@ impl Database for SQLiteDatabase {
                         ":princs_filter_op": subscription.princs_filter().operation().map(|x| x.to_string()),
                         ":princs_filter_value": subscription.princs_filter().princs_to_opt_string(),
                         ":outputs": serde_json::to_string(subscription.outputs())?,
+                        ":locale": subscription.locale(),
+                        ":data_locale": subscription.data_locale(),
                     },
                 )
                 .map_err(|err| anyhow!(err))

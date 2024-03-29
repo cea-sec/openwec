@@ -43,6 +43,8 @@ Subscriptions and their parameters are not defined in OpenWEC configuration file
 | `read_existing_events` | No | `False` | If `True`, the event source should replay all possible events that match the filter and any events that subsequently occur for that event source. |
 | `content_format` | No | `Raw` | This option determines whether rendering information are to be passed with events or not. `Raw` means that only event data will be passed without any rendering information, whereas `RenderedText` adds rendering information. |
 | `ignore_channel_error` | No | `true` | This option determines if various filtering options resulting in errors are to result in termination of the processing by clients. |
+| `locale` | No | *Undefined* | This option determines the language in which openwec wants the rendering info data to be translated. Defaults to unset, meaning OpenWEC lets the clent choose. |
+| `data_locale` | No | *Undefined* | This option determines the language in which openwec wants the numerical data to be formatted. Defaults to unset, meaning OpenWEC lets the clent choose. |
 
 ## Subscription management
 

@@ -2,8 +2,12 @@
 
 use std::env;
 
-use common::{database::schema::Version, settings::DEFAULT_CONFIG_FILE, subscription::{SubscriptionOutputFormat, DEFAULT_FILE_NAME}};
 use clap::{arg, command, value_parser, Arg, ArgAction, ArgGroup, Command};
+use common::{
+    database::schema::Version,
+    settings::DEFAULT_CONFIG_FILE,
+    subscription::{SubscriptionOutputFormat, DEFAULT_FILE_NAME},
+};
 use strum::VariantNames;
 
 #[tokio::main]
@@ -200,6 +204,12 @@ async fn main() {
                     .arg(
                         arg!(--"max-envelope-size" <MAX_ENVELOPE_SIZE> "Max envelope size") // TODO: improve help
                         .value_parser(value_parser!(u32))
+                    )
+                    .arg(
+                        arg!(--"locale" [LOCALE] "Language in which openwec wants the rendering info data to be translated (RFC 3066 code)")
+                    )
+                    .arg(
+                        arg!(--"data-locale" [DATA_LOCALE] "Language in which openwec wants the numerical data to be formatted (RFC 3066 code)")
                     )
                     .arg(
                         arg!(--"enable" "Enable the subscription")

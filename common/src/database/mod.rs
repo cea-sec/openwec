@@ -172,6 +172,8 @@ pub mod tests {
         assert_eq!(toto.is_active(), false);
         assert_eq!(toto.is_active_for("couscous"), false);
         assert_eq!(toto.revision(), None);
+        assert_eq!(toto.data_locale(), None);
+        assert_eq!(toto.locale(), None);
 
         let toto2 = db.get_subscription_by_identifier("toto").await?.unwrap();
         assert_eq!(toto, &toto2);
@@ -207,7 +209,9 @@ pub mod tests {
                     false,
                 ),
             ])
-            .set_revision(Some("1472".to_string()));
+            .set_revision(Some("1472".to_string()))
+            .set_locale(Some("fr-FR".to_string()))
+            .set_data_locale(Some("en-US".to_string()));
         db.store_subscription(&subscription2).await?;
 
         assert!(db.get_subscriptions().await?.len() == 2);
@@ -250,6 +254,8 @@ pub mod tests {
         assert_eq!(tata.is_active_for("Couscous"), false);
         assert_eq!(tata.is_active_for("semoule"), false);
         assert_eq!(tata.revision(), Some("1472".to_string()).as_ref());
+        assert_eq!(tata.locale(), Some("fr-FR".to_string()).as_ref());
+        assert_eq!(tata.data_locale(), Some("en-US".to_string()).as_ref());
 
         let tata_save = tata.clone();
         tata.set_name("titi".to_string())
@@ -261,7 +267,8 @@ pub mod tests {
             .set_read_existing_events(false)
             .set_content_format(ContentFormat::Raw)
             .set_ignore_channel_error(true)
-            .set_revision(Some("1890".to_string()));
+            .set_revision(Some("1890".to_string()))
+            .set_data_locale(Some("fr-FR".to_string()));
         let mut new_princs_filter = tata.princs_filter().clone();
         new_princs_filter.add_princ("semoule")?;
         tata.set_princs_filter(new_princs_filter);
@@ -297,6 +304,8 @@ pub mod tests {
         assert_eq!(tata2.is_active_for("couscous"), true);
         assert_eq!(tata2.is_active_for("semoule"), true);
         assert_eq!(tata2.revision(), Some("1890".to_string()).as_ref());
+        assert_eq!(tata2.locale(), Some("fr-FR".to_string()).as_ref()); // Unchanged
+        assert_eq!(tata2.data_locale(), Some("fr-FR".to_string()).as_ref());
 
         assert!(tata2.public_version()? != tata_save.public_version()?);
 
@@ -342,7 +351,9 @@ pub mod tests {
 
         db.delete_subscription(&toto3.uuid_string()).await?;
         ensure!(
-            db.get_subscription_by_identifier(&toto3.uuid_string()).await?.is_none(),
+            db.get_subscription_by_identifier(&toto3.uuid_string())
+                .await?
+                .is_none(),
             "The subscription with version 'toto' should not exist yet"
         );
         assert!(db.get_subscriptions().await?.len() == 1);
@@ -370,7 +381,10 @@ pub mod tests {
             .await?
             .is_none(),);
 
-        assert!(db.get_bookmarks(&subscription_tutu.uuid_string()).await?.is_empty());
+        assert!(db
+            .get_bookmarks(&subscription_tutu.uuid_string())
+            .await?
+            .is_empty());
 
         // Store a bookmark
         db.store_bookmark("toto", &subscription_tutu.uuid_string(), "titi")
@@ -443,25 +457,36 @@ pub mod tests {
         );
 
         // Test that bookmarks are deleted if subscription is deleted
-        db.delete_subscription(&subscription_tutu.uuid_string()).await?;
+        db.delete_subscription(&subscription_tutu.uuid_string())
+            .await?;
         assert!(db
             .get_bookmark("toto", &subscription_tutu.uuid_string())
             .await?
             .is_none(),);
-        assert!(db.get_bookmarks(&subscription_tutu.uuid_string()).await?.is_empty());
+        assert!(db
+            .get_bookmarks(&subscription_tutu.uuid_string())
+            .await?
+            .is_empty());
         assert_eq!(
             db.get_bookmark("toto", &subscription_titi.uuid_string())
                 .await?
                 .unwrap(),
             "babar",
         );
-        assert!(!db.get_bookmarks(&subscription_titi.uuid_string()).await?.is_empty());
-        db.delete_subscription(&subscription_titi.uuid_string()).await?;
+        assert!(!db
+            .get_bookmarks(&subscription_titi.uuid_string())
+            .await?
+            .is_empty());
+        db.delete_subscription(&subscription_titi.uuid_string())
+            .await?;
         assert!(db
             .get_bookmark("toto", &subscription_titi.uuid_string())
             .await?
             .is_none(),);
-        assert!(db.get_bookmarks(&subscription_titi.uuid_string()).await?.is_empty());
+        assert!(db
+            .get_bookmarks(&subscription_titi.uuid_string())
+            .await?
+            .is_empty());
 
         db.store_subscription(&subscription_tutu).await?;
         db.store_subscription(&subscription_titi).await?;
@@ -662,7 +687,8 @@ pub mod tests {
         assert!(!db.get_heartbeats_by_ip("127.0.0.2", None).await?.is_empty());
 
         // Remove subscription and assert that heartbeats have been deleted
-        db.delete_subscription(&subscription_tutu.uuid_string()).await?;
+        db.delete_subscription(&subscription_tutu.uuid_string())
+            .await?;
         assert!(db.get_heartbeats().await?.is_empty());
 
         clean_db(db.clone()).await?;
@@ -875,7 +901,9 @@ pub mod tests {
         assert_eq!(alive_machines[0].name(), "toto");
         assert_eq!(alive_machines[0].ip(), "127.0.0.1");
 
-        let total_machines = db.get_machines(&subscription_tutu.uuid_string(), 0, None).await?;
+        let total_machines = db
+            .get_machines(&subscription_tutu.uuid_string(), 0, None)
+            .await?;
         assert_eq!(total_machines.len(), 1);
         assert_eq!(total_machines[0].name(), "toto");
         assert_eq!(total_machines[0].ip(), "127.0.0.1");
@@ -959,7 +987,8 @@ pub mod tests {
         // We have waited 2 seconds and set heartbeat_interval_start at "now + 1", so
         // only the last stored heartbeat is considered alive.
         assert_eq!(
-            db.get_stats(&subscription_tutu.uuid_string(), now + 1).await?,
+            db.get_stats(&subscription_tutu.uuid_string(), now + 1)
+                .await?,
             // total:2, alive:1, active:0, dead:1
             SubscriptionStatsCounters::new(2, 1, 0, 1)
         );
@@ -1011,7 +1040,8 @@ pub mod tests {
 
         // First machine is active again
         assert_eq!(
-            db.get_stats(&subscription_tutu.uuid_string(), now + 1).await?,
+            db.get_stats(&subscription_tutu.uuid_string(), now + 1)
+                .await?,
             // total:2, alive:1, active:1, dead:0
             SubscriptionStatsCounters::new(2, 1, 1, 0)
         );
@@ -1031,7 +1061,8 @@ pub mod tests {
 
         // Nothing has changed for first subscription
         assert_eq!(
-            db.get_stats(&subscription_tutu.uuid_string(), now + 1).await?,
+            db.get_stats(&subscription_tutu.uuid_string(), now + 1)
+                .await?,
             // total:2, alive:1, active:1, dead:0
             SubscriptionStatsCounters::new(2, 1, 1, 0)
         );

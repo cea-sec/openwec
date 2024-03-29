@@ -99,6 +99,8 @@ pub struct SubscriptionBody {
     pub thumbprint: Option<String>,
     pub public_version: String,
     pub revision: Option<String>,
+    pub locale: Option<String>,
+    pub data_locale: Option<String>,
 }
 
 impl Serializable for SubscriptionBody {
@@ -249,16 +251,20 @@ impl Serializable for SubscriptionBody {
                                     .write_text_content(BytesText::new(
                                         format!("{}", self.max_envelope_size).as_str(),
                                     ))?;
-                                writer
-                                    .create_element("w:Locale")
-                                    .with_attribute(("xml:lang", "en-US"))
-                                    .with_attribute(("s:mustUnderstand", "false"))
-                                    .write_empty()?;
-                                writer
-                                    .create_element("p:DataLocale")
-                                    .with_attribute(("xml:lang", "en-US"))
-                                    .with_attribute(("s:mustUnderstand", "false"))
-                                    .write_empty()?;
+                                if let Some(locale) = &self.locale {
+                                    writer
+                                        .create_element("w:Locale")
+                                        .with_attribute(("xml:lang", locale.as_str()))
+                                        .with_attribute(("s:mustUnderstand", "false"))
+                                        .write_empty()?;
+                                }
+                                if let Some(data_locale) = &self.data_locale {
+                                    writer
+                                        .create_element("p:DataLocale")
+                                        .with_attribute(("xml:lang", data_locale.as_str()))
+                                        .with_attribute(("s:mustUnderstand", "false"))
+                                        .write_empty()?;
+                                }
                                 writer
                                     .create_element("w:ContentEncoding")
                                     .write_text_content(BytesText::new("UTF-16"))?;
@@ -321,7 +327,6 @@ pub struct Header {
     action: Option<String>,
     max_envelope_size: Option<u32>,
     message_id: Option<String>,
-    // TODO: difference between Locale and DataLocale
     // Might be interesting to keep this data if you want to translate things ?
     // Locale: String,
     // DataLocale: String,
@@ -362,7 +367,7 @@ impl Header {
             bookmarks: None,
             identifier: None,
             version: None,
-            revision: None
+            revision: None,
         }
     }
     pub fn new(
@@ -393,7 +398,7 @@ impl Header {
             bookmarks: None,
             identifier: None,
             version: None,
-            revision: None
+            revision: None,
         }
     }
 
@@ -405,11 +410,11 @@ impl Header {
     pub fn identifier(&self) -> Option<&String> {
         self.identifier.as_ref()
     }
-    
+
     pub fn version(&self) -> Option<&String> {
         self.version.as_ref()
     }
-    
+
     pub fn revision(&self) -> Option<&String> {
         self.revision.as_ref()
     }
@@ -461,17 +466,6 @@ impl Serializable for Header {
                         .create_element("a:MessageID")
                         .write_text_content(BytesText::new(message_id))?;
                 }
-
-                writer
-                    .create_element("w:Locale")
-                    .with_attribute(("xml:lang", "en-US"))
-                    .with_attribute(("s:mustUnderstand", "false"))
-                    .write_empty()?;
-                writer
-                    .create_element("p:DataLocale")
-                    .with_attribute(("xml:lang", "en-US"))
-                    .with_attribute(("s:mustUnderstand", "false"))
-                    .write_empty()?;
                 if let Some(operation_id) = &self.operation_id {
                     writer
                         .create_element("p:OperationID")
@@ -641,7 +635,7 @@ impl Message {
                 bookmarks: None,
                 identifier: None,
                 version: None,
-                revision: None
+                revision: None,
             },
             body,
         })

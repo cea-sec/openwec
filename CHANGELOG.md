@@ -24,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add `cli.read_only_subscriptions` setting to disable the cli features which edit subscriptions (except `subscriptions load`)
 - Add `RawJson` format which enables to retrieve events in raw format while also getting the metadata added by OpenWEC
 - Add the subscription revision in OpenWEC events metadata
+- Add `locale` and `data_locale` subscriptions parameters
 
 ### Changed
 

@@ -26,7 +26,9 @@ use log::{debug, info, warn};
 use std::io::Write;
 
 use crate::{
-    config, skell::{get_full_skell_content, get_minimal_skell_content}, utils::{self, confirm}
+    config,
+    skell::{get_full_skell_content, get_minimal_skell_content},
+    utils::{self, confirm},
 };
 
 enum ImportFormat {
@@ -351,6 +353,33 @@ async fn edit(db: &Db, matches: &ArgMatches) -> Result<()> {
         );
         subscription.set_ignore_channel_error(*ignore_channel_error);
     }
+
+    if matches.contains_id("locale") {
+        if let Some(locale) = matches.get_one::<String>("locale") {
+            debug!(
+                "Update locale from {:?} to {:?}",
+                subscription.locale(),
+                Some(locale)
+            );
+            subscription.set_locale(Some(locale.to_string()));
+        } else {
+            subscription.set_locale(None);
+        }
+    }
+
+    if matches.contains_id("data-locale") {
+        if let Some(data_locale) = matches.get_one::<String>("data-locale") {
+            debug!(
+                "Update data-locale from {:?} to {:?}",
+                subscription.data_locale(),
+                Some(data_locale)
+            );
+            subscription.set_data_locale(Some(data_locale.to_string()));
+        } else {
+            subscription.set_locale(None);
+        }
+    }
+
     info!(
         "Saving subscription {} ({})",
         subscription.name(),

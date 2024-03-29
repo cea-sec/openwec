@@ -348,6 +348,8 @@ mod v1 {
         pub read_existing_events: bool,
         pub content_format: ContentFormat,
         pub ignore_channel_error: bool,
+        pub locale: Option<String>,
+        pub data_locale: Option<String>,
         pub filter: PrincsFilter,
         pub outputs: Vec<SubscriptionOutput>,
     }
@@ -367,6 +369,8 @@ mod v1 {
                 .set_content_format(value.content_format.into())
                 .set_ignore_channel_error(value.ignore_channel_error)
                 .set_princs_filter(value.filter.into())
+                .set_locale(value.locale)
+                .set_data_locale(value.data_locale)
                 .set_outputs(value.outputs.iter().map(|s| s.clone().into()).collect())
                 .set_revision(value.revision);
             // Note: internal version is not exported nor set
@@ -392,6 +396,8 @@ mod v1 {
                 read_existing_events: value.read_existing_events(),
                 content_format: value.content_format().to_owned().into(),
                 ignore_channel_error: value.ignore_channel_error(),
+                locale: value.locale().cloned(),
+                data_locale: value.data_locale().cloned(),
                 filter: value.princs_filter().clone().into(),
                 outputs: value.outputs().iter().map(|o| o.clone().into()).collect(),
             }
