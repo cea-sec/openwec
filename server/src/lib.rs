@@ -56,7 +56,7 @@ use tls_listener::TlsListener;
 use tokio::net::TcpListener;
 use tokio::pin;
 use tokio::signal::unix::SignalKind;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{mpsc, oneshot, watch};
 use tokio_util::sync::CancellationToken;
 
 use crate::logging::ACCESS_LOGGER;
@@ -632,11 +632,29 @@ fn create_kerberos_server(
 
     let server = async move {
         let listener = TcpListener::bind(server_addr).await?;
+        // Each accepted TCP connection gets a channel 'rx', which is closed when
+        // the connections ends (whether because the client closed the connection
+        // or a shutdown signal has been sent).
+        // On shutdown, the server waits for all 'rx' to be dropped before
+        // resolving terminating using `close_tx.closed().await`.
+        let (close_tx, close_rx) = watch::channel(());
         loop {
-            let (stream, client_addr) = listener.accept().await?;
+            // let (stream, client_addr) = listener.accept().await?;
+            let (stream, client_addr) = tokio::select! {
+                conn = listener.accept() => match conn {
+                   Ok(conn) => conn,
+                   Err(err) => {
+                        warn!("Could not get client: {:?}", err);
+                        continue;
+                   }
+                },
+                _ = shutdown_signal() => {
+                    debug!("Shutdown signal received, stop accepting new clients connections");
+                    break;
+                }
+            };
 
             let keep_alive = get_keepalive(&collector_server_settings);
-
             let socket_ref = SockRef::from(&stream);
             socket_ref.set_tcp_keepalive(&keep_alive)?;
 
@@ -653,6 +671,8 @@ fn create_kerberos_server(
             )));
             let subscriptions = collector_subscriptions.clone();
             let collector_heartbeat_tx = collector_heartbeat_tx.clone();
+
+            let close_rx = close_rx.clone();
 
             debug!("Received TCP connection from {}", client_addr);
 
@@ -674,18 +694,34 @@ fn create_kerberos_server(
                 );
                 // conn needs to be pinned to be able to use tokio::select!
                 pin!(conn);
-                tokio::select! {
-                    res = conn.as_mut() => {
-                        if let Err(err) = res {
-                            error!("Error serving connection: {:?}", err);
+                loop {
+                    tokio::select! {
+                        res = conn.as_mut() => {
+                            if let Err(err) = res {
+                                error!("Error serving connection: {:?}", err);
+                            }
+                            break;
+                        },
+                        _ = shutdown_signal() => {
+                            debug!("Shutdown signal received, closing connection with {:?}", client_addr);
+                            conn.as_mut().graceful_shutdown();
                         }
-                    },
-                    _ = shutdown_signal() => {
-                        debug!("Shutdown signal received, closing connection with {:?}", client_addr);
                     }
                 }
+                // Drop "task" rx
+                drop(close_rx);
             });
         }
+        // Drop "server" rx to keep only "tasks" rx
+        drop(close_rx);
+    
+        debug!(
+            "Waiting for {} task(s) to finish",
+            close_tx.receiver_count()
+        );
+        close_tx.closed().await;
+
+        Ok(())
     };
 
     info!("Server listenning on {}", server_addr);
