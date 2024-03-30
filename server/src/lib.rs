@@ -22,26 +22,27 @@ use common::settings::{Authentication, Kerberos, Tls};
 use common::settings::{Collector, Server as ServerSettings, Settings};
 use core::pin::Pin;
 use futures::Future;
-use futures_util::{future::join_all, StreamExt};
+use futures_util::future::join_all;
 use heartbeat::{heartbeat_task, WriteHeartbeatMessage};
-use http::response::Builder;
-use http::status::StatusCode;
-use hyper::body::{to_bytes, HttpBody};
+use http_body_util::combinators::BoxBody;
+use http_body_util::{BodyExt, Empty, Full};
+use hyper::body::{Body, Bytes, Incoming};
 use hyper::header::{CONTENT_TYPE, WWW_AUTHENTICATE};
-use hyper::server::accept;
-use hyper::server::conn::AddrIncoming;
-use hyper::server::conn::AddrStream;
-use hyper::service::{make_service_fn, service_fn};
-use hyper::{Body, Request, Response, Server};
+use hyper::http::response::Builder;
+use hyper::http::status::StatusCode;
+use hyper::server::conn::http1;
+use hyper::service::service_fn;
+use hyper::{Request, Response};
+use hyper_util::rt::TokioIo;
 use kerberos::AuthenticationError;
 use libgssapi::error::MajorFlags;
 use log::{debug, error, info, trace, warn};
 use quick_xml::writer::Writer;
 use soap::Serializable;
+use socket2::{SockRef, TcpKeepalive};
 use std::boxed::Box;
 use std::collections::HashMap;
 use std::convert::Infallible;
-use std::future::ready;
 use std::io::Cursor;
 use std::net::{IpAddr, SocketAddr};
 use std::str::FromStr;
@@ -50,11 +51,12 @@ use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 use std::{env, mem};
 use subscription::{reload_subscriptions_task, Subscriptions};
+use tls_listener::rustls::TlsAcceptor;
 use tls_listener::TlsListener;
+use tokio::net::TcpListener;
+use tokio::pin;
 use tokio::signal::unix::SignalKind;
 use tokio::sync::{mpsc, oneshot};
-use tokio_rustls::server::TlsStream;
-use tokio_rustls::TlsAcceptor;
 use tokio_util::sync::CancellationToken;
 
 use crate::logging::ACCESS_LOGGER;
@@ -65,9 +67,9 @@ pub enum RequestCategory {
     Subscription,
 }
 
-impl TryFrom<&Request<Body>> for RequestCategory {
+impl TryFrom<&Request<Incoming>> for RequestCategory {
     type Error = anyhow::Error;
-    fn try_from(req: &Request<Body>) -> Result<Self, Self::Error> {
+    fn try_from(req: &Request<Incoming>) -> Result<Self, Self::Error> {
         if req.method() != "POST" {
             bail!("Invalid HTTP method {}", req.method());
         }
@@ -87,7 +89,7 @@ pub struct RequestData {
 }
 
 impl RequestData {
-    fn new(principal: &str, remote_addr: &SocketAddr, req: &Request<Body>) -> Result<Self> {
+    fn new(principal: &str, remote_addr: &SocketAddr, req: &Request<Incoming>) -> Result<Self> {
         Ok(RequestData {
             principal: principal.to_owned(),
             remote_addr: remote_addr.to_owned(),
@@ -119,10 +121,21 @@ pub enum AuthenticationContext {
     Tls(String, String),
 }
 
+fn empty() -> BoxBody<Bytes, Infallible> {
+    // Empty::new().map_err(|never| match never {}).boxed()
+    Empty::new().boxed()
+}
+
+fn full<T: Into<Bytes>>(chunk: T) -> BoxBody<Bytes, Infallible> {
+    Full::new(chunk.into())
+        // .map_err(|never| match never {})
+        .boxed()
+}
+
 async fn get_request_payload(
     collector: &Collector,
     auth_ctx: &AuthenticationContext,
-    req: Request<Body>,
+    req: Request<Incoming>,
 ) -> Result<Option<String>> {
     let (parts, body) = req.into_parts();
 
@@ -142,9 +155,11 @@ async fn get_request_payload(
         );
     }
 
-    let data = to_bytes(body)
+    let data = body
+        .collect()
         .await
-        .context("Could not retrieve request body")?;
+        .context("Could not retrieve request body")?
+        .to_bytes();
 
     if data.is_empty() {
         return Ok(None);
@@ -167,15 +182,15 @@ fn create_response(
     auth_ctx: &AuthenticationContext,
     mut response: Builder,
     payload: Option<String>,
-) -> Result<Response<Body>> {
+) -> Result<Response<BoxBody<Bytes, Infallible>>> {
     match auth_ctx {
         AuthenticationContext::Tls(_, _) => {
             if payload.is_some() {
                 response = response.header(CONTENT_TYPE, "application/soap+xml;charset=UTF-16");
             }
             let body = match payload {
-                None => Body::empty(),
-                Some(payload) => Body::from(
+                None => empty(),
+                Some(payload) => full(
                     tls::get_response_payload(payload).context("Failed to compute TLS payload")?,
                 ),
             };
@@ -187,8 +202,8 @@ fn create_response(
                 response = response.header(CONTENT_TYPE, "multipart/encrypted;protocol=\"application/HTTP-Kerberos-session-encrypted\";boundary=\"".to_owned() + boundary + "\"");
             }
             let body = match payload {
-                None => Body::empty(),
-                Some(payload) => Body::from(
+                None => empty(),
+                Some(payload) => full(
                     kerberos::get_response_payload(conn_state, payload, boundary)
                         .context("Failed to compute Kerberos encrypted payload")?,
                 ),
@@ -198,7 +213,7 @@ fn create_response(
     }
 }
 
-fn log_auth_error(addr: &SocketAddr, req: &Request<Body>, err_str: String, do_warn: bool) {
+fn log_auth_error(addr: &SocketAddr, req: &Request<Incoming>, err_str: String, do_warn: bool) {
     let str_format = format!(
         "Authentication failed for {}:{} ({}:{}): {}",
         addr.ip(),
@@ -217,7 +232,7 @@ fn log_auth_error(addr: &SocketAddr, req: &Request<Body>, err_str: String, do_wa
 
 async fn authenticate(
     auth_ctx: &AuthenticationContext,
-    req: &Request<Body>,
+    req: &Request<Incoming>,
     addr: &SocketAddr,
 ) -> Result<(String, Builder)> {
     match auth_ctx {
@@ -349,10 +364,10 @@ fn log_response(
     log_mdc::clear();
 }
 
-fn build_error_response(status: StatusCode) -> Response<Body> {
+fn build_error_response(status: StatusCode) -> Response<BoxBody<Bytes, Infallible>> {
     Response::builder()
         .status(status)
-        .body(Body::empty())
+        .body(empty())
         .expect("Failed to build HTTP response")
 }
 
@@ -364,8 +379,8 @@ async fn handle(
     heartbeat_tx: mpsc::Sender<WriteHeartbeatMessage>,
     auth_ctx: AuthenticationContext,
     addr: SocketAddr,
-    req: Request<Body>,
-) -> Result<Response<Body>, Infallible> {
+    req: Request<Incoming>,
+) -> Result<Response<BoxBody<Bytes, Infallible>>, Infallible> {
     let start = Instant::now();
 
     debug!(
@@ -441,6 +456,7 @@ async fn handle(
         request_payload.as_ref().unwrap_or(&String::from(""))
     );
 
+    // FIXME : wrong comment
     // Handle request payload, and retrieves response payload
     //
     // It seems that Hyper can abort the Service future at any time (for example if the client
@@ -577,6 +593,26 @@ async fn handle(
     Ok(response)
 }
 
+fn get_keepalive(collector_server_settings: &ServerSettings) -> TcpKeepalive {
+    let tcp_keepalive_time = Duration::from_secs(collector_server_settings.tcp_keepalive_time());
+    let tcp_keepalive_interval = collector_server_settings
+        .tcp_keepalive_intvl()
+        .map(Duration::from_secs);
+    let tcp_keepalive_probes = collector_server_settings.tcp_keepalive_probes();
+
+    let keep_alive = TcpKeepalive::new().with_time(tcp_keepalive_time);
+    let keep_alive = if let Some(tcp_keepalive_interval) = tcp_keepalive_interval {
+        keep_alive.with_interval(tcp_keepalive_interval)
+    } else {
+        keep_alive
+    };
+    if let Some(tcp_keepalive_retries) = tcp_keepalive_probes {
+        keep_alive.with_retries(tcp_keepalive_retries)
+    } else {
+        keep_alive
+    }
+}
+
 fn create_kerberos_server(
     kerberos_settings: &Kerberos,
     collector_settings: Collector,
@@ -584,8 +620,8 @@ fn create_kerberos_server(
     collector_subscriptions: Subscriptions,
     collector_heartbeat_tx: mpsc::Sender<WriteHeartbeatMessage>,
     collector_server_settings: ServerSettings,
-    addr: SocketAddr,
-) -> Pin<Box<dyn Future<Output = hyper::Result<()>> + Send>> {
+    server_addr: SocketAddr,
+) -> Pin<Box<dyn Future<Output = Result<()>> + Send>> {
     let principal = kerberos_settings.service_principal_name().to_owned();
     // Try to initialize a security context. This is to be sure that an error in
     // Kerberos configuration will be reported as soon as possible.
@@ -594,58 +630,65 @@ fn create_kerberos_server(
         panic!("Could not initialize Kerberos context");
     }
 
-    let tcp_keepalive_time = Duration::from_secs(collector_server_settings.tcp_keepalive_time());
-    let tcp_keepalive_interval = collector_server_settings
-        .tcp_keepalive_intvl()
-        .map(Duration::from_secs);
-    let tcp_keepalive_probes = collector_server_settings.tcp_keepalive_probes();
+    let server = async move {
+        let listener = TcpListener::bind(server_addr).await?;
+        loop {
+            let (stream, client_addr) = listener.accept().await?;
 
-    // A `MakeService` that produces a `Service` to handle each connection.
-    let make_service = make_service_fn(move |conn: &AddrStream| {
-        // We have to clone the context to share it with each invocation of
-        // `make_service`.
+            let keep_alive = get_keepalive(&collector_server_settings);
 
-        // Initialize Kerberos context once for each TCP connection
-        let collector_settings = collector_settings.clone();
-        let svc_db = collector_db.clone();
-        let svc_server_settings = collector_server_settings.clone();
-        let auth_ctx =
-            AuthenticationContext::Kerberos(Arc::new(Mutex::new(kerberos::State::new(&principal))));
-        let subscriptions = collector_subscriptions.clone();
-        let collector_heartbeat_tx = collector_heartbeat_tx.clone();
+            let socket_ref = SockRef::from(&stream);
+            socket_ref.set_tcp_keepalive(&keep_alive)?;
 
-        let addr = conn.remote_addr();
+            let io = TokioIo::new(stream);
 
-        debug!("Received TCP connection from {}", addr);
+            // We have to clone the context to move it into the tokio task
 
-        // Create a `Service` for responding to the request.
-        let service = service_fn(move |req| {
-            handle(
-                svc_server_settings.clone(),
-                collector_settings.clone(),
-                svc_db.clone(),
-                subscriptions.clone(),
-                collector_heartbeat_tx.clone(),
-                auth_ctx.clone(),
-                addr,
-                req,
-            )
-        });
+            // Initialize Kerberos context once for each TCP connection
+            let collector_settings = collector_settings.clone();
+            let svc_db = collector_db.clone();
+            let svc_server_settings = collector_server_settings.clone();
+            let auth_ctx = AuthenticationContext::Kerberos(Arc::new(Mutex::new(
+                kerberos::State::new(&principal),
+            )));
+            let subscriptions = collector_subscriptions.clone();
+            let collector_heartbeat_tx = collector_heartbeat_tx.clone();
 
-        // Return the service to hyper.
-        async move { Ok::<_, Infallible>(service) }
-    });
+            debug!("Received TCP connection from {}", client_addr);
 
-    // Then bind and serve...
-    let server = Server::bind(&addr)
-        .tcp_keepalive(Some(tcp_keepalive_time))
-        .tcp_keepalive_interval(tcp_keepalive_interval)
-        .tcp_keepalive_retries(tcp_keepalive_probes)
-        .serve(make_service)
-        .with_graceful_shutdown(http_shutdown_signal());
+            tokio::task::spawn(async move {
+                let conn = http1::Builder::new().serve_connection(
+                    io,
+                    service_fn(move |req| {
+                        handle(
+                            svc_server_settings.clone(),
+                            collector_settings.clone(),
+                            svc_db.clone(),
+                            subscriptions.clone(),
+                            collector_heartbeat_tx.clone(),
+                            auth_ctx.clone(),
+                            client_addr,
+                            req,
+                        )
+                    }),
+                );
+                // conn needs to be pinned to be able to use tokio::select!
+                pin!(conn);
+                tokio::select! {
+                    res = conn.as_mut() => {
+                        if let Err(err) = res {
+                            error!("Error serving connection: {:?}", err);
+                        }
+                    },
+                    _ = shutdown_signal() => {
+                        debug!("Shutdown signal received, closing connection with {:?}", client_addr);
+                    }
+                }
+            });
+        }
+    };
 
-    info!("Server listenning on {}", addr);
-    // XXX : because the 2 closures have different types we use this, but may be better way to do this
+    info!("Server listenning on {}", server_addr);
     Box::pin(server)
 }
 
@@ -656,92 +699,109 @@ fn create_tls_server(
     collector_subscriptions: Subscriptions,
     collector_heartbeat_tx: mpsc::Sender<WriteHeartbeatMessage>,
     collector_server_settings: ServerSettings,
-    addr: SocketAddr,
-) -> Pin<Box<dyn Future<Output = hyper::Result<()>> + Send>> {
+    server_addr: SocketAddr,
+) -> Pin<Box<dyn Future<Output = Result<()>> + Send>> {
     // make TLS connection config
     let tls_config = make_config(tls_settings).expect("Error while configuring server");
-
-    let tcp_keepalive_time = Duration::from_secs(collector_server_settings.tcp_keepalive_time());
-    let tcp_keepalive_interval = collector_server_settings
-        .tcp_keepalive_intvl()
-        .map(Duration::from_secs);
-    let tcp_keepalive_probes = collector_server_settings.tcp_keepalive_probes();
-
-    // create the service per connection
-    let make_service = make_service_fn(move |conn: &TlsStream<AddrStream>| {
-        // get peer certificate (= user certificate)
-        let cert = conn
-            .get_ref()
-            .1
-            .peer_certificates()
-            .expect("Peer certificate should exist") // client auth has to happen, so this should not fail
-            .first()
-            .expect("Peer certificate should not be empty") // client cert cannot be empty if authentication succeeded
-            .clone();
-
-        let subject = subject_from_cert(cert.as_ref()).expect("Could not parse client certificate");
-        let thumbprint = tls_config.thumbprint.clone();
-
-        let collector_settings = collector_settings.clone();
-        let svc_db = collector_db.clone();
-        let svc_server_settings = collector_server_settings.clone();
-        let subscriptions = collector_subscriptions.clone();
-        let collector_heartbeat_tx = collector_heartbeat_tx.clone();
-
-        let addr = conn.get_ref().0.remote_addr();
-        let auth_ctx = AuthenticationContext::Tls(subject, thumbprint);
-
-        // create service per request
-        let service = service_fn(move |req| {
-            handle(
-                svc_server_settings.clone(),
-                collector_settings.clone(),
-                svc_db.clone(),
-                subscriptions.clone(),
-                collector_heartbeat_tx.clone(),
-                auth_ctx.clone(),
-                addr,
-                req,
-            )
-        });
-
-        async move { Ok::<_, Infallible>(service) }
-    });
-
     // create acceptor from config
     let tls_acceptor: TlsAcceptor = tls_config.server.into();
 
-    let mut addr_incoming = AddrIncoming::bind(&addr).expect("Could not bind address to listener");
-    addr_incoming.set_keepalive(Some(tcp_keepalive_time));
-    addr_incoming.set_keepalive_interval(tcp_keepalive_interval);
-    addr_incoming.set_keepalive_retries(tcp_keepalive_probes);
+    let server = async move {
+        let mut listener = TlsListener::new(tls_acceptor, TcpListener::bind(server_addr).await?);
 
-    // configure listener on the address to use the acceptor
-    let incoming = TlsListener::new(tls_acceptor, addr_incoming)
-        .connections()
-        .filter(|conn| {
-            if let Err(err) = &conn {
-                match err {
-                    tls_listener::Error::TlsAcceptError { error, .. }
-                        if error.to_string() == "tls handshake eof" =>
-                    {
-                        // happens sometimes, not problematic
-                        debug!("Error while establishing a connection: {:?}", err)
+        loop {
+            match listener.accept().await {
+                Err(err) => {
+                    let client = if let Some(remote_addr) = err.peer_addr() {
+                        remote_addr.to_string()
+                    } else {
+                        "?".to_string()
+                    };
+                    match err {
+                        tls_listener::Error::TlsAcceptError { error, .. }
+                            if error.to_string() == "tls handshake eof" =>
+                        {
+                            // happens sometimes, not problematic
+                            debug!(
+                                "Error while establishing a connection with '{}': {:?}",
+                                client, error
+                            )
+                        }
+                        _ => warn!(
+                            "Error while establishing a connection with '{}': {:?}",
+                            client, err
+                        ),
                     }
-                    _ => warn!("Error while establishing a connection: {:?}", err),
-                };
-                ready(false)
-            } else {
-                ready(true)
+                }
+                Ok((stream, client_addr)) => {
+                    let keep_alive = get_keepalive(&collector_server_settings);
+
+                    let socket_ref = SockRef::from(stream.get_ref().0);
+                    socket_ref.set_tcp_keepalive(&keep_alive)?;
+
+                    // We have to clone the context to share it with each invocation of
+                    // `make_service`.
+
+                    // get peer (= user certificate)
+                    let cert = stream
+                        .get_ref()
+                        .1
+                        .peer_certificates()
+                        .expect("Peer certificate should exist") // client auth has to happen, so this should not fail
+                        .first()
+                        .expect("Peer certificate should not be empty") // client cert cannot be empty if authentication succeeded
+                        .clone();
+
+                    let subject = subject_from_cert(cert.as_ref())
+                        .expect("Could not parse client certificate");
+                    let thumbprint = tls_config.thumbprint.clone();
+                    let auth_ctx = AuthenticationContext::Tls(subject, thumbprint);
+
+                    let collector_settings = collector_settings.clone();
+                    let svc_db = collector_db.clone();
+                    let svc_server_settings = collector_server_settings.clone();
+                    let subscriptions = collector_subscriptions.clone();
+                    let collector_heartbeat_tx = collector_heartbeat_tx.clone();
+
+                    let addr = client_addr;
+
+                    debug!("Received TCP connection from {}", addr);
+
+                    let io = TokioIo::new(stream);
+                    tokio::task::spawn(async move {
+                        let conn = http1::Builder::new().serve_connection(
+                            io,
+                            service_fn(move |req| {
+                                handle(
+                                    svc_server_settings.clone(),
+                                    collector_settings.clone(),
+                                    svc_db.clone(),
+                                    subscriptions.clone(),
+                                    collector_heartbeat_tx.clone(),
+                                    auth_ctx.clone(),
+                                    addr,
+                                    req,
+                                )
+                            }),
+                        );
+                        pin!(conn);
+                        tokio::select! {
+                            res = conn.as_mut() => {
+                                if let Err(err) = res {
+                                    error!("Error serving connection: {:?}", err);
+                                }
+                            },
+                            _ = shutdown_signal() => {
+                                debug!("Shutdown signal received, closing connection with {:?}", addr);
+                            }
+                        }
+                    });
+                }
             }
-        });
+        }
+    };
 
-    let server = Server::builder(accept::from_stream(incoming))
-        .serve(make_service)
-        .with_graceful_shutdown(http_shutdown_signal());
-
-    info!("Server listenning on {}", addr);
-    // XXX : because the 2 closures have different types we use this, but may be better way to do this
+    info!("Server listenning on {}", server_addr);
     Box::pin(server)
 }
 
@@ -759,10 +819,6 @@ async fn shutdown_signal() -> ShutdownReason {
         _ = ctrl_c => ShutdownReason::CtrlC,
         _ = sigterm.recv() => ShutdownReason::Sigterm,
     }
-}
-
-async fn http_shutdown_signal() {
-    shutdown_signal().await;
 }
 
 async fn force_shutdown_timeout() {
@@ -785,7 +841,7 @@ pub async fn run(settings: Settings, verbosity: u8) {
     }
 
     // XXX : because the 2 closures have different types we use this, but may be better way to do this
-    let mut servers: Vec<Pin<Box<dyn Future<Output = hyper::Result<()>> + Send>>> = Vec::new();
+    let mut servers: Vec<Pin<Box<dyn Future<Output = Result<()>> + Send>>> = Vec::new();
 
     let db: Db = db_from_settings(&settings)
         .await
@@ -876,7 +932,6 @@ pub async fn run(settings: Settings, verbosity: u8) {
                     addr,
                 ));
             }
-
             Authentication::Tls(tls) => {
                 servers.push(create_tls_server(
                     tls,

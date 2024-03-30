@@ -9,7 +9,7 @@ use common::{
     database::Db,
     settings::{Collector, Server}, subscription::{SubscriptionOutputFormat, SubscriptionUuid},
 };
-use http::status::StatusCode;
+use hyper::http::status::StatusCode;
 use log::{debug, error, warn};
 use uuid::Uuid;
 use std::{collections::HashMap, sync::Arc};

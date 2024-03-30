@@ -1,9 +1,10 @@
 use anyhow::{anyhow, bail, Context, Result};
 use base64::Engine;
 use common::encoding::encode_utf16le;
-use http::request::Parts;
+use hyper::body::Incoming;
+use hyper::http::request::Parts;
 use hyper::header::AUTHORIZATION;
-use hyper::{body::Bytes, Body, Request};
+use hyper::{body::Bytes, Request};
 use libgssapi::{
     context::{CtxFlags, SecurityContext, ServerCtx},
     credential::{Cred, CredUsage},
@@ -87,7 +88,7 @@ pub enum AuthenticationError {
 ///
 pub async fn authenticate(
     conn_state: &Arc<Mutex<State>>,
-    req: &Request<Body>,
+    req: &Request<Incoming>,
 ) -> Result<AuthenticationData, AuthenticationError> {
     let mut state = conn_state.lock().unwrap();
     let server_ctx = state
