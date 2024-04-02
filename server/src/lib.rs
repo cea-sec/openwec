@@ -52,8 +52,7 @@ use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 use std::{env, mem};
 use subscription::{reload_subscriptions_task, Subscriptions};
-use tls_listener::rustls::TlsAcceptor;
-use tls_listener::TlsListener;
+use tokio_rustls::TlsAcceptor;
 use tokio::io::AsyncRead;
 use tokio::net::TcpListener;
 use tokio::pin;
@@ -791,7 +790,7 @@ fn create_tls_server(
     let tls_acceptor: TlsAcceptor = tls_config.server.into();
 
     let server = async move {
-        let mut listener = TlsListener::new(tls_acceptor, TcpListener::bind(server_addr).await?);
+        let listener = TcpListener::bind(server_addr).await?;
         info!("Server listenning on {}", server_addr);
 
         // Each accepted TCP connection gets a channel 'rx', which is closed when
@@ -806,26 +805,7 @@ fn create_tls_server(
                 conn = listener.accept() => match conn {
                     Ok(conn) => conn,
                     Err(err) => {
-                        let client = if let Some(remote_addr) = err.peer_addr() {
-                            remote_addr.to_string()
-                        } else {
-                            "?".to_string()
-                        };
-                        match err {
-                            tls_listener::Error::TlsAcceptError { error, .. }
-                                if error.to_string() == "tls handshake eof" =>
-                            {
-                                // happens sometimes, not problematic
-                                debug!(
-                                    "Error while establishing a connection with '{}': {:?}",
-                                    client, error
-                                )
-                            }
-                            _ => warn!(
-                                "Error while establishing a connection with '{}': {:?}",
-                                client, err
-                            ),
-                        }
+                        warn!("Could not get client: {:?}", err);
                         continue;
                     }
                 },
@@ -839,7 +819,7 @@ fn create_tls_server(
 
             // Configure connected socket with keepalive parameters
             let keep_alive = get_keepalive(&collector_server_settings);
-            let socket_ref = SockRef::from(stream.get_ref().0);
+            let socket_ref = SockRef::from(&stream);
             socket_ref.set_tcp_keepalive(&keep_alive)?;
 
             // We have to clone the context to move it into the tokio task
@@ -850,6 +830,7 @@ fn create_tls_server(
             let subscriptions = collector_subscriptions.clone();
             let collector_heartbeat_tx = collector_heartbeat_tx.clone();
             let thumbprint = tls_config.thumbprint.clone();
+            let tls_acceptor = tls_acceptor.clone();
 
             // Create a "rx" channel end for the task
             let close_rx = close_rx.clone();
@@ -867,6 +848,27 @@ fn create_tls_server(
                     }
                 } else {
                     client_addr
+                };
+
+                let stream = match tls_acceptor.accept(stream).await {
+                    Ok(stream) => stream,
+                    Err(err) => {
+                        match err.into_inner() {
+                           Some(str) if str.to_string() == "tls handshake eof" => {
+                                // happens sometimes, not problematic
+                                debug!(
+                                    "Error while establishing a connection with '{}': {:?}",
+                                    real_client_addr, str
+                                )
+                           },
+                            other => warn!(
+                                "Error while establishing a connection with '{}': {:?}",
+                                real_client_addr, other
+                            ),
+                        };
+                        return;
+                    }
+
                 };
 
                 // get peer certificate
