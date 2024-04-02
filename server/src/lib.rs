@@ -757,98 +757,143 @@ fn create_tls_server(
 
     let server = async move {
         let mut listener = TlsListener::new(tls_acceptor, TcpListener::bind(server_addr).await?);
-
+        info!("Server listenning on {}", server_addr);
+        
+        // Each accepted TCP connection gets a channel 'rx', which is closed when
+        // the connections ends (whether because the client closed the connection
+        // or if a shutdown signal has been received).
+        // On shutdown, the server waits for all 'rx' to be dropped before
+        // resolving terminating using `close_tx.closed().await`.
+        let (close_tx, close_rx) = watch::channel(());
         loop {
-            match listener.accept().await {
-                Err(err) => {
-                    let client = if let Some(remote_addr) = err.peer_addr() {
-                        remote_addr.to_string()
-                    } else {
-                        "?".to_string()
-                    };
-                    match err {
-                        tls_listener::Error::TlsAcceptError { error, .. }
-                            if error.to_string() == "tls handshake eof" =>
-                        {
-                            // happens sometimes, not problematic
-                            debug!(
+            // Accept new clients and wait for shutdown signal to stop accepting
+            let (stream, client_addr) = tokio::select! {
+                conn = listener.accept() => match conn {
+                    Ok(conn) => conn,
+                    Err(err) => {
+                        let client = if let Some(remote_addr) = err.peer_addr() {
+                            remote_addr.to_string()
+                        } else {
+                            "?".to_string()
+                        };
+                        match err {
+                            tls_listener::Error::TlsAcceptError { error, .. }
+                                if error.to_string() == "tls handshake eof" =>
+                            {
+                                // happens sometimes, not problematic
+                                debug!(
+                                    "Error while establishing a connection with '{}': {:?}",
+                                    client, error
+                                )
+                            }
+                            _ => warn!(
                                 "Error while establishing a connection with '{}': {:?}",
-                                client, error
-                            )
+                                client, err
+                            ),
                         }
-                        _ => warn!(
-                            "Error while establishing a connection with '{}': {:?}",
-                            client, err
-                        ),
+                        continue;
+                    }
+                },
+                _ = shutdown_signal() => {
+                    debug!("Shutdown signal received, stop accepting new clients connections");
+                    break;
+                }
+            };
+
+            debug!("Received TCP connection from {}", client_addr);
+
+            // Configure connected socket with keepalive parameters
+            let keep_alive = get_keepalive(&collector_server_settings);
+            let socket_ref = SockRef::from(stream.get_ref().0);
+            socket_ref.set_tcp_keepalive(&keep_alive)?;
+
+            // We have to clone the context to move it into the tokio task
+            // responsible for handling the client
+            let collector_settings = collector_settings.clone();
+            let svc_db = collector_db.clone();
+            let svc_server_settings = collector_server_settings.clone();
+            let subscriptions = collector_subscriptions.clone();
+            let collector_heartbeat_tx = collector_heartbeat_tx.clone();
+            let thumbprint = tls_config.thumbprint.clone();
+
+            // Create a "rx" channel end for the task
+            let close_rx = close_rx.clone();
+
+            tokio::task::spawn(async move {
+                // get peer certificate
+                let cert = stream
+                    .get_ref()
+                    .1
+                    .peer_certificates()
+                    .expect("Peer certificate should exist") // client auth has to happen, so this should not fail
+                    .first()
+                    .expect("Peer certificate should not be empty") // client cert cannot be empty if authentication succeeded
+                    .clone();
+
+                let subject = subject_from_cert(cert.as_ref())
+                    .expect("Could not parse client certificate");
+ 
+                // Initialize Authentication context once for each TCP connection
+                let auth_ctx = AuthenticationContext::Tls(subject, thumbprint);
+
+                // Hyper needs a wrapper for the stream
+                let io = TokioIo::new(stream);
+
+                // Handle the connection using Hyper http1
+                // conn is a Future that ends when the connection is closed
+                let conn = http1::Builder::new().serve_connection(
+                    io,
+                    service_fn(move |req| {
+                        handle(
+                            svc_server_settings.clone(),
+                            collector_settings.clone(),
+                            svc_db.clone(),
+                            subscriptions.clone(),
+                            collector_heartbeat_tx.clone(),
+                            auth_ctx.clone(),
+                            client_addr,
+                            req,
+                        )
+                    }),
+                );
+                // conn needs to be pinned to be able to use tokio::select!
+                pin!(conn);
+
+                // This loop is required to continue to poll the connection after calling
+                // graceful_shutdown().
+                loop {
+                    tokio::select! {
+                        res = conn.as_mut() => {
+                            if let Err(err) = res {
+                                error!("Error serving connection: {:?}", err);
+                            }
+                            break;
+                        },
+                        _ = shutdown_signal() => {
+                            debug!("Shutdown signal received, closing connection with {:?}", client_addr);
+                            conn.as_mut().graceful_shutdown();
+                        }
                     }
                 }
-                Ok((stream, client_addr)) => {
-                    let keep_alive = get_keepalive(&collector_server_settings);
-
-                    let socket_ref = SockRef::from(stream.get_ref().0);
-                    socket_ref.set_tcp_keepalive(&keep_alive)?;
-
-                    // We have to clone the context to share it with each invocation of
-                    // `make_service`.
-
-                    // get peer (= user certificate)
-                    let cert = stream
-                        .get_ref()
-                        .1
-                        .peer_certificates()
-                        .expect("Peer certificate should exist") // client auth has to happen, so this should not fail
-                        .first()
-                        .expect("Peer certificate should not be empty") // client cert cannot be empty if authentication succeeded
-                        .clone();
-
-                    let subject = subject_from_cert(cert.as_ref())
-                        .expect("Could not parse client certificate");
-                    let thumbprint = tls_config.thumbprint.clone();
-                    let auth_ctx = AuthenticationContext::Tls(subject, thumbprint);
-
-                    let collector_settings = collector_settings.clone();
-                    let svc_db = collector_db.clone();
-                    let svc_server_settings = collector_server_settings.clone();
-                    let subscriptions = collector_subscriptions.clone();
-                    let collector_heartbeat_tx = collector_heartbeat_tx.clone();
-
-                    debug!("Received TCP connection from {}", client_addr);
-
-                    let io = TokioIo::new(stream);
-                    tokio::task::spawn(async move {
-                        let conn = http1::Builder::new().serve_connection(
-                            io,
-                            service_fn(move |req| {
-                                handle(
-                                    svc_server_settings.clone(),
-                                    collector_settings.clone(),
-                                    svc_db.clone(),
-                                    subscriptions.clone(),
-                                    collector_heartbeat_tx.clone(),
-                                    auth_ctx.clone(),
-                                    client_addr,
-                                    req,
-                                )
-                            }),
-                        );
-                        pin!(conn);
-                        tokio::select! {
-                            res = conn.as_mut() => {
-                                if let Err(err) = res {
-                                    error!("Error serving connection: {:?}", err);
-                                }
-                            },
-                            _ = shutdown_signal() => {
-                                debug!("Shutdown signal received, closing connection with {:?}", client_addr);
-                            }
-                        }
-                    });
-                }
-            }
+                // Connection is closed, drop "task" rx to inform the server that this task
+                // is ending
+                drop(close_rx);
+            });
         }
+
+        // Drop "server" rx to keep only "tasks" rx
+        drop(close_rx);
+
+        debug!(
+            "Waiting for {} task(s) to finish",
+            close_tx.receiver_count()
+        );
+        close_tx.closed().await;
+
+        Ok(())
+        
     };
 
-    info!("Server listenning on {}", server_addr);
     Box::pin(server)
 }
 
