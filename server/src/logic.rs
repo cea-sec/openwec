@@ -178,13 +178,13 @@ async fn handle_enumerate(
                 AuthenticationContext::Kerberos(_) => format!(
                     "http://{}:{}/wsman/subscriptions/{}",
                     collector.hostname(),
-                    collector.listen_port(),
+                    collector.advertized_port(),
                     identifier
                 ),
                 AuthenticationContext::Tls(_,_) => format!(
                     "https://{}:{}/wsman/subscriptions/{}",
                     collector.hostname(),
-                    collector.listen_port(),
+                    collector.advertized_port(),
                     identifier
                 )
             },

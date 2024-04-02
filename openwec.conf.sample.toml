@@ -210,6 +210,22 @@
 # If missing in config, default value is 512000 (which should be safe)
 # max_content_length = 512000
 
+# [Optional]
+# Enable proxy protocol 
+# This feature allows openwec to be used behind a layer 4 load balancer
+# whilst the proxy protocol is enabled to preserve the client IP address and port.
+# If enabled, openwec EXPECTS a proxy protocol header (v1 or v2) to be present
+# and will close the connection otherwise.
+# See The PROXY protocol spec for more details: <https://www.haproxy.org/download/1.8/doc/proxy-protocol.txt>.
+# enable_proxy_protocol = false
+
+# [Optional]
+# openwec will pretend to listen on this port instead of the "real" one
+# configured in `listen_port`.
+# This can be useful if openwec is behind a load balancer.
+# If unset, the default value is `listen_port`.
+# advertized_port =
+
 # Authentication settings for this collector
 [collectors.authentication]
 # [Required]

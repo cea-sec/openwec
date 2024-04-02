@@ -10,6 +10,7 @@ mod logging;
 mod logic;
 mod multipart;
 mod output;
+mod proxy_protocol;
 mod sldc;
 mod soap;
 mod subscription;
@@ -53,6 +54,7 @@ use std::{env, mem};
 use subscription::{reload_subscriptions_task, Subscriptions};
 use tls_listener::rustls::TlsAcceptor;
 use tls_listener::TlsListener;
+use tokio::io::AsyncRead;
 use tokio::net::TcpListener;
 use tokio::pin;
 use tokio::signal::unix::SignalKind;
@@ -60,6 +62,7 @@ use tokio::sync::{mpsc, oneshot, watch};
 use tokio_util::sync::CancellationToken;
 
 use crate::logging::ACCESS_LOGGER;
+use crate::proxy_protocol::read_proxy_header;
 use crate::tls::{make_config, subject_from_cert};
 
 pub enum RequestCategory {
@@ -613,6 +616,24 @@ fn get_keepalive(collector_server_settings: &ServerSettings) -> TcpKeepalive {
     }
 }
 
+async fn read_proxy_protocol_header<I>(stream: I) -> Result<SocketAddr>
+where
+    I: AsyncRead + Unpin,
+{
+    match read_proxy_header(stream).await {
+        Ok((_, addr_opt)) => match addr_opt {
+            Some(addr) => {
+                debug!("Real client address is {:?}", addr);
+                Ok(addr)
+            }
+            None => {
+                bail!("Failed to retrieve client address");
+            }
+        },
+        Err(err) => Err(anyhow!(err)),
+    }
+}
+
 fn create_kerberos_server(
     kerberos_settings: &Kerberos,
     collector_settings: Collector,
@@ -642,7 +663,7 @@ fn create_kerberos_server(
         let (close_tx, close_rx) = watch::channel(());
         loop {
             // Accept new clients and wait for shutdown signal to stop accepting
-            let (stream, client_addr) = tokio::select! {
+            let (mut stream, client_addr) = tokio::select! {
                 conn = listener.accept() => match conn {
                    Ok(conn) => conn,
                    Err(err) => {
@@ -676,6 +697,20 @@ fn create_kerberos_server(
             let close_rx = close_rx.clone();
 
             tokio::task::spawn(async move {
+                // Parse proxy protocol if enabled
+                let real_client_addr = if collector_settings.enable_proxy_protocol() {
+                    match read_proxy_protocol_header(&mut stream).await {
+                        Ok(addr) => addr,
+                        Err(err) => {
+                            debug!("Failed to read Proxy Protocol header: {}", err);
+                            // Exit task
+                            return;
+                        }
+                    }
+                } else {
+                    client_addr
+                };
+
                 // Initialize Kerberos context once for each TCP connection
                 let auth_ctx = AuthenticationContext::Kerberos(Arc::new(Mutex::new(
                     kerberos::State::new(&svc_server_principal),
@@ -696,7 +731,7 @@ fn create_kerberos_server(
                             subscriptions.clone(),
                             collector_heartbeat_tx.clone(),
                             auth_ctx.clone(),
-                            client_addr,
+                            real_client_addr,
                             req,
                         )
                     }),
@@ -710,7 +745,7 @@ fn create_kerberos_server(
                     tokio::select! {
                         res = conn.as_mut() => {
                             if let Err(err) = res {
-                                error!("Error serving connection: {:?}", err);
+                                debug!("Error serving connection: {:?}", err);
                             }
                             break;
                         },
@@ -758,7 +793,7 @@ fn create_tls_server(
     let server = async move {
         let mut listener = TlsListener::new(tls_acceptor, TcpListener::bind(server_addr).await?);
         info!("Server listenning on {}", server_addr);
-        
+
         // Each accepted TCP connection gets a channel 'rx', which is closed when
         // the connections ends (whether because the client closed the connection
         // or if a shutdown signal has been received).
@@ -767,7 +802,7 @@ fn create_tls_server(
         let (close_tx, close_rx) = watch::channel(());
         loop {
             // Accept new clients and wait for shutdown signal to stop accepting
-            let (stream, client_addr) = tokio::select! {
+            let (mut stream, client_addr) = tokio::select! {
                 conn = listener.accept() => match conn {
                     Ok(conn) => conn,
                     Err(err) => {
@@ -820,6 +855,20 @@ fn create_tls_server(
             let close_rx = close_rx.clone();
 
             tokio::task::spawn(async move {
+                // Parse proxy protocol if enabled
+                let real_client_addr = if collector_settings.enable_proxy_protocol() {
+                    match read_proxy_protocol_header(&mut stream).await {
+                        Ok(addr) => addr,
+                        Err(err) => {
+                            debug!("Failed to read Proxy Protocol header: {}", err);
+                            // Exit task
+                            return;
+                        }
+                    }
+                } else {
+                    client_addr
+                };
+
                 // get peer certificate
                 let cert = stream
                     .get_ref()
@@ -830,9 +879,9 @@ fn create_tls_server(
                     .expect("Peer certificate should not be empty") // client cert cannot be empty if authentication succeeded
                     .clone();
 
-                let subject = subject_from_cert(cert.as_ref())
-                    .expect("Could not parse client certificate");
- 
+                let subject =
+                    subject_from_cert(cert.as_ref()).expect("Could not parse client certificate");
+
                 // Initialize Authentication context once for each TCP connection
                 let auth_ctx = AuthenticationContext::Tls(subject, thumbprint);
 
@@ -851,7 +900,7 @@ fn create_tls_server(
                             subscriptions.clone(),
                             collector_heartbeat_tx.clone(),
                             auth_ctx.clone(),
-                            client_addr,
+                            real_client_addr,
                             req,
                         )
                     }),
@@ -865,7 +914,7 @@ fn create_tls_server(
                     tokio::select! {
                         res = conn.as_mut() => {
                             if let Err(err) = res {
-                                error!("Error serving connection: {:?}", err);
+                                debug!("Error serving connection: {:?}", err);
                             }
                             break;
                         },
@@ -891,7 +940,6 @@ fn create_tls_server(
         close_tx.closed().await;
 
         Ok(())
-        
     };
 
     Box::pin(server)

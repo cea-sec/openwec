@@ -49,6 +49,8 @@ pub struct Collector {
     listen_port: Option<u16>,
     max_content_length: Option<u64>,
     authentication: Authentication,
+    enable_proxy_protocol: Option<bool>,
+    advertized_port: Option<u16>,
 }
 
 impl Collector {
@@ -67,8 +69,17 @@ impl Collector {
     pub fn max_content_length(&self) -> u64 {
         self.max_content_length.unwrap_or(512_000)
     }
+
     pub fn authentication(&self) -> &Authentication {
         &self.authentication
+    }
+
+    pub fn enable_proxy_protocol(&self) -> bool {
+        self.enable_proxy_protocol.unwrap_or(false)
+    }
+
+    pub fn advertized_port(&self) -> u16 {
+        self.advertized_port.unwrap_or_else(|| self.listen_port())
     }
 }
 
@@ -244,7 +255,7 @@ impl Logging {
     }
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Clone, Default)]
 #[serde(deny_unknown_fields)]
 pub struct Server {
     db_sync_interval: Option<u64>,
@@ -294,7 +305,7 @@ impl Server {
 #[derive(Debug, Deserialize, Clone, Default)]
 #[serde(deny_unknown_fields)]
 pub struct Cli {
-    // When set, subscriptions can only be written using 
+    // When set, subscriptions can only be written using
     // openwec subscriptions load`, defaults to false.
     #[serde(default)]
     read_only_subscriptions: bool,
@@ -311,11 +322,12 @@ impl Cli {
 pub struct Settings {
     collectors: Vec<Collector>,
     database: Database,
+    #[serde(default)]
     server: Server,
     #[serde(default)]
     logging: Logging,
     #[serde(default)]
-    cli: Cli
+    cli: Cli,
 }
 
 impl std::str::FromStr for Settings {
@@ -375,6 +387,8 @@ mod tests {
         listen_address = "0.0.0.0"
         listen_port = 5986
         max_content_length = 1000
+        enable_proxy_protocol = true
+        advertized_port = 15986
 
         [collectors.authentication]
         type = "Kerberos"
@@ -390,6 +404,8 @@ mod tests {
         assert_eq!(collector.listen_address(), "0.0.0.0");
         assert_eq!(collector.listen_port(), 5986);
         assert_eq!(collector.max_content_length(), 1000);
+        assert_eq!(collector.enable_proxy_protocol(), true);
+        assert_eq!(collector.advertized_port(), 15986);
 
         let kerberos = match collector.authentication() {
             Authentication::Kerberos(kerb) => kerb,
@@ -417,8 +433,6 @@ mod tests {
     }
 
     const CONFIG_TLS_POSTGRES: &str = r#"
-        [server]
-
         [logging]
         access_logs = "/tmp/toto"
         server_logs = "stdout"
@@ -454,6 +468,8 @@ mod tests {
         // Checks default values
         assert_eq!(collector.listen_port(), 5985);
         assert_eq!(collector.max_content_length(), 512_000);
+        assert_eq!(collector.enable_proxy_protocol(), false);
+        assert_eq!(collector.advertized_port(), 5985);
 
         let tls = match collector.authentication() {
             Authentication::Tls(tls) => tls,
@@ -489,8 +505,6 @@ mod tests {
     }
 
     const CONFIG_TLS_POSTGRES_WITH_CLI: &str = r#"
-        [server]
-
         [logging]
         access_logs = "/tmp/toto"
         server_logs_pattern = "toto"
@@ -554,7 +568,10 @@ mod tests {
             Authentication::Kerberos(kerb) => kerb,
             _ => panic!("Wrong authentication type"),
         };
-        assert_eq!(s.server().keytab().unwrap(), "/etc/wec.windomain.local.keytab");
+        assert_eq!(
+            s.server().keytab().unwrap(),
+            "/etc/wec.windomain.local.keytab"
+        );
         assert_eq!(
             kerberos.service_principal_name(),
             "http/wec.windomain.local@WINDOMAIN.LOCAL"
