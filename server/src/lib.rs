@@ -622,24 +622,26 @@ fn create_kerberos_server(
     collector_server_settings: ServerSettings,
     server_addr: SocketAddr,
 ) -> Pin<Box<dyn Future<Output = Result<()>> + Send>> {
-    let principal = kerberos_settings.service_principal_name().to_owned();
+    let server_principal = kerberos_settings.service_principal_name().to_owned();
     // Try to initialize a security context. This is to be sure that an error in
     // Kerberos configuration will be reported as soon as possible.
-    let state = kerberos::State::new(&principal);
+    let state = kerberos::State::new(&server_principal);
     if state.context_is_none() {
         panic!("Could not initialize Kerberos context");
     }
 
     let server = async move {
         let listener = TcpListener::bind(server_addr).await?;
+        info!("Server listenning on {}", server_addr);
+
         // Each accepted TCP connection gets a channel 'rx', which is closed when
         // the connections ends (whether because the client closed the connection
-        // or a shutdown signal has been sent).
+        // or if a shutdown signal has been received).
         // On shutdown, the server waits for all 'rx' to be dropped before
         // resolving terminating using `close_tx.closed().await`.
         let (close_tx, close_rx) = watch::channel(());
         loop {
-            // let (stream, client_addr) = listener.accept().await?;
+            // Accept new clients and wait for shutdown signal to stop accepting
             let (stream, client_addr) = tokio::select! {
                 conn = listener.accept() => match conn {
                    Ok(conn) => conn,
@@ -654,29 +656,36 @@ fn create_kerberos_server(
                 }
             };
 
+            debug!("Received TCP connection from {}", client_addr);
+
+            // Configure connected socket with keepalive parameters
             let keep_alive = get_keepalive(&collector_server_settings);
             let socket_ref = SockRef::from(&stream);
             socket_ref.set_tcp_keepalive(&keep_alive)?;
 
-            let io = TokioIo::new(stream);
-
             // We have to clone the context to move it into the tokio task
-
-            // Initialize Kerberos context once for each TCP connection
+            // responsible for handling the client
             let collector_settings = collector_settings.clone();
             let svc_db = collector_db.clone();
             let svc_server_settings = collector_server_settings.clone();
-            let auth_ctx = AuthenticationContext::Kerberos(Arc::new(Mutex::new(
-                kerberos::State::new(&principal),
-            )));
+            let svc_server_principal = server_principal.clone();
             let subscriptions = collector_subscriptions.clone();
             let collector_heartbeat_tx = collector_heartbeat_tx.clone();
 
+            // Create a "rx" channel end for the task
             let close_rx = close_rx.clone();
 
-            debug!("Received TCP connection from {}", client_addr);
-
             tokio::task::spawn(async move {
+                // Initialize Kerberos context once for each TCP connection
+                let auth_ctx = AuthenticationContext::Kerberos(Arc::new(Mutex::new(
+                    kerberos::State::new(&svc_server_principal),
+                )));
+
+                // Hyper needs a wrapper for the stream
+                let io = TokioIo::new(stream);
+
+                // Handle the connection using Hyper http1
+                // conn is a Future that ends when the connection is closed
                 let conn = http1::Builder::new().serve_connection(
                     io,
                     service_fn(move |req| {
@@ -694,6 +703,9 @@ fn create_kerberos_server(
                 );
                 // conn needs to be pinned to be able to use tokio::select!
                 pin!(conn);
+
+                // This loop is required to continue to poll the connection after calling
+                // graceful_shutdown().
                 loop {
                     tokio::select! {
                         res = conn.as_mut() => {
@@ -708,13 +720,15 @@ fn create_kerberos_server(
                         }
                     }
                 }
-                // Drop "task" rx
+                // Connection is closed, drop "task" rx to inform the server that this task
+                // is ending
                 drop(close_rx);
             });
         }
+
         // Drop "server" rx to keep only "tasks" rx
         drop(close_rx);
-    
+
         debug!(
             "Waiting for {} task(s) to finish",
             close_tx.receiver_count()
@@ -724,7 +738,6 @@ fn create_kerberos_server(
         Ok(())
     };
 
-    info!("Server listenning on {}", server_addr);
     Box::pin(server)
 }
 
@@ -799,9 +812,7 @@ fn create_tls_server(
                     let subscriptions = collector_subscriptions.clone();
                     let collector_heartbeat_tx = collector_heartbeat_tx.clone();
 
-                    let addr = client_addr;
-
-                    debug!("Received TCP connection from {}", addr);
+                    debug!("Received TCP connection from {}", client_addr);
 
                     let io = TokioIo::new(stream);
                     tokio::task::spawn(async move {
@@ -815,7 +826,7 @@ fn create_tls_server(
                                     subscriptions.clone(),
                                     collector_heartbeat_tx.clone(),
                                     auth_ctx.clone(),
-                                    addr,
+                                    client_addr,
                                     req,
                                 )
                             }),
@@ -828,7 +839,7 @@ fn create_tls_server(
                                 }
                             },
                             _ = shutdown_signal() => {
-                                debug!("Shutdown signal received, closing connection with {:?}", addr);
+                                debug!("Shutdown signal received, closing connection with {:?}", client_addr);
                             }
                         }
                     });
