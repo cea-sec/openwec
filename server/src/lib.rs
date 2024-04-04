@@ -52,12 +52,12 @@ use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 use std::{env, mem};
 use subscription::{reload_subscriptions_task, Subscriptions};
-use tokio_rustls::TlsAcceptor;
 use tokio::io::AsyncRead;
 use tokio::net::TcpListener;
 use tokio::pin;
 use tokio::signal::unix::SignalKind;
 use tokio::sync::{mpsc, oneshot, watch};
+use tokio_rustls::TlsAcceptor;
 use tokio_util::sync::CancellationToken;
 
 use crate::logging::ACCESS_LOGGER;
@@ -458,7 +458,6 @@ async fn handle(
         request_payload.as_ref().unwrap_or(&String::from(""))
     );
 
-    // FIXME : wrong comment
     // Handle request payload, and retrieves response payload
     //
     // It seems that Hyper can abort the Service future at any time (for example if the client
@@ -595,7 +594,7 @@ async fn handle(
     Ok(response)
 }
 
-fn get_keepalive(collector_server_settings: &ServerSettings) -> TcpKeepalive {
+fn create_keepalive_settings(collector_server_settings: &ServerSettings) -> TcpKeepalive {
     let tcp_keepalive_time = Duration::from_secs(collector_server_settings.tcp_keepalive_time());
     let tcp_keepalive_interval = collector_server_settings
         .tcp_keepalive_intvl()
@@ -640,6 +639,7 @@ fn create_kerberos_server(
     collector_subscriptions: Subscriptions,
     collector_heartbeat_tx: mpsc::Sender<WriteHeartbeatMessage>,
     collector_server_settings: ServerSettings,
+    collector_shutdown_ct: CancellationToken,
     server_addr: SocketAddr,
 ) -> Pin<Box<dyn Future<Output = Result<()>> + Send>> {
     let server_principal = kerberos_settings.service_principal_name().to_owned();
@@ -661,6 +661,8 @@ fn create_kerberos_server(
         // resolving terminating using `close_tx.closed().await`.
         let (close_tx, close_rx) = watch::channel(());
         loop {
+            let shutdown_ct = collector_shutdown_ct.clone();
+
             // Accept new clients and wait for shutdown signal to stop accepting
             let (mut stream, client_addr) = tokio::select! {
                 conn = listener.accept() => match conn {
@@ -670,7 +672,7 @@ fn create_kerberos_server(
                         continue;
                    }
                 },
-                _ = shutdown_signal() => {
+                _ = shutdown_ct.cancelled() => {
                     debug!("Shutdown signal received, stop accepting new clients connections");
                     break;
                 }
@@ -679,7 +681,7 @@ fn create_kerberos_server(
             debug!("Received TCP connection from {}", client_addr);
 
             // Configure connected socket with keepalive parameters
-            let keep_alive = get_keepalive(&collector_server_settings);
+            let keep_alive = create_keepalive_settings(&collector_server_settings);
             let socket_ref = SockRef::from(&stream);
             socket_ref.set_tcp_keepalive(&keep_alive)?;
 
@@ -740,18 +742,18 @@ fn create_kerberos_server(
 
                 // This loop is required to continue to poll the connection after calling
                 // graceful_shutdown().
-                loop {
-                    tokio::select! {
-                        res = conn.as_mut() => {
-                            if let Err(err) = res {
-                                debug!("Error serving connection: {:?}", err);
-                            }
-                            break;
-                        },
-                        _ = shutdown_signal() => {
-                            debug!("Shutdown signal received, closing connection with {:?}", client_addr);
-                            conn.as_mut().graceful_shutdown();
+                tokio::select! {
+                    res = conn.as_mut() => {
+                        if let Err(err) = res {
+                            debug!("Error serving connection: {:?}", err);
                         }
+                    },
+                    _ = shutdown_ct.cancelled() => {
+                        debug!("Shutdown signal received, closing connection with {:?}", client_addr);
+                        conn.as_mut().graceful_shutdown();
+                        if let Err(err) = conn.as_mut().await {
+                            debug!("Error serving connection: {:?}", err);
+                        };
                     }
                 }
                 // Connection is closed, drop "task" rx to inform the server that this task
@@ -763,7 +765,7 @@ fn create_kerberos_server(
         // Drop "server" rx to keep only "tasks" rx
         drop(close_rx);
 
-        debug!(
+        info!(
             "Waiting for {} task(s) to finish",
             close_tx.receiver_count()
         );
@@ -782,6 +784,7 @@ fn create_tls_server(
     collector_subscriptions: Subscriptions,
     collector_heartbeat_tx: mpsc::Sender<WriteHeartbeatMessage>,
     collector_server_settings: ServerSettings,
+    collector_shutdown_ct: CancellationToken,
     server_addr: SocketAddr,
 ) -> Pin<Box<dyn Future<Output = Result<()>> + Send>> {
     // make TLS connection config
@@ -800,6 +803,8 @@ fn create_tls_server(
         // resolving terminating using `close_tx.closed().await`.
         let (close_tx, close_rx) = watch::channel(());
         loop {
+            let shutdown_ct = collector_shutdown_ct.clone();
+
             // Accept new clients and wait for shutdown signal to stop accepting
             let (mut stream, client_addr) = tokio::select! {
                 conn = listener.accept() => match conn {
@@ -809,7 +814,7 @@ fn create_tls_server(
                         continue;
                     }
                 },
-                _ = shutdown_signal() => {
+                _ = shutdown_ct.cancelled() => {
                     debug!("Shutdown signal received, stop accepting new clients connections");
                     break;
                 }
@@ -818,7 +823,7 @@ fn create_tls_server(
             debug!("Received TCP connection from {}", client_addr);
 
             // Configure connected socket with keepalive parameters
-            let keep_alive = get_keepalive(&collector_server_settings);
+            let keep_alive = create_keepalive_settings(&collector_server_settings);
             let socket_ref = SockRef::from(&stream);
             socket_ref.set_tcp_keepalive(&keep_alive)?;
 
@@ -854,13 +859,13 @@ fn create_tls_server(
                     Ok(stream) => stream,
                     Err(err) => {
                         match err.into_inner() {
-                           Some(str) if str.to_string() == "tls handshake eof" => {
+                            Some(str) if str.to_string() == "tls handshake eof" => {
                                 // happens sometimes, not problematic
                                 debug!(
                                     "Error while establishing a connection with '{}': {:?}",
                                     real_client_addr, str
                                 )
-                           },
+                            }
                             other => warn!(
                                 "Error while establishing a connection with '{}': {:?}",
                                 real_client_addr, other
@@ -868,7 +873,6 @@ fn create_tls_server(
                         };
                         return;
                     }
-
                 };
 
                 // get peer certificate
@@ -912,18 +916,18 @@ fn create_tls_server(
 
                 // This loop is required to continue to poll the connection after calling
                 // graceful_shutdown().
-                loop {
-                    tokio::select! {
-                        res = conn.as_mut() => {
-                            if let Err(err) = res {
-                                debug!("Error serving connection: {:?}", err);
-                            }
-                            break;
-                        },
-                        _ = shutdown_signal() => {
-                            debug!("Shutdown signal received, closing connection with {:?}", client_addr);
-                            conn.as_mut().graceful_shutdown();
+                tokio::select! {
+                    res = conn.as_mut() => {
+                        if let Err(err) = res {
+                            debug!("Error serving connection: {:?}", err);
                         }
+                    },
+                    _ = shutdown_ct.cancelled() => {
+                        debug!("Shutdown signal received, closing connection with {:?}", client_addr);
+                        conn.as_mut().graceful_shutdown();
+                        if let Err(err) = conn.as_mut().await {
+                            debug!("Error serving connection: {:?}", err);
+                        };
                     }
                 }
                 // Connection is closed, drop "task" rx to inform the server that this task
@@ -935,7 +939,7 @@ fn create_tls_server(
         // Drop "server" rx to keep only "tasks" rx
         drop(close_rx);
 
-        debug!(
+        info!(
             "Waiting for {} task(s) to finish",
             close_tx.receiver_count()
         );
@@ -952,26 +956,29 @@ enum ShutdownReason {
     Sigterm,
 }
 
-async fn shutdown_signal() -> ShutdownReason {
+async fn shutdown_signal_task(ct: CancellationToken) {
     let ctrl_c = tokio::signal::ctrl_c();
     let mut sigterm = tokio::signal::unix::signal(SignalKind::terminate())
         .expect("failed to install SIGTERM handler");
 
     tokio::select! {
-        _ = ctrl_c => ShutdownReason::CtrlC,
-        _ = sigterm.recv() => ShutdownReason::Sigterm,
-    }
+        _ = ctrl_c => {
+            info!("Received CTRL+C");
+            ShutdownReason::CtrlC
+        },
+        _ = sigterm.recv() => {
+            info!("Received SIGTERM signal");
+            ShutdownReason::Sigterm
+        }
+    };
+
+    // Send the cancellation signal
+    ct.cancel();
 }
 
-async fn force_shutdown_timeout() {
-    match shutdown_signal().await {
-        ShutdownReason::CtrlC => {
-            info!("Received CTRL+C")
-        }
-        ShutdownReason::Sigterm => {
-            info!("Received SIGTERM signal")
-        }
-    }
+async fn force_shutdown_timeout(ct: CancellationToken) {
+    // Wait for the shutdown signal
+    ct.cancelled().await;
     debug!("Start 10 secs timeout before killing HTTP servers");
     tokio::time::sleep(Duration::from_secs(10)).await;
 }
@@ -981,9 +988,6 @@ pub async fn run(settings: Settings, verbosity: u8) {
     if let Err(e) = logging::init(&settings, verbosity) {
         panic!("Failed to setup logging: {:?}", e);
     }
-
-    // XXX : because the 2 closures have different types we use this, but may be better way to do this
-    let mut servers: Vec<Pin<Box<dyn Future<Output = Result<()>> + Send>>> = Vec::new();
 
     let db: Db = db_from_settings(&settings)
         .await
@@ -1028,6 +1032,14 @@ pub async fn run(settings: Settings, verbosity: u8) {
         heartbeat_task(update_task_db, interval, heartbeat_rx, cloned_heartbaat_ct).await
     });
 
+    let shutdown_ct = CancellationToken::new();
+    let cloned_shutdown_ct = shutdown_ct.clone();
+
+    // Shutdown task: waits for shutdown signal and cancel the given CancellationToken
+    tokio::spawn(async move {
+        shutdown_signal_task(cloned_shutdown_ct).await;
+    });
+
     // Set KRB5_KTNAME env variable if necessary (i.e. if at least one collector uses
     // Kerberos authentication)
     if settings.collectors().iter().any(|x| {
@@ -1045,12 +1057,15 @@ pub async fn run(settings: Settings, verbosity: u8) {
 
     info!("Server settings: {:?}", settings.server());
 
+    let mut servers: Vec<Pin<Box<dyn Future<Output = Result<()>> + Send>>> = Vec::new();
+
     for collector in settings.collectors() {
         let collector_db = db.clone();
         let collector_subscriptions = subscriptions.clone();
         let collector_settings = collector.clone();
         let collector_heartbeat_tx = heartbeat_tx.clone();
         let collector_server_settings = settings.server().clone();
+        let collector_shutdown_ct = shutdown_ct.clone();
 
         // Construct our SocketAddr to listen on...
         let addr = SocketAddr::from((
@@ -1071,6 +1086,7 @@ pub async fn run(settings: Settings, verbosity: u8) {
                     collector_subscriptions,
                     collector_heartbeat_tx,
                     collector_server_settings,
+                    collector_shutdown_ct,
                     addr,
                 ));
             }
@@ -1082,6 +1098,7 @@ pub async fn run(settings: Settings, verbosity: u8) {
                     collector_subscriptions,
                     collector_heartbeat_tx,
                     collector_server_settings,
+                    collector_shutdown_ct,
                     addr,
                 ));
             }
@@ -1089,7 +1106,7 @@ pub async fn run(settings: Settings, verbosity: u8) {
     }
 
     tokio::select! {
-        _ = force_shutdown_timeout() => {
+        _ = force_shutdown_timeout(shutdown_ct) => {
             warn!("HTTP servers graceful shutdown timed out.");
         },
         result = join_all(servers) => {

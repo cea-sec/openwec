@@ -211,12 +211,11 @@
 # max_content_length = 512000
 
 # [Optional]
-# Enable proxy protocol 
+# Enable PROXY protocol
 # This feature allows openwec to be used behind a layer 4 load balancer
-# whilst the proxy protocol is enabled to preserve the client IP address and port.
-# If enabled, openwec EXPECTS a proxy protocol header (v1 or v2) to be present
+# whilst the PROXY protocol is enabled to preserve the client IP address and port.
+# If enabled, openwec EXPECTS a PROXY protocol header (v1 or v2) to be present
 # and will close the connection otherwise.
-# See The PROXY protocol spec for more details: <https://www.haproxy.org/download/1.8/doc/proxy-protocol.txt>.
 # enable_proxy_protocol = false
 
 # [Optional]

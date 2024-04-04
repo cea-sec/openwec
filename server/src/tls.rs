@@ -87,7 +87,7 @@ pub fn make_config(args: &common::settings::Tls) -> Result<TlsConfig> {
 
     let mut client_auth_roots = RootCertStore::empty();
 
-    // stock all certificates from given CA certificate file into certificate store
+    // Put all certificates from given CA certificate file into certificate store
     for root in ca_certs {
         client_auth_roots
             .add(root)
@@ -103,7 +103,6 @@ pub fn make_config(args: &common::settings::Tls) -> Result<TlsConfig> {
     crypto_provider.cipher_suites = ALL_CIPHER_SUITES.to_vec();
     // make config
     let mut config: ServerConfig = ServerConfig::builder_with_provider(Arc::new(crypto_provider))
-        // .with_cipher_suites(rustls::ALL_CIPHER_SUITES)
         .with_protocol_versions(ALL_VERSIONS)
         .context("Could not build configuration defaults")?
         .with_client_cert_verifier(client_cert_verifier) // add verifier
