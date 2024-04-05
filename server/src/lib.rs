@@ -21,6 +21,7 @@ use common::database::{db_from_settings, schema_is_up_to_date, Db};
 use common::encoding::decode_utf16le;
 use common::settings::{Authentication, Kerberos, Tls};
 use common::settings::{Collector, Server as ServerSettings, Settings};
+use tokio::runtime::Handle;
 use core::pin::Pin;
 use futures::Future;
 use futures_util::future::join_all;
@@ -50,7 +51,7 @@ use std::str::FromStr;
 use std::sync::Mutex;
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
-use std::{env, mem};
+use std::{env, future, mem};
 use subscription::{reload_subscriptions_task, Subscriptions};
 use tokio::io::AsyncRead;
 use tokio::net::TcpListener;
@@ -976,6 +977,15 @@ async fn shutdown_signal_task(ct: CancellationToken) {
     ct.cancel();
 }
 
+fn monitoring_thread(rt_handle: Handle) {
+    info!("Monitoring thread started");
+    loop {
+        std::thread::sleep(Duration::from_secs(3));
+        info!("Monitoring thread injected dummy task");
+        rt_handle.spawn(future::ready(()));
+    }
+}
+
 async fn force_shutdown_timeout(ct: CancellationToken) {
     // Wait for the shutdown signal
     ct.cancelled().await;
@@ -988,6 +998,14 @@ pub async fn run(settings: Settings, verbosity: u8) {
     if let Err(e) = logging::init(&settings, verbosity) {
         panic!("Failed to setup logging: {:?}", e);
     }
+
+    let rt_handle = Handle::current();
+
+    // Start monitoring thread
+    // This ensures the whole progress does not get stop if the
+    // tokio runtime is accidently blocked by a "bad" task
+    // See https://github.com/tokio-rs/tokio/issues/4730
+    std::thread::spawn(move || monitoring_thread(rt_handle));
 
     let db: Db = db_from_settings(&settings)
         .await
