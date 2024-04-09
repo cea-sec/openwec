@@ -1,19 +1,28 @@
 use crate::{
-    event::{EventData, EventMetadata}, heartbeat::{store_heartbeat, WriteHeartbeatMessage}, output::get_formatter, soap::{
+    event::{EventData, EventMetadata},
+    heartbeat::{store_heartbeat, WriteHeartbeatMessage},
+    output::get_formatter,
+    soap::{
         Body, Header, Message, OptionSetValue, Subscription as SoapSubscription, SubscriptionBody,
         ACTION_ACK, ACTION_END, ACTION_ENUMERATE, ACTION_ENUMERATE_RESPONSE, ACTION_EVENTS,
         ACTION_HEARTBEAT, ACTION_SUBSCRIBE, ACTION_SUBSCRIPTION_END, ANONYMOUS, RESOURCE_EVENT_LOG,
-    }, subscription::{Subscription, Subscriptions}, AuthenticationContext, RequestCategory, RequestData
+    },
+    subscription::{Subscription, Subscriptions},
+    AuthenticationContext, RequestCategory, RequestData,
 };
 use common::{
     database::Db,
-    settings::{Collector, Server}, subscription::{SubscriptionOutputFormat, SubscriptionUuid},
+    settings::{Collector, Server},
+    subscription::{SubscriptionOutputFormat, SubscriptionUuid},
 };
 use hyper::http::status::StatusCode;
 use log::{debug, error, warn};
-use uuid::Uuid;
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 use tokio::{sync::mpsc, task::JoinSet};
+use uuid::Uuid;
 
 use anyhow::{anyhow, bail, Context, Result};
 
@@ -181,12 +190,12 @@ async fn handle_enumerate(
                     collector.advertized_port(),
                     identifier
                 ),
-                AuthenticationContext::Tls(_,_) => format!(
+                AuthenticationContext::Tls(_, _) => format!(
                     "https://{}:{}/wsman/subscriptions/{}",
                     collector.hostname(),
                     collector.advertized_port(),
                     identifier
-                )
+                ),
             },
             connection_retry_count: subscription_data.connection_retry_count(),
             connection_retry_interval: subscription_data.connection_retry_interval(),
@@ -194,7 +203,7 @@ async fn handle_enumerate(
             max_envelope_size: subscription_data.max_envelope_size(),
             thumbprint: match auth_ctx {
                 AuthenticationContext::Tls(_, thumbprint) => Some(thumbprint.clone()),
-                AuthenticationContext::Kerberos(_) => None
+                AuthenticationContext::Kerberos(_) => None,
             },
             locale: subscription_data.locale().cloned(),
             data_locale: subscription_data.data_locale().cloned(),
@@ -276,6 +285,34 @@ async fn handle_heartbeat(
     Ok(Response::ok(ACTION_ACK, None))
 }
 
+fn get_formatted_events(
+    events: &[Arc<String>],
+    need_to_parse_event: bool,
+    formats: &HashSet<SubscriptionOutputFormat>,
+    metadata: &Arc<EventMetadata>,
+) -> HashMap<SubscriptionOutputFormat, Arc<Vec<Arc<String>>>> {
+    let mut events_data = Vec::with_capacity(events.len());
+    for raw in events.iter() {
+        // EventData parses the raw event into an Event struct
+        // (once for all formatters).
+        events_data.push(EventData::new(raw.clone(), need_to_parse_event))
+    }
+
+    let mut formatted_events: HashMap<SubscriptionOutputFormat, Arc<Vec<Arc<String>>>> =
+        HashMap::new();
+    for format in formats {
+        let mut content = Vec::new();
+        let formatter = get_formatter(format);
+        for event_data in events_data.iter() {
+            if let Some(str) = formatter.format(metadata, event_data) {
+                content.push(str.clone())
+            }
+        }
+        formatted_events.insert(format.clone(), Arc::new(content));
+    }
+    formatted_events
+}
+
 async fn handle_events(
     server: &Server,
     db: &Db,
@@ -309,7 +346,7 @@ async fn handle_events(
                 "Received Events from {}:{} ({}) for subscription {} ({}) but the principal is not allowed to use this subscription.",
                 request_data.remote_addr().ip(),
                 request_data.remote_addr().port(),
-                request_data.principal(), 
+                request_data.principal(),
                 subscription.data().name(),
                 subscription.uuid_string(),
             );
@@ -338,31 +375,39 @@ async fn handle_events(
             request_data.principal(),
             server.node_name().cloned(),
             &subscription,
-            public_version.clone(), 
+            public_version.clone(),
             message.header().revision().cloned(),
         ));
 
-        let need_to_parse_event = subscription.formats().iter().any(|format| format.needs_parsed_event());
+        let need_to_parse_event = subscription
+            .formats()
+            .iter()
+            .any(|format| format.needs_parsed_event());
 
-        let mut events_data = Vec::with_capacity(events.len());
-        for raw in events.iter() {
-            // If need_to_parse_event is set to true, EventData parses the raw event
-            // into an Event struct (once for all formatters).
-            events_data.push(EventData::new(raw.clone(), need_to_parse_event))
-        }
-
-        // Build event strings for all formats
-        let mut formatted_events: HashMap<SubscriptionOutputFormat, Arc<Vec<Arc<String>>>> = HashMap::new();
-        for format in subscription.formats() {
-            let mut content = Vec::new();
-            let formatter = get_formatter(format);
-            for event_data in events_data.iter() {
-                if let Some(str) = formatter.format(&metadata, event_data) {
-                    content.push(str.clone())
-                }
-            }
-            formatted_events.insert(format.clone(), Arc::new(content));
-        }
+        let formatted_events = if need_to_parse_event {
+            // Parsing events takes time. In addition, if a formatter needs parsed events,
+            // it probably performs some serialization which takes time and should be done in a
+            // blocking task.
+            let task_events = events.clone();
+            let task_formats = subscription.formats().clone();
+            let task_metadata = metadata.clone();
+            tokio::task::spawn_blocking(move || {
+                get_formatted_events(
+                    &task_events,
+                    need_to_parse_event,
+                    &task_formats,
+                    &task_metadata,
+                )
+            })
+            .await?
+        } else {
+            get_formatted_events(
+                events,
+                need_to_parse_event,
+                subscription.formats(),
+                &metadata,
+            )
+        };
 
         let mut handles = JoinSet::new();
 
@@ -372,13 +417,24 @@ async fn handle_events(
             let metadata_cloned = metadata.clone();
             let content = formatted_events
                 .get(output_cloned.format())
-                .ok_or_else(|| anyhow!("Could not get formatted event for format {:?}", output_cloned.format()))?
+                .ok_or_else(|| {
+                    anyhow!(
+                        "Could not get formatted event for format {:?}",
+                        output_cloned.format()
+                    )
+                })?
                 .clone();
 
             handles.spawn(async move {
-                output_cloned.write(metadata_cloned, content).await.with_context(|| {
-                    format!("Failed to write event to output {}", output_cloned.describe())
-                })
+                output_cloned
+                    .write(metadata_cloned, content)
+                    .await
+                    .with_context(|| {
+                        format!(
+                            "Failed to write event to output {}",
+                            output_cloned.describe()
+                        )
+                    })
             });
         }
 
@@ -407,9 +463,13 @@ async fn handle_events(
             .bookmarks()
             .ok_or_else(|| anyhow!("Missing bookmarks in request payload"))?;
         // Store bookmarks and heartbeats
-        db.store_bookmark(request_data.principal(), &subscription.uuid_string(), bookmark)
-            .await
-            .context("Failed to store bookmarks")?;
+        db.store_bookmark(
+            request_data.principal(),
+            &subscription.uuid_string(),
+            bookmark,
+        )
+        .await
+        .context("Failed to store bookmarks")?;
 
         debug!(
             "Store bookmark from {}:{} ({}) for subscription {} ({}): {}",

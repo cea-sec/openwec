@@ -21,7 +21,6 @@ use common::database::{db_from_settings, schema_is_up_to_date, Db};
 use common::encoding::decode_utf16le;
 use common::settings::{Authentication, Kerberos, Tls};
 use common::settings::{Collector, Server as ServerSettings, Settings};
-use tokio::runtime::Handle;
 use core::pin::Pin;
 use futures::Future;
 use futures_util::future::join_all;
@@ -56,6 +55,7 @@ use subscription::{reload_subscriptions_task, Subscriptions};
 use tokio::io::AsyncRead;
 use tokio::net::TcpListener;
 use tokio::pin;
+use tokio::runtime::Handle;
 use tokio::signal::unix::SignalKind;
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio_rustls::TlsAcceptor;
@@ -170,18 +170,21 @@ async fn get_request_payload(
 
     let message = match auth_ctx {
         AuthenticationContext::Tls(_, _) => tls::get_request_payload(parts, data).await?,
-        AuthenticationContext::Kerberos(conn_state) => {
-            kerberos::get_request_payload(conn_state, parts, data).await?
+        AuthenticationContext::Kerberos(conn_state) => { 
+            kerberos::get_request_payload(conn_state.to_owned(), parts, data).await?
         }
     };
 
     match message {
-        Some(bytes) => Ok(Some(decode_utf16le(bytes)?)),
+        Some(bytes) => {
+            // Spawn a blocking task to decode utf16
+            tokio::task::spawn_blocking(|| Ok(Some(decode_utf16le(bytes)?))).await?
+        }
         _ => Ok(None),
     }
 }
 
-fn create_response(
+async fn create_response(
     auth_ctx: &AuthenticationContext,
     mut response: Builder,
     payload: Option<String>,
@@ -194,20 +197,23 @@ fn create_response(
             let body = match payload {
                 None => empty(),
                 Some(payload) => full(
-                    tls::get_response_payload(payload).context("Failed to compute TLS payload")?,
+                    tls::get_response_payload(payload)
+                        .await
+                        .context("Failed to compute TLS payload")?,
                 ),
             };
             Ok(response.body(body)?)
         }
         AuthenticationContext::Kerberos(conn_state) => {
-            let boundary = "Encrypted Boundary";
+            let boundary = "Encrypted Boundary".to_owned();
             if payload.is_some() {
-                response = response.header(CONTENT_TYPE, "multipart/encrypted;protocol=\"application/HTTP-Kerberos-session-encrypted\";boundary=\"".to_owned() + boundary + "\"");
+                response = response.header(CONTENT_TYPE, "multipart/encrypted;protocol=\"application/HTTP-Kerberos-session-encrypted\";boundary=\"".to_owned() + &boundary + "\"");
             }
             let body = match payload {
                 None => empty(),
                 Some(payload) => full(
-                    kerberos::get_response_payload(conn_state, payload, boundary)
+                    kerberos::get_response_payload(conn_state.clone(), payload, boundary)
+                        .await
                         .context("Failed to compute Kerberos encrypted payload")?,
                 ),
             };
@@ -250,7 +256,6 @@ async fn authenticate(
             Ok((subject.to_owned(), response))
         }
         AuthenticationContext::Kerberos(conn_state) => {
-            let mut response = Response::builder();
             let auth_result = kerberos::authenticate(conn_state, req)
                 .await
                 .map_err(|err| {
@@ -268,6 +273,9 @@ async fn authenticate(
                     }
                     err
                 })?;
+
+            let mut response = Response::builder();
+
             if let Some(token) = auth_result.token() {
                 response = response.header(WWW_AUTHENTICATE, format!("Kerberos {}", token))
             }
@@ -289,7 +297,12 @@ async fn handle_payload(
     match request_payload {
         None => Ok((StatusCode::OK, None)),
         Some(payload) => {
-            let message = soap::parse(&payload).context("Failed to parse SOAP message")?;
+            // Parsing xml takes some time
+            let message = tokio::task::spawn_blocking(move || {
+                soap::parse(&payload).context("Failed to parse SOAP message")
+            })
+            .await??;
+
             trace!("Parsed request: {:?}", message);
             let response = logic::handle_message(
                 server,
@@ -309,13 +322,30 @@ async fn handle_payload(
                 logic::Response::Ok(action, body) => {
                     let payload = soap::Message::response_from(&message, &action, body)
                         .context("Failed to build a response payload")?;
-                    let mut writer = Writer::new(Cursor::new(Vec::new()));
-                    payload
-                        .serialize(&mut writer)
-                        .context("Failed to serialize response payload")?;
-                    let result = String::from_utf8(writer.into_inner().into_inner())?;
-                    trace!("Response is: {}", result);
-                    Ok((StatusCode::OK, Some(result)))
+                    // If body is Some(), it means that we send EnumerationResponse
+                    // In this case, message serialization takes some time and should be executed
+                    // in a blocking task
+                    let result: Result<String> = if payload.body.is_some() {
+                        tokio::task::spawn_blocking(move || {
+                            let mut writer = Writer::new(Cursor::new(Vec::new()));
+                            payload
+                                .serialize(&mut writer)
+                                .context("Failed to serialize response payload")?;
+                            let result = String::from_utf8(writer.into_inner().into_inner())?;
+                            Ok(result)
+                        })
+                        .await?
+                    } else {
+                        let mut writer = Writer::new(Cursor::new(Vec::new()));
+                        payload
+                            .serialize(&mut writer)
+                            .context("Failed to serialize response payload")?;
+                        let result = String::from_utf8(writer.into_inner().into_inner())?;
+                        Ok(result)
+                    };
+                    let response_payload = result?;
+                    trace!("Response is: {}", response_payload);
+                    Ok((StatusCode::OK, Some(response_payload)))
                 }
             }
         }
@@ -565,7 +595,7 @@ async fn handle(
 
     response_builder = response_builder.status(status);
     // Create HTTP response
-    let response = match create_response(&auth_ctx, response_builder, response_payload) {
+    let response = match create_response(&auth_ctx, response_builder, response_payload).await {
         Ok(response) => response,
         Err(e) => {
             error!("Failed to build HTTP response: {:?}", e);
@@ -704,9 +734,7 @@ fn create_kerberos_server(
                     match read_proxy_protocol_header(&mut stream).await {
                         Ok(addr) => addr,
                         Err(err) => {
-                            debug!("Failed to read Proxy Protocol header: {}", err);
-                            // Exit task
-                            return;
+                            bail!("Failed to read Proxy Protocol header: {}", err);
                         }
                     }
                 } else {
@@ -714,9 +742,13 @@ fn create_kerberos_server(
                 };
 
                 // Initialize Kerberos context once for each TCP connection
-                let auth_ctx = AuthenticationContext::Kerberos(Arc::new(Mutex::new(
-                    kerberos::State::new(&svc_server_principal),
-                )));
+                // This operation takes time so we run it in a blocking task
+                let auth_ctx = tokio::task::spawn_blocking(move || {
+                    AuthenticationContext::Kerberos(Arc::new(Mutex::new(kerberos::State::new(
+                        &svc_server_principal,
+                    ))))
+                })
+                .await?;
 
                 // Hyper needs a wrapper for the stream
                 let io = TokioIo::new(stream);
@@ -760,6 +792,8 @@ fn create_kerberos_server(
                 // Connection is closed, drop "task" rx to inform the server that this task
                 // is ending
                 drop(close_rx);
+
+                Ok(())
             });
         }
 

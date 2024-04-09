@@ -2,14 +2,14 @@ use anyhow::{bail, Context, Result};
 use common::encoding::encode_utf16le;
 use hex::ToHex;
 use log::{debug, info};
-use tokio_rustls::rustls::crypto::aws_lc_rs::{default_provider, ALL_CIPHER_SUITES};
-use tokio_rustls::rustls::pki_types::{CertificateDer, PrivateKeyDer};
-use tokio_rustls::rustls::server::WebPkiClientVerifier;
-use tokio_rustls::rustls::{RootCertStore, ServerConfig, ALL_VERSIONS};
 use sha1::{Digest, Sha1};
 use std::fs;
 use std::io::BufReader;
 use std::sync::Arc;
+use tokio_rustls::rustls::crypto::aws_lc_rs::{default_provider, ALL_CIPHER_SUITES};
+use tokio_rustls::rustls::pki_types::{CertificateDer, PrivateKeyDer};
+use tokio_rustls::rustls::server::WebPkiClientVerifier;
+use tokio_rustls::rustls::{RootCertStore, ServerConfig, ALL_VERSIONS};
 use x509_parser::oid_registry::OidRegistry;
 use x509_parser::prelude::{FromDer, X509Certificate};
 
@@ -96,8 +96,9 @@ pub fn make_config(args: &common::settings::Tls) -> Result<TlsConfig> {
 
     // create verifier : does not allow unauthenticated clients
     // and authenticated clients must be certified by one of the listed CAs
-    let client_cert_verifier = WebPkiClientVerifier::builder(Arc::new(client_auth_roots)).build()?;
-     
+    let client_cert_verifier =
+        WebPkiClientVerifier::builder(Arc::new(client_auth_roots)).build()?;
+
     // Allow everything available in rustls for maximum support
     let mut crypto_provider = default_provider();
     crypto_provider.cipher_suites = ALL_CIPHER_SUITES.to_vec();
@@ -165,7 +166,11 @@ pub async fn get_request_payload(
     let payload = data.to_vec();
 
     let message = match parts.headers.get("Content-Encoding") {
-        Some(value) if value == "SLDC" => sldc::decompress(&payload).unwrap_or(payload),
+        Some(value) if value == "SLDC" => {
+            // Decompression is a blocking operation which can take a few milliseconds
+            tokio::task::spawn_blocking(move || sldc::decompress(&payload).unwrap_or(payload))
+                .await?
+        }
         None => payload,
         value => bail!("Unsupported Content-Encoding {:?}", value),
     };
@@ -174,8 +179,17 @@ pub async fn get_request_payload(
 }
 
 /// Encode payload for response
-pub fn get_response_payload(payload: String) -> Result<Vec<u8>> {
-    encode_utf16le(payload).context("Failed to encode payload in utf16le")
+pub async fn get_response_payload(payload: String) -> Result<Vec<u8>> {
+    // If the payload to encode is large, encoding takes time and should be run
+    // in a bocking task
+    if payload.len() > 1000 {
+        tokio::task::spawn_blocking(move || {
+            encode_utf16le(payload).context("Failed to encode payload in utf16le")
+        })
+        .await?
+    } else {
+        encode_utf16le(payload).context("Failed to encode payload in utf16le")
+    }
 }
 
 #[cfg(test)]
