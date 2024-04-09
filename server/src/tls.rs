@@ -372,6 +372,6 @@ mod tests {
             132, 223, 102, 86, 216, 5, 218, 125, 237, 212, 218, 133, 165, 97, 62, 73, 27, 106, 224,
             64,
         ];
-        assert_eq!(key.unwrap(), PrivateKeyDer::Pkcs1(content.to_vec().into()));
+        assert_eq!(key.unwrap(), PrivateKeyDer::Pkcs8(content.to_vec().into()));
     }
 }
