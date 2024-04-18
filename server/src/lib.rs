@@ -1015,7 +1015,7 @@ fn monitoring_thread(rt_handle: Handle) {
     info!("Monitoring thread started");
     loop {
         std::thread::sleep(Duration::from_secs(3));
-        info!("Monitoring thread injected dummy task");
+        debug!("Monitoring thread injected dummy task");
         rt_handle.spawn(future::ready(()));
     }
 }
