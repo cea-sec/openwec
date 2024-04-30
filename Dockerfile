@@ -22,7 +22,7 @@ RUN cargo chef cook --release --recipe-path recipe.json
 
 # Build application
 COPY . .
-RUN cargo build --release
+RUN cargo build --release --locked
 
 
 FROM debian:bookworm-slim
