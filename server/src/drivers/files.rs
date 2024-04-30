@@ -1,32 +1,32 @@
 use async_trait::async_trait;
 use log::{debug, info, warn};
-use tokio::fs::OpenOptions;
-use tokio::sync::{mpsc, oneshot};
-use tokio_util::sync::CancellationToken;
+use tokio::sync::oneshot;
 
 use crate::event::EventMetadata;
-use crate::formatter::Format;
-use crate::output::Output;
+use crate::output::OutputDriver;
 use anyhow::{anyhow, bail, Context, Result};
-use common::subscription::FileConfiguration;
+use common::subscription::FilesConfiguration;
 use std::collections::HashMap;
+use std::fs::{create_dir_all, File, OpenOptions};
+use std::io::Write;
 use std::net::IpAddr;
+use std::sync::mpsc::{self, Receiver};
 use std::sync::Arc;
 use std::{path::PathBuf, str::FromStr};
-use tokio::fs::{create_dir_all, File};
-use tokio::io::AsyncWriteExt;
+
+enum WriteFilesMessage {
+    Write(WriteMessage),
+    Stop,
+}
 
 #[derive(Debug)]
-pub struct WriteFileMessage {
+pub struct WriteMessage {
     path: PathBuf,
     content: String,
     resp: oneshot::Sender<Result<()>>,
 }
 
-async fn handle_message(
-    file_handles: &mut HashMap<PathBuf, File>,
-    message: &WriteFileMessage,
-) -> Result<()> {
+fn handle_message(file_handles: &mut HashMap<PathBuf, File>, message: &WriteMessage) -> Result<()> {
     let parent = message
         .path
         .parent()
@@ -41,14 +41,13 @@ async fn handle_message(
         None => {
             // Create directory (if it does not already exist)
             debug!("Create directory {}", parent.display());
-            create_dir_all(parent).await?;
+            create_dir_all(parent)?;
             // Open file
             debug!("Open file {}", path.display());
             let file = OpenOptions::new()
                 .create(true)
                 .append(true)
                 .open(path)
-                .await
                 .with_context(|| format!("Failed to open file {}", path.display()))?;
             // Insert it into file_buffers map
             file_handles.insert(path.clone(), file);
@@ -58,62 +57,44 @@ async fn handle_message(
                 .ok_or_else(|| anyhow!("Could not find newly inserted File in file handles"))?
         }
     };
-    file.write_all(message.content.as_bytes()).await?;
+    file.write_all(message.content.as_bytes())?;
     Ok(())
 }
 
-pub async fn run(mut task_rx: mpsc::Receiver<WriteFileMessage>, task_ct: CancellationToken) {
-    info!("File output task started");
+fn run(rx: Receiver<WriteFilesMessage>) {
+    info!("File output thread started");
     let mut file_handles: HashMap<PathBuf, File> = HashMap::new();
-    loop {
-        tokio::select! {
-            Some(message) = task_rx.recv() => {
-                let result = handle_message(&mut file_handles, &message).await;
-                if let Err(e) = message
-                    .resp
-                    .send(result) {
-                    warn!("Failed to send File write result because the receiver dropped. Result was: {:?}", e);
-                }
-            },
-            _ = task_ct.cancelled() => {
-                break;
-            }
-        };
+    while let Ok(WriteFilesMessage::Write(message)) = rx.recv() {
+        let result = handle_message(&mut file_handles, &message);
+        if let Err(e) = message.resp.send(result) {
+            warn!(
+                "Failed to send File write result because the receiver dropped. Result was: {:?}",
+                e
+            );
+        }
     }
-    info!("Exiting File output task");
+    info!("Exiting File output thread");
 }
 
-pub struct OutputFile {
-    format: Format,
-    config: FileConfiguration,
-    task_tx: mpsc::Sender<WriteFileMessage>,
-    task_ct: CancellationToken,
+pub struct OutputFiles {
+    config: FilesConfiguration,
+    tx: mpsc::Sender<WriteFilesMessage>,
 }
 
-impl OutputFile {
-    pub fn new(format: Format, config: &FileConfiguration) -> Self {
-        debug!(
-            "Initialize file output with format {:?} and config {:?}",
-            format, config
-        );
+impl OutputFiles {
+    pub fn new(config: &FilesConfiguration) -> Self {
+        debug!("Initialize Files driver with config {:?}", config);
         // Create a communication channel with the task responsible for file management
-        // TODO: Why 32?
-        let (task_tx, task_rx) = mpsc::channel(32);
+        let (tx, rx) = mpsc::channel();
 
-        // Use a CancellationToken to tell the task to end itself
-        let task_ct = CancellationToken::new();
-        let cloned_task_ct = task_ct.clone();
-
-        // Launch the task responsible for handling file system operations
-        tokio::spawn(async move {
-            run(task_rx, cloned_task_ct).await;
+        // Launch a dedicated thread responsible for handling file system operations
+        std::thread::spawn(move || {
+            run(rx);
         });
 
-        OutputFile {
-            format,
+        OutputFiles {
             config: config.clone(),
-            task_tx,
-            task_ct,
+            tx,
         }
     }
 
@@ -236,7 +217,7 @@ impl OutputFile {
 }
 
 #[async_trait]
-impl Output for OutputFile {
+impl OutputDriver for OutputFiles {
     async fn write(
         &self,
         metadata: Arc<EventMetadata>,
@@ -259,32 +240,24 @@ impl Output for OutputFile {
 
         // Create a oneshot channel to retrieve the result of the operation
         let (tx, rx) = oneshot::channel();
-        self.task_tx
-            .send(WriteFileMessage {
-                path,
-                content,
-                resp: tx,
-            })
-            .await?;
+        self.tx.send(WriteFilesMessage::Write(WriteMessage {
+            path,
+            content,
+            resp: tx,
+        }))?;
 
         // Wait for the result
         rx.await??;
 
         Ok(())
     }
-
-    fn describe(&self) -> String {
-        format!("Files ({:?})", self.config)
-    }
-
-    fn format(&self) -> &Format {
-        &self.format
-    }
 }
 
-impl Drop for OutputFile {
+impl Drop for OutputFiles {
     fn drop(&mut self) {
-        self.task_ct.cancel();
+        if let Err(e) = self.tx.send(WriteFilesMessage::Stop) {
+            warn!("Failed to send Stop message to Files handler thread: {}", e);
+        }
     }
 }
 
@@ -346,10 +319,10 @@ mod tests {
     #[tokio::test]
     async fn test_build_path() -> Result<()> {
         let config =
-            FileConfiguration::new("/base".to_string(), None, false, "messages".to_string());
+            FilesConfiguration::new("/base".to_string(), None, false, "messages".to_string());
         let ip: IpAddr = "127.0.0.1".parse()?;
 
-        let output_file = OutputFile::new(Format::Json, &config);
+        let output_file = OutputFiles::new(&config);
 
         assert_eq!(
             output_file.build_path(&ip, "princ", None)?,
@@ -357,8 +330,8 @@ mod tests {
         );
 
         let config =
-            FileConfiguration::new("/base".to_string(), None, true, "messages".to_string());
-        let output_file = OutputFile::new(Format::Json, &config);
+            FilesConfiguration::new("/base".to_string(), None, true, "messages".to_string());
+        let output_file = OutputFiles::new(&config);
 
         assert_eq!(
             output_file.build_path(&ip, "princ", Some(&"node".to_string()))?,
@@ -366,8 +339,8 @@ mod tests {
         );
 
         let config =
-            FileConfiguration::new("/base".to_string(), Some(1), true, "messages".to_string());
-        let output_file = OutputFile::new(Format::Json, &config);
+            FilesConfiguration::new("/base".to_string(), Some(1), true, "messages".to_string());
+        let output_file = OutputFiles::new(&config);
 
         assert_eq!(
             output_file.build_path(&ip, "princ", Some(&"node".to_string()))?,
@@ -375,8 +348,8 @@ mod tests {
         );
 
         let config =
-            FileConfiguration::new("/base".to_string(), Some(2), false, "other".to_string());
-        let output_file = OutputFile::new(Format::Json, &config);
+            FilesConfiguration::new("/base".to_string(), Some(2), false, "other".to_string());
+        let output_file = OutputFiles::new(&config);
 
         assert_eq!(
             output_file.build_path(&ip, "princ", Some(&"node".to_string()))?,
@@ -384,8 +357,8 @@ mod tests {
         );
 
         let config =
-            FileConfiguration::new("/base".to_string(), Some(3), false, "messages".to_string());
-        let output_file = OutputFile::new(Format::Json, &config);
+            FilesConfiguration::new("/base".to_string(), Some(3), false, "messages".to_string());
+        let output_file = OutputFiles::new(&config);
 
         assert_eq!(
             output_file.build_path(&ip, "princ", Some(&"node".to_string()))?,
@@ -393,8 +366,8 @@ mod tests {
         );
 
         let config =
-            FileConfiguration::new("/base".to_string(), Some(4), false, "messages".to_string());
-        let output_file = OutputFile::new(Format::Json, &config);
+            FilesConfiguration::new("/base".to_string(), Some(4), false, "messages".to_string());
+        let output_file = OutputFiles::new(&config);
 
         assert_eq!(
             output_file.build_path(&ip, "princ", Some(&"node".to_string()))?,
@@ -402,8 +375,8 @@ mod tests {
         );
 
         let config =
-            FileConfiguration::new("/base".to_string(), Some(5), false, "messages".to_string());
-        let output_file = OutputFile::new(Format::Json, &config);
+            FilesConfiguration::new("/base".to_string(), Some(5), false, "messages".to_string());
+        let output_file = OutputFiles::new(&config);
 
         assert_eq!(
             output_file.build_path(&ip, "princ", Some(&"node".to_string()))?,
@@ -411,23 +384,23 @@ mod tests {
         );
 
         let config =
-            FileConfiguration::new("/base".to_string(), None, true, "messages".to_string());
-        let output_file = OutputFile::new(Format::Json, &config);
+            FilesConfiguration::new("/base".to_string(), None, true, "messages".to_string());
+        let output_file = OutputFiles::new(&config);
 
         assert!(output_file.build_path(&ip, "princ", None).is_err());
 
         let ip: IpAddr = "1:2:3:4:5:6:7:8".parse()?;
         let config =
-            FileConfiguration::new("/base".to_string(), None, false, "messages".to_string());
-        let output_file = OutputFile::new(Format::Json, &config);
+            FilesConfiguration::new("/base".to_string(), None, false, "messages".to_string());
+        let output_file = OutputFiles::new(&config);
         assert_eq!(
             output_file.build_path(&ip, "princ", Some(&"node".to_string()))?,
             PathBuf::from_str("/base/1:2:3:4:5:6:7:8/princ/messages")?
         );
 
         let config =
-            FileConfiguration::new("/base".to_string(), Some(3), false, "messages".to_string());
-        let output_file = OutputFile::new(Format::Json, &config);
+            FilesConfiguration::new("/base".to_string(), Some(3), false, "messages".to_string());
+        let output_file = OutputFiles::new(&config);
         assert_eq!(output_file.build_path(&ip, "princ", Some(&"node".to_string()))?,PathBuf::from_str("/base/1:2:3/1:2:3:4/1:2:3:4:5/1:2:3:4:5:6/1:2:3:4:5:6:7/1:2:3:4:5:6:7:8/princ/messages")?);
         Ok(())
     }

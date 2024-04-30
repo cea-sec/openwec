@@ -1,6 +1,6 @@
 [package]
 name = "server"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 
 [[bin]]
@@ -14,9 +14,8 @@ common = { path = "../common" }
 anyhow = "1.0.71"
 base64 = "0.21.2"
 buf-read-ext = "0.4.0"
-http = "0.2.9"
 httparse = "1.8.0"
-hyper = { version = "0.14.26", features = ["full"] }
+hyper = { version = "1.2.0", features = ["full"] }
 itoa = "1.0.6"
 libgssapi = { version = "0.7.0", features = ["iov"] }
 log = "0.4.19"
@@ -26,9 +25,8 @@ roxmltree = "0.19.0"
 tokio = { version = "1.35.1", features = ["full"] }
 rdkafka = { version = "0.36.0", features = ["zstd", "libz", "external-lz4"] }
 regex = "1.9.0"
-lazy_static = "1.4.0"
 uuid = { version = "1.7.0", features = ["v4", "fast-rng"] }
-serde = { version = "1.0.164", features = ["derive"] }
+serde = { version = "1.0.164", features = ["derive", "rc"] }
 serde_json = "1.0.97"
 async-trait = "0.1.68"
 chrono = { version  = "0.4.26", default-features = false, features = ["clock"] }
@@ -38,10 +36,7 @@ xmlparser = "0.13.5"
 itertools = "0.12.0"
 futures = "0.3.28"
 bitreader = "0.3.7"
-rustls = "0.21.6"
-rustls-pemfile = "1.0.3"
-tls-listener = { version = "0.8.0", features = ["hyper-h2", "rustls"] }
-tokio-rustls = "0.24.1"
+rustls-pemfile = "2.1.1"
 x509-parser = "0.15.1"
 sha1 = "0.10.5"
 hex = "0.4.3"
@@ -50,3 +45,8 @@ log4rs = "1.2.0"
 log-mdc = "0.1.0"
 tokio-util = "0.7.10"
 thiserror = "1.0.50"
+hyper-util = { version = "0.1", features = ["full"] }
+socket2 = "0.5.6"
+http-body-util = "0.1"
+ppp = "2.2.0"
+tokio-rustls = "0.26.0"

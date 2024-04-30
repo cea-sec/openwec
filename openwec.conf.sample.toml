@@ -37,7 +37,7 @@
 # [Optional]
 # Set node name
 # This may be used by outputs. Unset by default.
-# node_name = unsef
+# node_name = unset
 
 # [Optional]
 # Keytab file path that contains secrets for Kerberos SPNs used by collectors.
@@ -67,7 +67,7 @@
 ##   Logging settings   ##
 ##########################
 
-[logging]
+# [logging]
 
 # [Optional]
 # Set server logging verbosity
@@ -210,6 +210,21 @@
 # If missing in config, default value is 512000 (which should be safe)
 # max_content_length = 512000
 
+# [Optional]
+# Enable PROXY protocol
+# This feature allows openwec to be used behind a layer 4 load balancer
+# whilst the PROXY protocol is enabled to preserve the client IP address and port.
+# If enabled, openwec EXPECTS a PROXY protocol header (v1 or v2) to be present
+# and will close the connection otherwise.
+# enable_proxy_protocol = false
+
+# [Optional]
+# openwec will pretend to listen on this port instead of the "real" one
+# configured in `listen_port`.
+# This can be useful if openwec is behind a load balancer.
+# If unset, the default value is `listen_port`.
+# advertized_port =
+
 # Authentication settings for this collector
 [collectors.authentication]
 # [Required]
@@ -242,3 +257,15 @@
 # server_private_key = "/etc/server-key.pem"
 
 ## End of TLS configuration
+
+##########################
+##     Cli settings     ##
+##########################
+
+# [cli]
+
+# [Optional]
+# If set, subscriptions can only be updated using `openwec subscriptions load` command.
+# This is useful if you want to rely on files to configure your subscriptions
+# and want to enforce that subscriptions can not be updated directly.
+# read_only_subscriptions = false

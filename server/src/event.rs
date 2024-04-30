@@ -3,54 +3,40 @@ use chrono::{DateTime, Utc};
 use log::{debug, info, trace, warn};
 use roxmltree::{Document, Error, Node};
 use serde::Serialize;
-use std::{collections::HashMap, net::SocketAddr};
+use std::{collections::HashMap, net::SocketAddr, sync::Arc};
 
 use crate::subscription::Subscription;
 
 #[derive(Debug, Default, Serialize, Clone)]
 pub struct EventDataType {
-    #[serde(flatten, skip_serializing_if = "HashMap::is_empty")]
-    named_data: HashMap<String, String>,
-    #[serde(rename = "Data", skip_serializing_if = "Vec::is_empty")]
-    unamed_data: Vec<String>,
-    #[serde(rename = "Binary", skip_serializing_if = "Option::is_none")]
-    binary: Option<String>,
+    pub named_data: HashMap<String, String>,
+    pub unamed_data: Vec<String>,
+    pub binary: Option<String>,
 }
 
 #[derive(Debug, Default, Serialize, Clone)]
 pub struct DebugDataType {
-    #[serde(rename = "SequenceNumber", skip_serializing_if = "Option::is_none")]
-    sequence_number: Option<u32>,
-    #[serde(rename = "FlagsName", skip_serializing_if = "Option::is_none")]
-    flags_name: Option<String>,
-    #[serde(rename = "LevelName", skip_serializing_if = "Option::is_none")]
-    level_name: Option<String>,
-    #[serde(rename = "Component")]
-    component: String,
-    #[serde(rename = "SubComponent", skip_serializing_if = "Option::is_none")]
-    sub_component: Option<String>,
-    #[serde(rename = "FileLine", skip_serializing_if = "Option::is_none")]
-    file_line: Option<String>,
-    #[serde(rename = "Function", skip_serializing_if = "Option::is_none")]
-    function: Option<String>,
-    #[serde(rename = "Message")]
-    message: String,
+    pub sequence_number: Option<u32>,
+    pub flags_name: Option<String>,
+    pub level_name: Option<String>,
+    pub component: String,
+    pub sub_component: Option<String>,
+    pub file_line: Option<String>,
+    pub function: Option<String>,
+    pub message: String,
 }
 
 #[derive(Debug, Default, Serialize, Clone)]
 pub struct ProcessingErrorDataType {
-    #[serde(rename = "ErrorCode")]
-    error_code: u32,
-    #[serde(rename = "DataItemName")]
-    data_item_name: String,
-    #[serde(rename = "EventPayload")]
-    event_payload: String,
+    pub error_code: u32,
+    pub data_item_name: String,
+    pub event_payload: String,
 }
 
 pub type UserDataType = String;
 pub type BinaryEventDataType = String;
 
-#[derive(Debug, Default, Serialize, Clone)]
+#[derive(Debug, Default, Clone)]
 pub enum DataType {
     EventData(EventDataType),
     UserData(UserDataType),
@@ -61,35 +47,16 @@ pub enum DataType {
     Unknown,
 }
 
-impl DataType {
-    fn is_unknown(&self) -> bool {
-        matches!(self, DataType::Unknown)
-    }
-}
-
-#[derive(Serialize, Debug, Clone, Default)]
-#[serde(tag = "Type")]
+#[derive(Debug, Clone, Default, Eq, PartialEq)]
 pub enum ErrorType {
     /// Initial XML parsing failed but Raw content could be recovered
-    RawContentRecovered {
-        #[serde(rename = "Message")]
-        message: String,
-    },
+    RawContentRecovered(String),
     /// Initial XML parsing failed and recovering failed again
-    FailedToRecoverRawContent {
-        #[serde(rename = "Message")]
-        message: String,
-    },
+    FailedToRecoverRawContent(String),
     /// Initial XML parsing failed and no recovering strategy was usable
-    Unrecoverable {
-        #[serde(rename = "Message")]
-        message: String,
-    },
+    Unrecoverable(String),
     /// Failed to feed event from parsed XML document
-    FailedToFeedEvent {
-        #[serde(rename = "Message")]
-        message: String,
-    },
+    FailedToFeedEvent(String),
     #[default]
     Unknown,
 }
@@ -97,33 +64,28 @@ pub enum ErrorType {
 impl ToString for ErrorType {
     fn to_string(&self) -> String {
         match self {
-            ErrorType::RawContentRecovered { message } => message.clone(),
-            ErrorType::FailedToRecoverRawContent { message } => message.clone(),
-            ErrorType::Unrecoverable { message } => message.clone(),
-            ErrorType::FailedToFeedEvent { message } => message.clone(),
+            ErrorType::RawContentRecovered(message) => message.clone(),
+            ErrorType::FailedToRecoverRawContent(message ) => message.clone(),
+            ErrorType::Unrecoverable(message ) => message.clone(),
+            ErrorType::FailedToFeedEvent (message ) => message.clone(),
             ErrorType::Unknown => "Unknown error".to_string(),
         }
     }
 }
 
-#[derive(Debug, Default, Serialize, Clone)]
-struct ErrorInfo {
-    #[serde(rename = "OriginalContent")]
-    original_content: String,
-    #[serde(flatten)]
-    _type: ErrorType,
+
+#[derive(Debug, Default, Clone, Eq, PartialEq)]
+pub struct ErrorInfo {
+    pub original_content: String,
+    pub error_type: ErrorType,
 }
 
-#[derive(Debug, Default, Serialize, Clone)]
+#[derive(Debug, Default, Clone)]
 pub struct Event {
-    #[serde(rename = "System", skip_serializing_if = "Option::is_none")]
-    system: Option<System>,
-    #[serde(flatten, skip_serializing_if = "DataType::is_unknown")]
-    data: DataType,
-    #[serde(rename = "RenderingInfo", skip_serializing_if = "Option::is_none")]
-    rendering_info: Option<RenderingInfo>,
-    #[serde(rename = "OpenWEC")]
-    additional: Additional,
+    pub system: Option<System>,
+    pub data: DataType,
+    pub rendering_info: Option<RenderingInfo>,
+    pub additional: Additional,
 }
 
 impl Event {
@@ -169,7 +131,7 @@ impl Event {
     ) {
         event.additional.error = Some(ErrorInfo {
             original_content: content.to_string(),
-            _type: error_type.clone(),
+            error_type: error_type.clone(),
         });
         let error_message = error_type.to_string();
         if warn {
@@ -202,53 +164,36 @@ impl Event {
                     Ok(doc) => {
                         match Event::feed_event_from_document(event, &doc, &clean_content) {
                             Ok(_) =>
-                                (ErrorType::RawContentRecovered { message: format!(
+                                (ErrorType::RawContentRecovered(format!(
                                     "Failed to parse event XML ({}) but Raw content could be recovered.",
                                     initial_error
-                                ) }, false),
+                                )), false),
                             Err(feed_error) =>
-                                (ErrorType::FailedToFeedEvent {  message: format!(
+                                (ErrorType::FailedToFeedEvent(format!(
                                     "Could not feed event from document: {}",
                                     feed_error
-                                ) }, true),
+                                )), true),
                         }
                     }
                     Err(recovering_error) => {
-                            (ErrorType::FailedToRecoverRawContent { message: format!(
+                            (ErrorType::FailedToRecoverRawContent(format!(
                             "Failed to parse event XML ({}) and Raw content recovering failed ({})",
                             initial_error, recovering_error
-                        ) }, true)
+                        )), true)
                     }
                 }
             }
             None => (
-                ErrorType::Unrecoverable {
-                    message: format!("Failed to parse event XML: {}", initial_error),
-                },
+                ErrorType::Unrecoverable(format!("Failed to parse event XML: {}", initial_error)),
                 true,
             ),
         };
         Event::add_event_parsing_error(event, content, error_type, do_warn);
     }
 
-    pub fn from_str(metadata: &EventMetadata, content: &str) -> Self {
-        let mut event = Event {
-            additional: Additional {
-                addr: metadata.addr().ip().to_string(),
-                principal: metadata.principal().to_owned(), // TODO : change to something that works for TLS as well (modify db and output)
-                node: metadata.node_name().cloned(),
-                time_received: metadata.time_received().to_rfc3339(),
-                subscription: SubscriptionType {
-                    uuid: metadata.subscription_uuid().to_owned(),
-                    version: metadata.subscription_version().to_owned(),
-                    name: metadata.subscription_name().to_owned(),
-                    uri: metadata.subscription_uri().cloned(),
-                },
-                error: None,
-            },
-            ..Default::default()
-        };
-
+    pub fn from_str(content: &str) -> Self {
+        let mut event = Event::default();
+    
         let doc_parse_attempt = Document::parse(content);
         match doc_parse_attempt {
             Ok(doc) => {
@@ -258,7 +203,7 @@ impl Event {
                     Event::add_event_parsing_error(
                         &mut event,
                         content,
-                        ErrorType::FailedToFeedEvent { message },
+                        ErrorType::FailedToFeedEvent(message),
                         true,
                     );
                 }
@@ -351,120 +296,53 @@ fn parse_user_data(user_data_node: &Node) -> Result<DataType> {
     Ok(DataType::UserData(data))
 }
 
-#[derive(Debug, Default, Serialize, Clone)]
-struct Additional {
-    #[serde(rename = "IpAddress")]
-    addr: String,
-    #[serde(rename = "TimeReceived")]
-    time_received: String,
-    #[serde(rename = "Principal")]
-    principal: String,
-    #[serde(rename = "Subscription")]
-    subscription: SubscriptionType,
-    #[serde(rename = "Node", skip_serializing_if = "Option::is_none")]
-    node: Option<String>,
-    #[serde(rename = "Error", skip_serializing_if = "Option::is_none")]
-    error: Option<ErrorInfo>,
+#[derive(Debug, Default, Clone)]
+pub struct Additional {
+    pub error: Option<ErrorInfo>,
 }
 
-#[derive(Debug, Default, Serialize, Clone)]
-struct SubscriptionType {
-    #[serde(rename = "Uuid")]
-    uuid: String,
-    #[serde(rename = "Version")]
-    version: String,
-    #[serde(rename = "Name")]
-    name: String,
-    #[serde(rename = "Uri", skip_serializing_if = "Option::is_none")]
-    uri: Option<String>,
-}
-
-#[derive(Debug, Default, Serialize, Clone)]
+#[derive(Debug, Default, Clone)]
 pub struct Provider {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde(rename = "Name")]
     pub name: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde(rename = "Guid")]
     pub guid: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde(rename = "EventSourceName")]
     pub event_source_name: Option<String>,
 }
 
-#[derive(Debug, Default, Serialize, Clone)]
+#[derive(Debug, Default, Clone)]
 pub struct Correlation {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde(rename = "ActivityID")]
     pub activity_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde(rename = "RelatedActivityID")]
     pub related_activity_id: Option<String>,
 }
 
-#[derive(Debug, Default, Serialize, Clone)]
+#[derive(Debug, Default, Clone)]
 pub struct Execution {
-    #[serde(rename = "ProcessID")]
     pub process_id: u32,
-
-    #[serde(rename = "ThreadID")]
     pub thread_id: u32,
-
-    #[serde(rename = "ProcessorID")]
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub processor_id: Option<u8>,
-
-    #[serde(rename = "SessionID")]
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub session_id: Option<u32>,
-
-    #[serde(rename = "KernelTime")]
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub kernel_time: Option<u32>,
-
-    #[serde(rename = "UserTime")]
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub user_time: Option<u32>,
-
-    #[serde(rename = "ProcessorTime")]
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub processor_time: Option<u32>,
 }
 
-#[derive(Debug, Default, Serialize, Clone)]
-struct System {
-    #[serde(rename = "Provider")]
-    provider: Provider,
-    #[serde(rename = "EventID")]
-    event_id: u32,
-    #[serde(rename = "EventIDQualifiers", skip_serializing_if = "Option::is_none")]
-    event_id_qualifiers: Option<u16>,
-    #[serde(rename = "Version", skip_serializing_if = "Option::is_none")]
-    version: Option<u8>,
-    #[serde(rename = "Level", skip_serializing_if = "Option::is_none")]
-    level: Option<u8>,
-    #[serde(rename = "Task", skip_serializing_if = "Option::is_none")]
-    task: Option<u16>,
-    #[serde(rename = "Opcode", skip_serializing_if = "Option::is_none")]
-    opcode: Option<u8>,
-    #[serde(rename = "Keywords", skip_serializing_if = "Option::is_none")]
-    keywords: Option<String>,
-    #[serde(rename = "TimeCreated", skip_serializing_if = "Option::is_none")]
-    time_created: Option<String>,
-    #[serde(rename = "EventRecordID", skip_serializing_if = "Option::is_none")]
-    event_record_id: Option<u64>,
-    #[serde(rename = "Correlation", skip_serializing_if = "Option::is_none")]
-    correlation: Option<Correlation>,
-    #[serde(rename = "Execution", skip_serializing_if = "Option::is_none")]
-    execution: Option<Execution>,
-    #[serde(rename = "Channel", skip_serializing_if = "Option::is_none")]
-    channel: Option<String>,
-    #[serde(rename = "Computer")]
-    computer: String,
-    #[serde(rename = "Container", skip_serializing_if = "Option::is_none")]
-    container: Option<String>,
-    #[serde(rename = "UserID", skip_serializing_if = "Option::is_none")]
-    user_id: Option<String>,
+#[derive(Debug, Default, Clone)]
+pub struct System {
+    pub provider: Provider,
+    pub event_id: u32,
+    pub event_id_qualifiers: Option<u16>,
+    pub version: Option<u8>,
+    pub level: Option<u8>,
+    pub task: Option<u16>,
+    pub opcode: Option<u8>,
+    pub keywords: Option<String>,
+    pub time_created: Option<String>,
+    pub event_record_id: Option<u64>,
+    pub correlation: Option<Correlation>,
+    pub execution: Option<Execution>,
+    pub channel: Option<String>,
+    pub computer: String,
+    pub container: Option<String>,
+    pub user_id: Option<String>,
 }
 
 impl System {
@@ -556,25 +434,17 @@ impl System {
 }
 
 #[derive(Debug, Default, Serialize, Clone)]
-struct RenderingInfo {
-    #[serde(rename = "Message", skip_serializing_if = "Option::is_none")]
-    message: Option<String>,
-    #[serde(rename = "Level", skip_serializing_if = "Option::is_none")]
-    level: Option<String>,
-    #[serde(rename = "Task", skip_serializing_if = "Option::is_none")]
-    task: Option<String>,
-    #[serde(rename = "Opcode", skip_serializing_if = "Option::is_none")]
-    opcode: Option<String>,
-    #[serde(rename = "Channel", skip_serializing_if = "Option::is_none")]
-    channel: Option<String>,
-    #[serde(rename = "Provider", skip_serializing_if = "Option::is_none")]
+pub struct RenderingInfo {
+    pub message: Option<String>,
+    pub level: Option<String>,
+    pub task: Option<String>,
+    pub opcode: Option<String>,
+    pub channel: Option<String>,
     // Microsoft schema states that this field should be called "Publisher"
     // but this is not what has been observed in practice
-    provider: Option<String>,
-    #[serde(rename = "Keywords", skip_serializing_if = "Option::is_none")]
-    keywords: Option<Vec<String>>,
-    #[serde(rename = "Culture")]
-    culture: String,
+    pub provider: Option<String>,
+    pub keywords: Option<Vec<String>>,
+    pub culture: String,
 }
 
 impl RenderingInfo {
@@ -628,6 +498,8 @@ pub struct EventMetadata {
     subscription_version: String,
     subscription_name: String,
     subscription_uri: Option<String>,
+    subscription_client_revision: Option<String>,
+    subscription_server_revision: Option<String>,
 }
 
 impl EventMetadata {
@@ -636,17 +508,26 @@ impl EventMetadata {
         principal: &str,
         node_name: Option<String>,
         subscription: &Subscription,
+        public_version: String,
+        client_revision: Option<String>,
     ) -> Self {
         EventMetadata {
             addr: *addr,
             principal: principal.to_owned(),
             node_name,
             time_received: Utc::now(),
-            subscription_uuid: subscription.data().uuid().to_owned(),
-            subscription_version: subscription.data().version().to_owned(),
+            subscription_uuid: subscription.data().uuid_string(),
+            subscription_version: public_version,
             subscription_name: subscription.data().name().to_owned(),
             subscription_uri: subscription.data().uri().cloned(),
+            subscription_client_revision: client_revision,
+            subscription_server_revision: subscription.data().revision().cloned(),
         }
+    }
+
+    #[cfg(test)]
+    pub fn set_time_received(&mut self, time_received: DateTime<Utc>) {
+        self.time_received = time_received; 
     }
 
     /// Get a reference to the event metadata's addr.
@@ -681,14 +562,44 @@ impl EventMetadata {
     pub fn subscription_uri(&self) -> Option<&String> {
         self.subscription_uri.as_ref()
     }
+
+    pub fn subscription_client_revision(&self) -> Option<&String> {
+        self.subscription_client_revision.as_ref()
+    }
+
+    pub fn subscription_server_revision(&self) -> Option<&String> {
+        self.subscription_server_revision.as_ref()
+    }
 }
 
+pub struct EventData {
+    raw: Arc<String>,
+    event: Option<Event>,
+}
+
+impl EventData {
+    pub fn new(raw: Arc<String>, parse_event: bool) -> Self {
+        let event = if parse_event {
+            Some(Event::from_str(raw.as_ref()))
+        } else {
+            None
+        };
+        Self {
+            raw,
+            event
+        } 
+    }
+
+    pub fn raw(&self) -> Arc<String> {
+        self.raw.clone()
+    }
+    
+    pub fn event(&self) -> Option<&Event> {
+        self.event.as_ref()
+    }
+}
 #[cfg(test)]
 mod tests {
-    use std::str::FromStr;
-
-    use serde_json::Value;
-
     use super::*;
 
     const EVENT_142: &str = r#"
@@ -1010,429 +921,129 @@ mod tests {
     #[test]
     fn test_4689_parsing() {
         let event = Event::from_str(
-            &EventMetadata {
-                addr: SocketAddr::from_str("192.168.0.1:5985").unwrap(),
-                principal: "win10.windomain.local".to_owned(),
-                node_name: Some("openwec".to_owned()),
-                time_received: chrono::DateTime::parse_from_rfc3339(
-                    "2022-11-07T17:08:27.169805+01:00",
-                )
-                .unwrap()
-                .with_timezone(&Utc),
-                subscription_name: "Test".to_string(),
-                subscription_uuid: "8B18D83D-2964-4F35-AC3B-6F4E6FFA727B".to_string(),
-                subscription_version: "AD0D118F-31EF-4111-A0CA-D87249747278".to_string(),
-                subscription_uri: Some("/this/is/a/test".to_string()),
-            },
             EVENT_4689,
         );
         assert!(event.additional.error.is_none())
     }
 
-    const EVENT_4688: &str = r#"<Event xmlns='http://schemas.microsoft.com/win/2004/08/events/event'><System><Provider Name='Microsoft-Windows-Security-Auditing' Guid='{54849625-5478-4994-a5ba-3e3b0328c30d}'/><EventID>4688</EventID><Version>2</Version><Level>0</Level><Task>13312</Task><Opcode>0</Opcode><Keywords>0x8020000000000000</Keywords><TimeCreated SystemTime='2022-12-14T16:06:51.0643605Z'/><EventRecordID>114689</EventRecordID><Correlation/><Execution ProcessID='4' ThreadID='196'/><Channel>Security</Channel><Computer>win10.windomain.local</Computer><Security/></System><EventData><Data Name='SubjectUserSid'>S-1-5-18</Data><Data Name='SubjectUserName'>WIN10$</Data><Data Name='SubjectDomainName'>WINDOMAIN</Data><Data Name='SubjectLogonId'>0x3e7</Data><Data Name='NewProcessId'>0x3a8</Data><Data Name='NewProcessName'>C:\Program Files (x86)\Microsoft\EdgeUpdate\MicrosoftEdgeUpdate.exe</Data><Data Name='TokenElevationType'>%%1936</Data><Data Name='ProcessId'>0x240</Data><Data Name='CommandLine'></Data><Data Name='TargetUserSid'>S-1-0-0</Data><Data Name='TargetUserName'>-</Data><Data Name='TargetDomainName'>-</Data><Data Name='TargetLogonId'>0x0</Data><Data Name='ParentProcessName'>C:\Windows\System32\services.exe</Data><Data Name='MandatoryLabel'>S-1-16-16384</Data></EventData><RenderingInfo Culture='en-US'><Message>A new process has been created.
-
-Creator Subject:
-	Security ID:		S-1-5-18
-	Account Name:		WIN10$
-	Account Domain:		WINDOMAIN
-	Logon ID:		0x3E7
-
-Target Subject:
-	Security ID:		S-1-0-0
-	Account Name:		-
-	Account Domain:		-
-	Logon ID:		0x0
-
-Process Information:
-	New Process ID:		0x3a8
-	New Process Name:	C:\Program Files (x86)\Microsoft\EdgeUpdate\MicrosoftEdgeUpdate.exe
-	Token Elevation Type:	%%1936
-	Mandatory Label:		S-1-16-16384
-	Creator Process ID:	0x240
-	Creator Process Name:	C:\Windows\System32\services.exe
-	Process Command Line:	
-
-Token Elevation Type indicates the type of token that was assigned to the new process in accordance with User Account Control policy.
-
-Type 1 is a full token with no privileges removed or groups disabled.  A full token is only used if User Account Control is disabled or if the user is the built-in Administrator account or a service account.
-
-Type 2 is an elevated token with no privileges removed or groups disabled.  An elevated token is used when User Account Control is enabled and the user chooses to start the program using Run as administrator.  An elevated token is also used when an application is configured to always require administrative privilege or to always require maximum privilege, and the user is a member of the Administrators group.
-
-Type 3 is a limited token with administrative privileges removed and administrative groups disabled.  The limited token is used when User Account Control is enabled, the application does not require administrative privilege, and the user does not choose to start the program using Run as administrator.</Message><Level>Information</Level><Task>Process Creation</Task><Opcode>Info</Opcode><Channel>Security</Channel><Provider>Microsoft Windows security auditing.</Provider><Keywords><Keyword>Audit Success</Keyword></Keywords></RenderingInfo></Event>"#;
-    const EVENT_4688_JSON: &str = r#"{"System":{"Provider":{"Name":"Microsoft-Windows-Security-Auditing","Guid":"{54849625-5478-4994-a5ba-3e3b0328c30d}"},"EventID":4688,"Version":2,"Level":0,"Task":13312,"Opcode":0,"Keywords":"0x8020000000000000","TimeCreated":"2022-12-14T16:06:51.0643605Z","EventRecordID":114689,"Correlation":{},"Execution":{"ProcessID":4,"ThreadID":196},"Channel":"Security","Computer":"win10.windomain.local"},"EventData":{"SubjectLogonId":"0x3e7","SubjectUserName":"WIN10$","SubjectDomainName":"WINDOMAIN","ParentProcessName":"C:\\Windows\\System32\\services.exe","MandatoryLabel":"S-1-16-16384","SubjectUserSid":"S-1-5-18","NewProcessName":"C:\\Program Files (x86)\\Microsoft\\EdgeUpdate\\MicrosoftEdgeUpdate.exe","TokenElevationType":"%%1936","TargetUserSid":"S-1-0-0","TargetDomainName":"-","CommandLine":"","TargetUserName":"-","NewProcessId":"0x3a8","TargetLogonId":"0x0","ProcessId":"0x240"},"RenderingInfo":{"Message":"A new process has been created.\n\nCreator Subject:\n\tSecurity ID:\t\tS-1-5-18\n\tAccount Name:\t\tWIN10$\n\tAccount Domain:\t\tWINDOMAIN\n\tLogon ID:\t\t0x3E7\n\nTarget Subject:\n\tSecurity ID:\t\tS-1-0-0\n\tAccount Name:\t\t-\n\tAccount Domain:\t\t-\n\tLogon ID:\t\t0x0\n\nProcess Information:\n\tNew Process ID:\t\t0x3a8\n\tNew Process Name:\tC:\\Program Files (x86)\\Microsoft\\EdgeUpdate\\MicrosoftEdgeUpdate.exe\n\tToken Elevation Type:\t%%1936\n\tMandatory Label:\t\tS-1-16-16384\n\tCreator Process ID:\t0x240\n\tCreator Process Name:\tC:\\Windows\\System32\\services.exe\n\tProcess Command Line:\t\n\nToken Elevation Type indicates the type of token that was assigned to the new process in accordance with User Account Control policy.\n\nType 1 is a full token with no privileges removed or groups disabled.  A full token is only used if User Account Control is disabled or if the user is the built-in Administrator account or a service account.\n\nType 2 is an elevated token with no privileges removed or groups disabled.  An elevated token is used when User Account Control is enabled and the user chooses to start the program using Run as administrator.  An elevated token is also used when an application is configured to always require administrative privilege or to always require maximum privilege, and the user is a member of the Administrators group.\n\nType 3 is a limited token with administrative privileges removed and administrative groups disabled.  The limited token is used when User Account Control is enabled, the application does not require administrative privilege, and the user does not choose to start the program using Run as administrator.","Level":"Information","Task":"Process Creation","Opcode":"Info","Channel":"Security","Provider":"Microsoft Windows security auditing.","Keywords":["Audit Success"],"Culture":"en-US"},"OpenWEC":{"IpAddress":"192.168.58.100","TimeReceived":"2022-12-14T16:07:03.331+00:00","Principal":"WIN10$@WINDOMAIN.LOCAL","Node":"openwec","Subscription":{"Uuid":"8B18D83D-2964-4F35-AC3B-6F4E6FFA727B","Version":"AD0D118F-31EF-4111-A0CA-D87249747278","Name":"Test","Uri":"/this/is/a/test"}}}"#;
-
-    #[test]
-    fn test_serialize_4688_event_data() {
-        let event = Event::from_str(
-            &EventMetadata {
-                addr: SocketAddr::from_str("192.168.58.100:5985").unwrap(),
-                principal: "WIN10$@WINDOMAIN.LOCAL".to_owned(),
-                node_name: Some("openwec".to_owned()),
-                time_received: chrono::DateTime::parse_from_rfc3339(
-                    "2022-12-14T17:07:03.331+01:00",
-                )
-                .unwrap()
-                .with_timezone(&Utc),
-                subscription_name: "Test".to_string(),
-                subscription_uuid: "8B18D83D-2964-4F35-AC3B-6F4E6FFA727B".to_string(),
-                subscription_version: "AD0D118F-31EF-4111-A0CA-D87249747278".to_string(),
-                subscription_uri: Some("/this/is/a/test".to_string()),
-            },
-            EVENT_4688,
-        );
-        assert!(event.additional.error.is_none());
-
-        let event_json = serde_json::to_string(&event).unwrap();
-
-        let event_json_value: Value = serde_json::from_str(&event_json).unwrap();
-        let expected_value: Value = serde_json::from_str(EVENT_4688_JSON).unwrap();
-
-        assert_eq!(event_json_value, expected_value);
-    }
-
-    const EVENT_1003: &str = r#"<Event xmlns='http://schemas.microsoft.com/win/2004/08/events/event'><System><Provider Name='Microsoft-Windows-Security-SPP' Guid='{E23B33B0-C8C9-472C-A5F9-F2BDFEA0F156}' EventSourceName='Software Protection Platform Service'/><EventID Qualifiers='16384'>1003</EventID><Version>0</Version><Level>4</Level><Task>0</Task><Opcode>0</Opcode><Keywords>0x80000000000000</Keywords><TimeCreated SystemTime='2022-12-14T16:05:59.7074374Z'/><EventRecordID>7603</EventRecordID><Correlation/><Execution ProcessID='0' ThreadID='0'/><Channel>Application</Channel><Computer>win10.windomain.local</Computer><Security/></System><EventData><Data>55c92734-d682-4d71-983e-d6ec3f16059f</Data><Data>
-1: 3f4c0546-36c6-46a8-a37f-be13cdd0cf25, 1, 1 [(0 [0xC004E003, 0, 0], [( 9 0xC004FC07 90 0)( 1 0x00000000)(?)( 2 0x00000000 0 0 msft:rm/algorithm/hwid/4.0 0x00000000 0)(?)( 9 0xC004FC07 90 0)( 10 0x00000000 msft:rm/algorithm/flags/1.0)(?)])(1 )(2 )(3 [0x00000000, 0, 0], [( 6 0xC004F009 0 0)( 1 0x00000000)( 6 0xC004F009 0 0)(?)(?)(?)( 10 0x00000000 msft:rm/algorithm/flags/1.0)( 11 0x00000000 0xC004FC07)])]
-
-</Data></EventData><RenderingInfo Culture='en-US'><Message>The Software Protection service has completed licensing status check.
-Application Id=55c92734-d682-4d71-983e-d6ec3f16059f
-Licensing Status=
-1: 3f4c0546-36c6-46a8-a37f-be13cdd0cf25, 1, 1 [(0 [0xC004E003, 0, 0], [( 9 0xC004FC07 90 0)( 1 0x00000000)(?)( 2 0x00000000 0 0 msft:rm/algorithm/hwid/4.0 0x00000000 0)(?)( 9 0xC004FC07 90 0)( 10 0x00000000 msft:rm/algorithm/flags/1.0)(?)])(1 )(2 )(3 [0x00000000, 0, 0], [( 6 0xC004F009 0 0)( 1 0x00000000)( 6 0xC004F009 0 0)(?)(?)(?)( 10 0x00000000 msft:rm/algorithm/flags/1.0)( 11 0x00000000 0xC004FC07)])]
-
-</Message><Level>Information</Level><Task></Task><Opcode></Opcode><Channel></Channel><Provider>Microsoft-Windows-Security-SPP</Provider><Keywords><Keyword>Classic</Keyword></Keywords></RenderingInfo></Event>
-    "#;
-    const EVENT_1003_JSON: &str = r#"{"System":{"Provider":{"Name":"Microsoft-Windows-Security-SPP","Guid":"{E23B33B0-C8C9-472C-A5F9-F2BDFEA0F156}","EventSourceName":"Software Protection Platform Service"},"EventID":1003,"EventIDQualifiers":16384,"Version":0,"Level":4,"Task":0,"Opcode":0,"Keywords":"0x80000000000000","TimeCreated":"2022-12-14T16:05:59.7074374Z","EventRecordID":7603,"Correlation":{},"Execution":{"ProcessID":0,"ThreadID":0},"Channel":"Application","Computer":"win10.windomain.local"},"EventData":{"Data":["55c92734-d682-4d71-983e-d6ec3f16059f","\n1: 3f4c0546-36c6-46a8-a37f-be13cdd0cf25, 1, 1 [(0 [0xC004E003, 0, 0], [( 9 0xC004FC07 90 0)( 1 0x00000000)(?)( 2 0x00000000 0 0 msft:rm/algorithm/hwid/4.0 0x00000000 0)(?)( 9 0xC004FC07 90 0)( 10 0x00000000 msft:rm/algorithm/flags/1.0)(?)])(1 )(2 )(3 [0x00000000, 0, 0], [( 6 0xC004F009 0 0)( 1 0x00000000)( 6 0xC004F009 0 0)(?)(?)(?)( 10 0x00000000 msft:rm/algorithm/flags/1.0)( 11 0x00000000 0xC004FC07)])]\n\n"]},"RenderingInfo":{"Message":"The Software Protection service has completed licensing status check.\nApplication Id=55c92734-d682-4d71-983e-d6ec3f16059f\nLicensing Status=\n1: 3f4c0546-36c6-46a8-a37f-be13cdd0cf25, 1, 1 [(0 [0xC004E003, 0, 0], [( 9 0xC004FC07 90 0)( 1 0x00000000)(?)( 2 0x00000000 0 0 msft:rm/algorithm/hwid/4.0 0x00000000 0)(?)( 9 0xC004FC07 90 0)( 10 0x00000000 msft:rm/algorithm/flags/1.0)(?)])(1 )(2 )(3 [0x00000000, 0, 0], [( 6 0xC004F009 0 0)( 1 0x00000000)( 6 0xC004F009 0 0)(?)(?)(?)( 10 0x00000000 msft:rm/algorithm/flags/1.0)( 11 0x00000000 0xC004FC07)])]\n\n","Level":"Information","Provider":"Microsoft-Windows-Security-SPP","Keywords":["Classic"],"Culture":"en-US"},"OpenWEC":{"IpAddress":"192.168.58.100","TimeReceived":"2022-12-14T16:07:03.324+00:00","Principal":"WIN10$@WINDOMAIN.LOCAL","Node":"openwec","Subscription":{"Uuid":"8B18D83D-2964-4F35-AC3B-6F4E6FFA727B","Version":"AD0D118F-31EF-4111-A0CA-D87249747278","Name":"Test"}}}"#;
-
-    #[test]
-    fn test_serialize_1003_event_data_unamed() {
-        let event = Event::from_str(
-            &EventMetadata {
-                addr: SocketAddr::from_str("192.168.58.100:5985").unwrap(),
-                principal: "WIN10$@WINDOMAIN.LOCAL".to_owned(),
-                node_name: Some("openwec".to_owned()),
-                time_received: chrono::DateTime::parse_from_rfc3339(
-                    "2022-12-14T17:07:03.324+01:00",
-                )
-                .unwrap()
-                .with_timezone(&Utc),
-                subscription_name: "Test".to_string(),
-                subscription_uuid: "8B18D83D-2964-4F35-AC3B-6F4E6FFA727B".to_string(),
-                subscription_version: "AD0D118F-31EF-4111-A0CA-D87249747278".to_string(),
-                subscription_uri: None,
-            },
-            EVENT_1003,
-        );
-        assert!(event.additional.error.is_none());
-
-        let event_json = serde_json::to_string(&event).unwrap();
-
-        let event_json_value: Value = serde_json::from_str(&event_json).unwrap();
-        let expected_value: Value = serde_json::from_str(EVENT_1003_JSON).unwrap();
-
-        assert_eq!(event_json_value, expected_value);
-    }
-
-    const EVENT_5719: &str = r#"<Event xmlns='http://schemas.microsoft.com/win/2004/08/events/event'><System><Provider Name='NETLOGON'/><EventID Qualifiers='0'>5719</EventID><Version>0</Version><Level>2</Level><Task>0</Task><Opcode>0</Opcode><Keywords>0x80000000000000</Keywords><TimeCreated SystemTime='2022-12-14T16:04:59.0817047Z'/><EventRecordID>9466</EventRecordID><Correlation/><Execution ProcessID='0' ThreadID='0'/><Channel>System</Channel><Computer>win10.windomain.local</Computer><Security/></System><EventData><Data>WINDOMAIN</Data><Data>%%1311</Data><Binary>5E0000C0</Binary></EventData><RenderingInfo Culture='en-US'><Message>This computer was not able to set up a secure session with a domain controller in domain WINDOMAIN due to the following: 
-We can't sign you in with this credential because your domain isn't available. Make sure your device is connected to your organization's network and try again. If you previously signed in on this device with another credential, you can sign in with that credential. 
-This may lead to authentication problems. Make sure that this computer is connected to the network. If the problem persists, please contact your domain administrator.  
-
-ADDITIONAL INFO 
-If this computer is a domain controller for the specified domain, it sets up the secure session to the primary domain controller emulator in the specified domain. Otherwise, this computer sets up the secure session to any domain controller in the specified domain.</Message><Level>Error</Level><Task></Task><Opcode>Info</Opcode><Channel></Channel><Provider></Provider><Keywords><Keyword>Classic</Keyword></Keywords></RenderingInfo></Event>"#;
-    const EVENT_5719_JSON: &str = r#"{"System":{"Provider":{"Name":"NETLOGON"},"EventID":5719,"EventIDQualifiers":0,"Version":0,"Level":2,"Task":0,"Opcode":0,"Keywords":"0x80000000000000","TimeCreated":"2022-12-14T16:04:59.0817047Z","EventRecordID":9466,"Correlation":{},"Execution":{"ProcessID":0,"ThreadID":0},"Channel":"System","Computer":"win10.windomain.local"},"EventData":{"Data":["WINDOMAIN","%%1311"],"Binary":"5E0000C0"},"RenderingInfo":{"Message":"This computer was not able to set up a secure session with a domain controller in domain WINDOMAIN due to the following: \nWe can't sign you in with this credential because your domain isn't available. Make sure your device is connected to your organization's network and try again. If you previously signed in on this device with another credential, you can sign in with that credential. \nThis may lead to authentication problems. Make sure that this computer is connected to the network. If the problem persists, please contact your domain administrator.  \n\nADDITIONAL INFO \nIf this computer is a domain controller for the specified domain, it sets up the secure session to the primary domain controller emulator in the specified domain. Otherwise, this computer sets up the secure session to any domain controller in the specified domain.","Level":"Error","Opcode":"Info","Keywords":["Classic"],"Culture":"en-US"},"OpenWEC":{"IpAddress":"192.168.58.100","TimeReceived":"2022-12-14T16:07:02.919+00:00","Principal":"WIN10$@WINDOMAIN.LOCAL","Node":"openwec","Subscription":{"Uuid":"8B18D83D-2964-4F35-AC3B-6F4E6FFA727B","Version":"AD0D118F-31EF-4111-A0CA-D87249747278","Name":"Test","Uri":"/this/is/a/test"}}}"#;
-
-    #[test]
-    fn test_serialize_5719_event_data_binary() {
-        let event = Event::from_str(
-            &EventMetadata {
-                addr: SocketAddr::from_str("192.168.58.100:5985").unwrap(),
-                principal: "WIN10$@WINDOMAIN.LOCAL".to_owned(),
-                node_name: Some("openwec".to_owned()),
-                time_received: chrono::DateTime::parse_from_rfc3339(
-                    "2022-12-14T17:07:02.919+01:00",
-                )
-                .unwrap()
-                .with_timezone(&Utc),
-                subscription_name: "Test".to_string(),
-                subscription_uuid: "8B18D83D-2964-4F35-AC3B-6F4E6FFA727B".to_string(),
-                subscription_version: "AD0D118F-31EF-4111-A0CA-D87249747278".to_string(),
-                subscription_uri: Some("/this/is/a/test".to_string()),
-            },
-            EVENT_5719,
-        );
-        assert!(event.additional.error.is_none());
-
-        let event_json = serde_json::to_string(&event).unwrap();
-
-        let event_json_value: Value = serde_json::from_str(&event_json).unwrap();
-        let expected_value: Value = serde_json::from_str(EVENT_5719_JSON).unwrap();
-
-        assert_eq!(event_json_value, expected_value);
-    }
-
-    const EVENT_6013: &str = r#"<Event xmlns='http://schemas.microsoft.com/win/2004/08/events/event'><System><Provider Name='EventLog'/><EventID Qualifiers='32768'>6013</EventID><Version>0</Version><Level>4</Level><Task>0</Task><Opcode>0</Opcode><Keywords>0x80000000000000</Keywords><TimeCreated SystemTime='2022-12-14T16:04:43.7965565Z'/><EventRecordID>9427</EventRecordID><Correlation/><Execution ProcessID='0' ThreadID='0'/><Channel>System</Channel><Computer>win10.windomain.local</Computer><Security/></System><EventData><Data></Data><Data></Data><Data></Data><Data></Data><Data>6</Data><Data>60</Data><Data>0 Coordinated Universal Time</Data><Binary>31002E003100000030000000570069006E0064006F0077007300200031003000200045006E007400650072007000720069007300650020004500760061006C0075006100740069006F006E000000310030002E0030002E003100390030003400330020004200750069006C0064002000310039003000340033002000200000004D0075006C0074006900700072006F0063006500730073006F007200200046007200650065000000310039003000340031002E00760062005F00720065006C0065006100730065002E003100390031003200300036002D00310034003000360000003600320031003400640066003100630000004E006F007400200041007600610069006C00610062006C00650000004E006F007400200041007600610069006C00610062006C00650000003900000031000000320030003400380000003400300039000000770069006E00310030002E00770069006E0064006F006D00610069006E002E006C006F00630061006C0000000000</Binary></EventData><RenderingInfo Culture='en-US'><Message>The system uptime is 6 seconds.</Message><Level>Information</Level><Task></Task><Opcode></Opcode><Channel></Channel><Provider></Provider><Keywords><Keyword>Classic</Keyword></Keywords></RenderingInfo></Event>"#;
-    const EVENT_6013_JSON: &str = r#"{"System":{"Provider":{"Name":"EventLog"},"EventID":6013,"EventIDQualifiers":32768,"Version":0,"Level":4,"Task":0,"Opcode":0,"Keywords":"0x80000000000000","TimeCreated":"2022-12-14T16:04:43.7965565Z","EventRecordID":9427,"Correlation":{},"Execution":{"ProcessID":0,"ThreadID":0},"Channel":"System","Computer":"win10.windomain.local"},"EventData":{"Data":["6","60","0 Coordinated Universal Time"],"Binary":"31002E003100000030000000570069006E0064006F0077007300200031003000200045006E007400650072007000720069007300650020004500760061006C0075006100740069006F006E000000310030002E0030002E003100390030003400330020004200750069006C0064002000310039003000340033002000200000004D0075006C0074006900700072006F0063006500730073006F007200200046007200650065000000310039003000340031002E00760062005F00720065006C0065006100730065002E003100390031003200300036002D00310034003000360000003600320031003400640066003100630000004E006F007400200041007600610069006C00610062006C00650000004E006F007400200041007600610069006C00610062006C00650000003900000031000000320030003400380000003400300039000000770069006E00310030002E00770069006E0064006F006D00610069006E002E006C006F00630061006C0000000000"},"RenderingInfo":{"Message":"The system uptime is 6 seconds.","Level":"Information","Keywords":["Classic"],"Culture":"en-US"},"OpenWEC":{"IpAddress":"192.168.58.100","TimeReceived":"2022-12-14T16:07:02.524+00:00","Principal":"WIN10$@WINDOMAIN.LOCAL","Subscription":{"Uuid":"8B18D83D-2964-4F35-AC3B-6F4E6FFA727B","Version":"AD0D118F-31EF-4111-A0CA-D87249747278","Name":"Test","Uri":"/this/is/a/test"}}}"#;
-
-    #[test]
-    fn test_serialize_6013_event_data_unamed_empty() {
-        let event = Event::from_str(
-            &EventMetadata {
-                addr: SocketAddr::from_str("192.168.58.100:5985").unwrap(),
-                principal: "WIN10$@WINDOMAIN.LOCAL".to_owned(),
-                node_name: None,
-                time_received: chrono::DateTime::parse_from_rfc3339(
-                    "2022-12-14T17:07:02.524+01:00",
-                )
-                .unwrap()
-                .with_timezone(&Utc),
-                subscription_name: "Test".to_string(),
-                subscription_uuid: "8B18D83D-2964-4F35-AC3B-6F4E6FFA727B".to_string(),
-                subscription_version: "AD0D118F-31EF-4111-A0CA-D87249747278".to_string(),
-                subscription_uri: Some("/this/is/a/test".to_string()),
-            },
-            EVENT_6013,
-        );
-        assert!(event.additional.error.is_none());
-
-        let event_json = serde_json::to_string(&event).unwrap();
-
-        let event_json_value: Value = serde_json::from_str(&event_json).unwrap();
-        let expected_value: Value = serde_json::from_str(EVENT_6013_JSON).unwrap();
-
-        println!("{}", event_json_value);
-        println!("{}", expected_value);
-        assert_eq!(event_json_value, expected_value);
-    }
-
-    const EVENT_1100: &str = r#"<Event xmlns='http://schemas.microsoft.com/win/2004/08/events/event'><System><Provider Name='Microsoft-Windows-Eventlog' Guid='{fc65ddd8-d6ef-4962-83d5-6e5cfe9ce148}'/><EventID>1100</EventID><Version>0</Version><Level>4</Level><Task>103</Task><Opcode>0</Opcode><Keywords>0x4020000000000000</Keywords><TimeCreated SystemTime='2022-12-14T14:39:07.1686183Z'/><EventRecordID>114371</EventRecordID><Correlation/><Execution ProcessID='496' ThreadID='204'/><Channel>Security</Channel><Computer>win10.windomain.local</Computer><Security/></System><UserData><ServiceShutdown xmlns='http://manifests.microsoft.com/win/2004/08/windows/eventlog'></ServiceShutdown></UserData><RenderingInfo Culture='en-US'><Message>The event logging service has shut down.</Message><Level>Information</Level><Task>Service shutdown</Task><Opcode>Info</Opcode><Channel>Security</Channel><Provider>Microsoft-Windows-Eventlog</Provider><Keywords><Keyword>Audit Success</Keyword></Keywords></RenderingInfo></Event>"#;
-    const EVENT_1100_JSON: &str = r#"{"System":{"Provider":{"Name":"Microsoft-Windows-Eventlog","Guid":"{fc65ddd8-d6ef-4962-83d5-6e5cfe9ce148}"},"EventID":1100,"Version":0,"Level":4,"Task":103,"Opcode":0,"Keywords":"0x4020000000000000","TimeCreated":"2022-12-14T14:39:07.1686183Z","EventRecordID":114371,"Correlation":{},"Execution":{"ProcessID":496,"ThreadID":204},"Channel":"Security","Computer":"win10.windomain.local"},"UserData":"<ServiceShutdown xmlns='http://manifests.microsoft.com/win/2004/08/windows/eventlog'></ServiceShutdown>","RenderingInfo":{"Message":"The event logging service has shut down.","Level":"Information","Task":"Service shutdown","Opcode":"Info","Channel":"Security","Provider":"Microsoft-Windows-Eventlog","Keywords":["Audit Success"],"Culture":"en-US"},"OpenWEC":{"IpAddress":"192.168.58.100","TimeReceived":"2022-12-14T16:07:02.156+00:00","Principal":"WIN10$@WINDOMAIN.LOCAL","Node":"openwec","Subscription":{"Uuid":"8B18D83D-2964-4F35-AC3B-6F4E6FFA727B","Version":"AD0D118F-31EF-4111-A0CA-D87249747278","Name":"Test","Uri":"/this/is/a/test"}}}"#;
-
-    #[test]
-    fn test_serialize_1100_user_data() {
-        let event = Event::from_str(
-            &EventMetadata {
-                addr: SocketAddr::from_str("192.168.58.100:5985").unwrap(),
-                principal: "WIN10$@WINDOMAIN.LOCAL".to_owned(),
-                node_name: Some("openwec".to_owned()),
-                time_received: chrono::DateTime::parse_from_rfc3339(
-                    "2022-12-14T17:07:02.156+01:00",
-                )
-                .unwrap()
-                .with_timezone(&Utc),
-                subscription_name: "Test".to_string(),
-                subscription_uuid: "8B18D83D-2964-4F35-AC3B-6F4E6FFA727B".to_string(),
-                subscription_version: "AD0D118F-31EF-4111-A0CA-D87249747278".to_string(),
-                subscription_uri: Some("/this/is/a/test".to_string()),
-            },
-            EVENT_1100,
-        );
-        assert!(event.additional.error.is_none());
-
-        let event_json = serde_json::to_string(&event).unwrap();
-
-        let event_json_value: Value = serde_json::from_str(&event_json).unwrap();
-        let expected_value: Value = serde_json::from_str(EVENT_1100_JSON).unwrap();
-
-        assert_eq!(event_json_value, expected_value);
-    }
-
-    const EVENT_111: &str = r#"<Event xmlns='http://schemas.microsoft.com/win/2004/08/events/event'><System><Provider Name='Microsoft-Windows-EventForwarder'/><EventID>111</EventID><TimeCreated SystemTime='2023-02-14T09:14:23.175Z'/><Computer>win10.windomain.local</Computer></System><SubscriptionBookmarkEvent><SubscriptionId></SubscriptionId></SubscriptionBookmarkEvent></Event>"#;
-    const EVENT_111_JSON: &str = r#"{"System":{"Provider":{"Name":"Microsoft-Windows-EventForwarder"},"EventID":111,"TimeCreated":"2023-02-14T09:14:23.175Z","Computer":"win10.windomain.local"},"OpenWEC":{"IpAddress":"192.168.58.100","TimeReceived":"2022-12-14T16:07:02.156+00:00","Principal":"WIN10$@WINDOMAIN.LOCAL","Node":"other_node","Subscription":{"Uuid":"8B18D83D-2964-4F35-AC3B-6F4E6FFA727B","Version":"AD0D118F-31EF-4111-A0CA-D87249747278","Name":"Test","Uri":"/this/is/a/test"}}}"#;
-
-    #[test]
-    fn test_serialize_111() {
-        let event = Event::from_str(
-            &EventMetadata {
-                addr: SocketAddr::from_str("192.168.58.100:5985").unwrap(),
-                principal: "WIN10$@WINDOMAIN.LOCAL".to_owned(),
-                node_name: Some("other_node".to_owned()),
-                time_received: chrono::DateTime::parse_from_rfc3339(
-                    "2022-12-14T17:07:02.156+01:00",
-                )
-                .unwrap()
-                .with_timezone(&Utc),
-                subscription_name: "Test".to_string(),
-                subscription_uuid: "8B18D83D-2964-4F35-AC3B-6F4E6FFA727B".to_string(),
-                subscription_version: "AD0D118F-31EF-4111-A0CA-D87249747278".to_string(),
-                subscription_uri: Some("/this/is/a/test".to_string()),
-            },
-            EVENT_111,
-        );
-        assert!(event.additional.error.is_none());
-
-        let event_json = serde_json::to_string(&event).expect("Failed to serialize event");
-
-        let event_json_value: Value = serde_json::from_str(&event_json).unwrap();
-        let expected_value: Value = serde_json::from_str(EVENT_111_JSON).unwrap();
-
-        assert_eq!(event_json_value, expected_value);
-    }
-
     const RAW_CONTENT_RECOVERED: &str = r#"<Event xmlns='http://schemas.microsoft.com/win/2004/08/events/event'><System><Provider Name='Microsoft-Windows-Security-Auditing' Guid='{54849625-5478-4994-a5ba-3e3b0328c30d}'/><EventID>4798</EventID><Version>0</Version><Level>0</Level><Task>13824</Task><Opcode>0</Opcode><Keywords>0x8020000000000000</Keywords><TimeCreated SystemTime='2023-09-29T13:39:08.7234692Z'/><EventRecordID>980236</EventRecordID><Correlation ActivityID='{f59bb999-ec5b-0008-f6b9-9bf55becd901}'/><Execution ProcessID='1440' ThreadID='16952'/><Channel>Security</Channel><Computer>dvas0004_xps</Computer><Security/></System><EventData><Data Name='TargetUserName'>davev</Data><Data Name='TargetDomainName'>xxxxx_xps</Data><Data Name='TargetSid'>S-1-5-21-1604529354-1295832394-4197355770-1001</Data><Data Name='SubjectUserSid'>S-1-5-18</Data><Data Name='SubjectUserName'>xxxxx_XPS$</Data><Data Name='SubjectDomainName'>WORKGROUP</Data><Data Name='SubjectLogonId'>0x3e7</Data><Data Name='CallerProcessId'>0x28d4</Data><Data Name='CallerProcessName'>C:\\Windows\\System32\\svchost.exe</Data></EventData><RenderingInfo Culture='en-US'><Message>A user's local group membership was enumerated.&#13;&#10;&#13;&#10;Subject:&#13;&#10;&#9;"#;
-    const RAW_CONTENT_RECOVERED_JSON: &str = r#"{"System":{ "Provider":{ "Name":"Microsoft-Windows-Security-Auditing", "Guid":"{54849625-5478-4994-a5ba-3e3b0328c30d}" }, "EventID":4798, "Version":0, "Level":0, "Task":13824, "Opcode":0, "Keywords":"0x8020000000000000", "TimeCreated":"2023-09-29T13:39:08.7234692Z", "EventRecordID":980236, "Correlation":{ "ActivityID":"{f59bb999-ec5b-0008-f6b9-9bf55becd901}" }, "Execution":{ "ProcessID":1440, "ThreadID":16952 }, "Channel":"Security", "Computer":"dvas0004_xps" }, "EventData":{ "SubjectLogonId":"0x3e7", "TargetDomainName":"xxxxx_xps", "CallerProcessId":"0x28d4", "CallerProcessName":"C:\\\\Windows\\\\System32\\\\svchost.exe", "TargetUserName":"davev", "SubjectDomainName":"WORKGROUP", "SubjectUserName":"xxxxx_XPS$", "TargetSid":"S-1-5-21-1604529354-1295832394-4197355770-1001", "SubjectUserSid":"S-1-5-18" }, "OpenWEC":{ "IpAddress":"127.0.0.1", "TimeReceived":"2023-09-29T14:33:12.574363325+00:00", "Principal":"demo-client", "Subscription":{ "Uuid":"91E05B32-F8F6-48CF-8AB4-4038233B83AC", "Version":"523D1886-E73E-4A96-A95D-F0326CB282F0", "Name":"my-test-subscription" }, "Error":{ "OriginalContent":"<Event xmlns='http://schemas.microsoft.com/win/2004/08/events/event'><System><Provider Name='Microsoft-Windows-Security-Auditing' Guid='{54849625-5478-4994-a5ba-3e3b0328c30d}'/><EventID>4798</EventID><Version>0</Version><Level>0</Level><Task>13824</Task><Opcode>0</Opcode><Keywords>0x8020000000000000</Keywords><TimeCreated SystemTime='2023-09-29T13:39:08.7234692Z'/><EventRecordID>980236</EventRecordID><Correlation ActivityID='{f59bb999-ec5b-0008-f6b9-9bf55becd901}'/><Execution ProcessID='1440' ThreadID='16952'/><Channel>Security</Channel><Computer>dvas0004_xps</Computer><Security/></System><EventData><Data Name='TargetUserName'>davev</Data><Data Name='TargetDomainName'>xxxxx_xps</Data><Data Name='TargetSid'>S-1-5-21-1604529354-1295832394-4197355770-1001</Data><Data Name='SubjectUserSid'>S-1-5-18</Data><Data Name='SubjectUserName'>xxxxx_XPS$</Data><Data Name='SubjectDomainName'>WORKGROUP</Data><Data Name='SubjectLogonId'>0x3e7</Data><Data Name='CallerProcessId'>0x28d4</Data><Data Name='CallerProcessName'>C:\\\\Windows\\\\System32\\\\svchost.exe</Data></EventData><RenderingInfo Culture='en-US'><Message>A user's local group membership was enumerated.&#13;&#10;&#13;&#10;Subject:&#13;&#10;&#9;", "Type": "RawContentRecovered", "Message":"Failed to parse event XML (the root node was opened but never closed) but Raw content could be recovered." } } }"#;
 
     #[test]
     fn test_serialize_malformed_raw_content_recovered() {
         // Try to serialize a malformed event, and use the recovering strategy to
         // recover its Raw content
         let event = Event::from_str(
-            &EventMetadata {
-                addr: SocketAddr::from_str("127.0.0.1:5985").unwrap(),
-                principal: "demo-client".to_string(),
-                node_name: None,
-                time_received: chrono::DateTime::parse_from_rfc3339(
-                    "2023-09-29T14:33:12.574363325+00:00",
-                )
-                .unwrap()
-                .with_timezone(&Utc),
-                subscription_name: "my-test-subscription".to_string(),
-                subscription_uuid: "91E05B32-F8F6-48CF-8AB4-4038233B83AC".to_string(),
-                subscription_version: "523D1886-E73E-4A96-A95D-F0326CB282F0".to_string(),
-                subscription_uri: None,
-            },
             RAW_CONTENT_RECOVERED,
         );
-        assert!(event.additional.error.is_some());
 
-        let event_json = serde_json::to_string(&event).expect("Failed to serialize event");
+        let error = event.additional.error.unwrap();
+        assert_eq!(error.error_type, ErrorType::RawContentRecovered("Failed to parse event XML (the root node was opened but never closed) but Raw content could be recovered.".to_string()));
+        assert_eq!(error.original_content, RAW_CONTENT_RECOVERED);
 
-        let event_json_value: Value = serde_json::from_str(&event_json).unwrap();
-        let expected_value: Value = serde_json::from_str(RAW_CONTENT_RECOVERED_JSON).unwrap();
+        let system = event.system.unwrap();
+        assert_eq!(system.provider.name.unwrap(), "Microsoft-Windows-Security-Auditing".to_string());
+        assert_eq!(system.event_id, 4798);
+        assert_eq!(system.execution.unwrap().thread_id, 16952);
 
-        assert_eq!(event_json_value, expected_value);
+        assert!(event.rendering_info.is_none());
+
+        match event.data {
+            DataType::EventData(data) => {
+                assert_eq!(data.named_data.get("TargetDomainName").unwrap(), "xxxxx_xps");
+                assert_eq!(data.named_data.get("TargetSid").unwrap(), "S-1-5-21-1604529354-1295832394-4197355770-1001");
+            },
+            _ => panic!("Wrong event data type")
+        };
     }
 
     const UNRECOVERABLE_1: &str = r#"<Event xmlns='http://schemas.microsoft.com/win/2004/08/events/event'><System><Provider Name='Microsoft-Windows-Security-Auditing' Guid='{54849625-5478-4994-a5ba-3e3b0328c30d}'/><EventID>4798</EventID><Version>0</Version><Level>0</Level><Task>13824</Task><Opcode>0</Opcode><Keywords>0x8020000000000000</Keywords><TimeCreated SystemTime='2023-09-29T13:39:08.7234692Z'/><EventRecordID>980236</EventRecordID><Correlation ActivityID='{f59bb999-ec5b-0008-f6b9-9bf55becd901}'/><Execution ProcessID='1440' ThreadID='16952'/><Channel>Security</Channel><Computer>dvas0004_xps</Computer><Security/></System><EventData><Data Name='TargetUserName'>davev</Data><Data Name='TargetDomainName'>xxxxx_xps</Data><Data Name='TargetSid'>S-1-5-21-1604529354-1295832394-4197355770-1001</Data><Data Name='SubjectUserSid'>S-1-5-18</Data><Data Name='SubjectUserName'>xxxxx_XPS$</Data><Data Name='SubjectDomainName'>WORKGROUP</Data><Data Name='SubjectLogonId'>0x3e7</Data><Data Name='CallerProcessId'>0x28d4</Data><Data Name='CallerProcessName'>C:\\Windows\\System32\\svchost.exe</Data></EventData>"#;
-    const UNRECOVERABLE_1_JSON: &str = r#"{"OpenWEC":{ "IpAddress":"127.0.0.1", "TimeReceived":"2023-09-29T14:33:12.574363325+00:00", "Principal":"demo-client", "Subscription":{ "Uuid":"91E05B32-F8F6-48CF-8AB4-4038233B83AC", "Version":"523D1886-E73E-4A96-A95D-F0326CB282F0", "Name":"my-test-subscription" }, "Error":{ "Type": "Unrecoverable", "OriginalContent":"<Event xmlns='http://schemas.microsoft.com/win/2004/08/events/event'><System><Provider Name='Microsoft-Windows-Security-Auditing' Guid='{54849625-5478-4994-a5ba-3e3b0328c30d}'/><EventID>4798</EventID><Version>0</Version><Level>0</Level><Task>13824</Task><Opcode>0</Opcode><Keywords>0x8020000000000000</Keywords><TimeCreated SystemTime='2023-09-29T13:39:08.7234692Z'/><EventRecordID>980236</EventRecordID><Correlation ActivityID='{f59bb999-ec5b-0008-f6b9-9bf55becd901}'/><Execution ProcessID='1440' ThreadID='16952'/><Channel>Security</Channel><Computer>dvas0004_xps</Computer><Security/></System><EventData><Data Name='TargetUserName'>davev</Data><Data Name='TargetDomainName'>xxxxx_xps</Data><Data Name='TargetSid'>S-1-5-21-1604529354-1295832394-4197355770-1001</Data><Data Name='SubjectUserSid'>S-1-5-18</Data><Data Name='SubjectUserName'>xxxxx_XPS$</Data><Data Name='SubjectDomainName'>WORKGROUP</Data><Data Name='SubjectLogonId'>0x3e7</Data><Data Name='CallerProcessId'>0x28d4</Data><Data Name='CallerProcessName'>C:\\\\Windows\\\\System32\\\\svchost.exe</Data></EventData>", "Message":"Failed to parse event XML: the root node was opened but never closed" } } }"#;
 
     #[test]
     fn test_serialize_malformed_unrecoverable_1() {
         // Try to serialize an event for which there is no recovering strategy
         let event = Event::from_str(
-            &EventMetadata {
-                addr: SocketAddr::from_str("127.0.0.1:5985").unwrap(),
-                principal: "demo-client".to_string(),
-                node_name: None,
-                time_received: chrono::DateTime::parse_from_rfc3339(
-                    "2023-09-29T14:33:12.574363325+00:00",
-                )
-                .unwrap()
-                .with_timezone(&Utc),
-                subscription_name: "my-test-subscription".to_string(),
-                subscription_uuid: "91E05B32-F8F6-48CF-8AB4-4038233B83AC".to_string(),
-                subscription_version: "523D1886-E73E-4A96-A95D-F0326CB282F0".to_string(),
-                subscription_uri: None,
-            },
             UNRECOVERABLE_1,
         );
         assert!(event.additional.error.is_some());
+        assert!(event.system.is_none());
+        assert!(event.rendering_info.is_none());
 
-        let event_json = serde_json::to_string(&event).expect("Failed to serialize event");
+        match event.data {
+            DataType::Unknown => (),
+            _ => panic!("Wrong event data type")
+        };
 
-        let event_json_value: Value = serde_json::from_str(&event_json).unwrap();
-        let expected_value: Value = serde_json::from_str(UNRECOVERABLE_1_JSON).unwrap();
-
-        assert_eq!(event_json_value, expected_value);
+        let error = event.additional.error.unwrap();
+        assert_eq!(error.error_type, ErrorType::Unrecoverable("Failed to parse event XML: the root node was opened but never closed".to_string()));
+        assert_eq!(error.original_content, UNRECOVERABLE_1);
     }
 
     const UNRECOVERABLE_2: &str = r#"<Event xmlns='http://"#;
-    const UNRECOVERABLE_2_JSON: &str = r#"{"OpenWEC":{ "IpAddress":"127.0.0.1", "TimeReceived":"2023-09-29T14:33:12.574363325+00:00", "Principal":"demo-client", "Subscription":{ "Uuid":"91E05B32-F8F6-48CF-8AB4-4038233B83AC", "Version":"523D1886-E73E-4A96-A95D-F0326CB282F0", "Name":"my-test-subscription" }, "Error":{ "Type": "Unrecoverable", "OriginalContent":"<Event xmlns='http://", "Message":"Failed to parse event XML: unexpected end of stream" } } }"#;
 
     #[test]
     fn test_serialize_malformed_unrecoverable_2() {
         // Try to serialize a malformed event for which no recovery
         // is possible.
         let event = Event::from_str(
-            &EventMetadata {
-                addr: SocketAddr::from_str("127.0.0.1:5985").unwrap(),
-                principal: "demo-client".to_string(),
-                node_name: None,
-                time_received: chrono::DateTime::parse_from_rfc3339(
-                    "2023-09-29T14:33:12.574363325+00:00",
-                )
-                .unwrap()
-                .with_timezone(&Utc),
-                subscription_name: "my-test-subscription".to_string(),
-                subscription_uuid: "91E05B32-F8F6-48CF-8AB4-4038233B83AC".to_string(),
-                subscription_version: "523D1886-E73E-4A96-A95D-F0326CB282F0".to_string(),
-                subscription_uri: None,
-            },
             UNRECOVERABLE_2,
         );
         assert!(event.additional.error.is_some());
+        assert!(event.system.is_none());
+        assert!(event.rendering_info.is_none());
 
-        let event_json = serde_json::to_string(&event).expect("Failed to serialize event");
+        match event.data {
+            DataType::Unknown => (),
+            _ => panic!("Wrong event data type")
+        };
 
-        let event_json_value: Value = serde_json::from_str(&event_json).unwrap();
-        let expected_value: Value = serde_json::from_str(UNRECOVERABLE_2_JSON).unwrap();
-
-        assert_eq!(event_json_value, expected_value);
+        let error = event.additional.error.unwrap();
+        assert_eq!(error.error_type, ErrorType::Unrecoverable("Failed to parse event XML: unexpected end of stream".to_string()));
+        assert_eq!(error.original_content, UNRECOVERABLE_2);
     }
 
     const FAILED_TO_RECOVER_RAW_CONTENT: &str = r#"<Event xmlns='http://schemas.microsoft.com/win/2004/08/events/event'><System><Provider Name='Microsoft-Windows-Security-Auditing' Guid='{54849625-5478-4994-a5ba-3e3b0328c30d}'/><EventID>4798</EventID><Version>0</Version><Level>0</Level><Task>13824</Task><Opcode>0</Opcode><Keywords>0x8020000000000000</Keywords><TimeCreated SystemTime='2023-09-29T13:39:08.7234692Z'/><EventRecordID>980236</EventRecordID><Correlation ActivityID='{f59bb999-ec5b-0008-f6b9-9bf55becd901}'/><Execution ProcessID='1440' ThreadID='16952'/><Channel>Security</Channel><Computer>dvas0004_xps</Computer><Security/></System><EventData><Data Name='TargetUserName'>davev</Data><Data Name='TargetDomainName'>xxxxx_xps</Data><Data Name='TargetSid'>S-1-5-21-1604529354-1295832394-4197355770-1001</Data><Data Name='SubjectUserSid'>S-1-5-18</Data><Data Name='SubjectUserName'>xxxxx_XPS$</Data><Data Name='SubjectDomainName'>WORKGROUP</Data><Data Name='SubjectLogonId'>0x3e7</Data><Data Name='CallerProcessId'>0x28d4</Data><Data Name='CallerProcessName'>C:\\Windows\\System32\\svchost.exe</Data></EventData><RecoveringInfo <RenderingInfo"#;
-    const FAILED_TO_RECOVER_RAW_CONTENT_JSON: &str = r#"{"OpenWEC":{ "IpAddress":"127.0.0.1", "TimeReceived":"2023-09-29T14:33:12.574363325+00:00", "Principal":"demo-client", "Subscription":{ "Uuid":"91E05B32-F8F6-48CF-8AB4-4038233B83AC", "Version":"523D1886-E73E-4A96-A95D-F0326CB282F0", "Name":"my-test-subscription" }, "Error":{ "Type": "FailedToRecoverRawContent", "OriginalContent":"<Event xmlns='http://schemas.microsoft.com/win/2004/08/events/event'><System><Provider Name='Microsoft-Windows-Security-Auditing' Guid='{54849625-5478-4994-a5ba-3e3b0328c30d}'/><EventID>4798</EventID><Version>0</Version><Level>0</Level><Task>13824</Task><Opcode>0</Opcode><Keywords>0x8020000000000000</Keywords><TimeCreated SystemTime='2023-09-29T13:39:08.7234692Z'/><EventRecordID>980236</EventRecordID><Correlation ActivityID='{f59bb999-ec5b-0008-f6b9-9bf55becd901}'/><Execution ProcessID='1440' ThreadID='16952'/><Channel>Security</Channel><Computer>dvas0004_xps</Computer><Security/></System><EventData><Data Name='TargetUserName'>davev</Data><Data Name='TargetDomainName'>xxxxx_xps</Data><Data Name='TargetSid'>S-1-5-21-1604529354-1295832394-4197355770-1001</Data><Data Name='SubjectUserSid'>S-1-5-18</Data><Data Name='SubjectUserName'>xxxxx_XPS$</Data><Data Name='SubjectDomainName'>WORKGROUP</Data><Data Name='SubjectLogonId'>0x3e7</Data><Data Name='CallerProcessId'>0x28d4</Data><Data Name='CallerProcessName'>C:\\\\Windows\\\\System32\\\\svchost.exe</Data></EventData><RecoveringInfo <RenderingInfo", "Message":"Failed to parse event XML (invalid name token at 1:1088) and Raw content recovering failed (invalid name token at 1:1088)" } } }"#;
 
     #[test]
     fn test_serialize_failed_to_recover() {
         // Try to serialize a malformed event for which the recovering strategy can
         // not succeed
         let event = Event::from_str(
-            &EventMetadata {
-                addr: SocketAddr::from_str("127.0.0.1:5985").unwrap(),
-                principal: "demo-client".to_string(),
-                node_name: None,
-                time_received: chrono::DateTime::parse_from_rfc3339(
-                    "2023-09-29T14:33:12.574363325+00:00",
-                )
-                .unwrap()
-                .with_timezone(&Utc),
-                subscription_name: "my-test-subscription".to_string(),
-                subscription_uuid: "91E05B32-F8F6-48CF-8AB4-4038233B83AC".to_string(),
-                subscription_version: "523D1886-E73E-4A96-A95D-F0326CB282F0".to_string(),
-                subscription_uri: None,
-            },
             FAILED_TO_RECOVER_RAW_CONTENT,
         );
         assert!(event.additional.error.is_some());
+        assert!(event.system.is_none());
+        assert!(event.rendering_info.is_none());
 
-        let event_json = serde_json::to_string(&event).expect("Failed to serialize event");
+        match event.data {
+            DataType::Unknown => (),
+            _ => panic!("Wrong event data type")
+        };
 
-        let event_json_value: Value = serde_json::from_str(&event_json).unwrap();
-        let expected_value: Value =
-            serde_json::from_str(FAILED_TO_RECOVER_RAW_CONTENT_JSON).unwrap();
-
-        assert_eq!(event_json_value, expected_value);
+        let error = event.additional.error.unwrap();
+        assert_eq!(error.error_type, ErrorType::FailedToRecoverRawContent("Failed to parse event XML (invalid name token at 1:1088) and Raw content recovering failed (invalid name token at 1:1088)".to_string()));
+        assert_eq!(error.original_content, FAILED_TO_RECOVER_RAW_CONTENT);
     }
 
     const FAILED_TO_FEED_EVENT: &str = r#"<Event xmlns='http://schemas.microsoft.com/win/2004/08/events/event'><System><Provider Name='Microsoft-Windows-Security-Auditing' Guid='{54849625-5478-4994-a5ba-3e3b0328c30d}'/><WrongEventID>4798</WrongEventID><Version>0</Version><Level>0</Level><Task>13824</Task><Opcode>0</Opcode><Keywords>0x8020000000000000</Keywords><TimeCreated SystemTime='2023-09-29T13:39:08.7234692Z'/><EventRecordID>980236</EventRecordID><Correlation ActivityID='{f59bb999-ec5b-0008-f6b9-9bf55becd901}'/><Execution ProcessID='1440' ThreadID='16952'/><Channel>Security</Channel><Computer>dvas0004_xps</Computer><Security/></System><EventData><Data Name='TargetUserName'>davev</Data><Data Name='TargetDomainName'>xxxxx_xps</Data><Data Name='TargetSid'>S-1-5-21-1604529354-1295832394-4197355770-1001</Data><Data Name='SubjectUserSid'>S-1-5-18</Data><Data Name='SubjectUserName'>xxxxx_XPS$</Data><Data Name='SubjectDomainName'>WORKGROUP</Data><Data Name='SubjectLogonId'>0x3e7</Data><Data Name='CallerProcessId'>0x28d4</Data><Data Name='CallerProcessName'>C:\\Windows\\System32\\svchost.exe</Data></EventData><RenderingInfo Culture='en-US'><Message>A use"#;
-    const FAILED_TO_FEED_EVENT_JSON: &str = r#"{"OpenWEC":{ "IpAddress":"127.0.0.1", "TimeReceived":"2023-09-29T14:33:12.574363325+00:00", "Principal":"demo-client", "Subscription":{ "Uuid":"91E05B32-F8F6-48CF-8AB4-4038233B83AC", "Version":"523D1886-E73E-4A96-A95D-F0326CB282F0", "Name":"my-test-subscription" }, "Error":{ "Type": "FailedToFeedEvent", "OriginalContent":"<Event xmlns='http://schemas.microsoft.com/win/2004/08/events/event'><System><Provider Name='Microsoft-Windows-Security-Auditing' Guid='{54849625-5478-4994-a5ba-3e3b0328c30d}'/><WrongEventID>4798</WrongEventID><Version>0</Version><Level>0</Level><Task>13824</Task><Opcode>0</Opcode><Keywords>0x8020000000000000</Keywords><TimeCreated SystemTime='2023-09-29T13:39:08.7234692Z'/><EventRecordID>980236</EventRecordID><Correlation ActivityID='{f59bb999-ec5b-0008-f6b9-9bf55becd901}'/><Execution ProcessID='1440' ThreadID='16952'/><Channel>Security</Channel><Computer>dvas0004_xps</Computer><Security/></System><EventData><Data Name='TargetUserName'>davev</Data><Data Name='TargetDomainName'>xxxxx_xps</Data><Data Name='TargetSid'>S-1-5-21-1604529354-1295832394-4197355770-1001</Data><Data Name='SubjectUserSid'>S-1-5-18</Data><Data Name='SubjectUserName'>xxxxx_XPS$</Data><Data Name='SubjectDomainName'>WORKGROUP</Data><Data Name='SubjectLogonId'>0x3e7</Data><Data Name='CallerProcessId'>0x28d4</Data><Data Name='CallerProcessName'>C:\\\\Windows\\\\System32\\\\svchost.exe</Data></EventData><RenderingInfo Culture='en-US'><Message>A use", "Message":"Could not feed event from document: Parsing failure in System" } } }"#;
 
     #[test]
     fn test_serialize_malformed_failed_to_feed_event() {
         // Try to serialize a malformed event for which the recovering strategy can
         // not succeed because <System> is invalid.
         let event = Event::from_str(
-            &EventMetadata {
-                addr: SocketAddr::from_str("127.0.0.1:5985").unwrap(),
-                principal: "demo-client".to_string(),
-                node_name: None,
-                time_received: chrono::DateTime::parse_from_rfc3339(
-                    "2023-09-29T14:33:12.574363325+00:00",
-                )
-                .unwrap()
-                .with_timezone(&Utc),
-                subscription_name: "my-test-subscription".to_string(),
-                subscription_uuid: "91E05B32-F8F6-48CF-8AB4-4038233B83AC".to_string(),
-                subscription_version: "523D1886-E73E-4A96-A95D-F0326CB282F0".to_string(),
-                subscription_uri: None,
-            },
             FAILED_TO_FEED_EVENT,
         );
         assert!(event.additional.error.is_some());
+        assert!(event.system.is_none());
+        assert!(event.rendering_info.is_none());
 
-        let event_json = serde_json::to_string(&event).expect("Failed to serialize event");
+        match event.data {
+            DataType::Unknown => (),
+            _ => panic!("Wrong event data type")
+        };
 
-        let event_json_value: Value = serde_json::from_str(&event_json).unwrap();
-        let expected_value: Value = serde_json::from_str(FAILED_TO_FEED_EVENT_JSON).unwrap();
-
-        assert_eq!(event_json_value, expected_value);
+        let error = event.additional.error.unwrap();
+        assert_eq!(error.error_type, ErrorType::FailedToFeedEvent("Could not feed event from document: Parsing failure in System".to_string()));
+        assert_eq!(error.original_content, FAILED_TO_FEED_EVENT);
     }
-}
+} 

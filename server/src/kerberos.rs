@@ -1,9 +1,10 @@
 use anyhow::{anyhow, bail, Context, Result};
 use base64::Engine;
 use common::encoding::encode_utf16le;
-use http::request::Parts;
+use hyper::body::Incoming;
 use hyper::header::AUTHORIZATION;
-use hyper::{body::Bytes, Body, Request};
+use hyper::http::request::Parts;
+use hyper::{body::Bytes, Request};
 use libgssapi::{
     context::{CtxFlags, SecurityContext, ServerCtx},
     credential::{Cred, CredUsage},
@@ -87,70 +88,83 @@ pub enum AuthenticationError {
 ///
 pub async fn authenticate(
     conn_state: &Arc<Mutex<State>>,
-    req: &Request<Body>,
+    req: &Request<Incoming>,
 ) -> Result<AuthenticationData, AuthenticationError> {
-    let mut state = conn_state.lock().unwrap();
-    let server_ctx = state
-        .context
-        .as_mut()
-        .ok_or_else(|| anyhow!("Kerberos server context is empty"))?;
+    {
+        let mut state = conn_state.lock().unwrap();
+        let server_ctx = state
+            .context
+            .as_mut()
+            .ok_or_else(|| anyhow!("Kerberos server context is empty"))?;
 
-    // Server context has already been established for this TCP connection
-    if server_ctx.is_complete() {
-        return Ok(AuthenticationData {
-            principal: server_ctx.source_name()?.to_string(),
-            token: None,
-        });
+        // Server context has already been established for this TCP connection
+        if server_ctx.is_complete() {
+            return Ok(AuthenticationData {
+                principal: server_ctx.source_name()?.to_string(),
+                token: None,
+            });
+        }
     }
 
-    // TODO: return a specific error
     let auth_header = req
         .headers()
         .get(AUTHORIZATION)
         .ok_or_else(|| AuthenticationError::MissingAuthorizationHeader)?
         .to_str()
-        .context("Failed to convert authorization header to str")?;
+        .context("Failed to convert authorization header to str")?
+        .to_owned();
+    let cloned_conn_state = conn_state.clone();
 
-    let b64_token = auth_header
-        .strip_prefix("Kerberos ")
-        .ok_or_else(|| anyhow!("Authorization header does not start with 'Kerberos '"))?;
-    let token = base64::engine::general_purpose::STANDARD
-        .decode(b64_token)
-        .context("Failed to decode authorization header token as base64")?;
-    match server_ctx
-        .step(&token)
-        .context("Failed to perform Kerberos operation")?
-    {
-        // TODO: should we return Ok in this case ?
-        None => Ok(AuthenticationData {
-            principal: server_ctx.source_name()?.to_string(),
-            token: None,
-        }),
-        Some(step) => {
-            // TODO: support multiple steps
-            // see RFC4559 "5.  Negotiate Operation Example"
-            if !server_ctx.is_complete() {
-                return Err(anyhow!(
-                    "Authentication is not complete after first round. Multiple rounds
-                    are not supported"
-                )
-                .into());
-            }
-            let flags = server_ctx.flags().context("Error in server ctx")?;
-            let required_flags = CtxFlags::GSS_C_CONF_FLAG
-                | CtxFlags::GSS_C_MUTUAL_FLAG
-                | CtxFlags::GSS_C_INTEG_FLAG;
-            if flags & required_flags != required_flags {
-                return Err(anyhow!("Kerberos flags not compliant").into());
-            }
+    tokio::task::spawn_blocking(move || {
+        let b64_token = auth_header
+            .strip_prefix("Kerberos ")
+            .ok_or_else(|| anyhow!("Authorization header does not start with 'Kerberos '"))?;
+        let mut state = cloned_conn_state.lock().unwrap();
+        let server_ctx = state
+            .context
+            .as_mut()
+            .ok_or_else(|| anyhow!("Kerberos server context is empty"))?;
+        let token = base64::engine::general_purpose::STANDARD
+            .decode(b64_token)
+            .context("Failed to decode authorization header token as base64")?;
 
-            debug!("Server context info: {:?}", server_ctx.info());
-            Ok(AuthenticationData {
+        match server_ctx
+            .step(&token)
+            .context("Failed to perform Kerberos operation")?
+        {
+            // TODO: should we return Ok in this case ?
+            None => Ok(AuthenticationData {
                 principal: server_ctx.source_name()?.to_string(),
-                token: Some(base64::engine::general_purpose::STANDARD.encode(&*step)),
-            })
+                token: None,
+            }),
+            Some(step) => {
+                // TODO: support multiple steps
+                // see RFC4559 "5.  Negotiate Operation Example"
+                if !server_ctx.is_complete() {
+                    return Err(anyhow!(
+                        "Authentication is not complete after first round. Multiple rounds
+                        are not supported"
+                    )
+                    .into());
+                }
+                let flags = server_ctx.flags().context("Error in server ctx")?;
+                let required_flags = CtxFlags::GSS_C_CONF_FLAG
+                    | CtxFlags::GSS_C_MUTUAL_FLAG
+                    | CtxFlags::GSS_C_INTEG_FLAG;
+                if flags & required_flags != required_flags {
+                    return Err(anyhow!("Kerberos flags not compliant").into());
+                }
+
+                debug!("Server context info: {:?}", server_ctx.info());
+                Ok(AuthenticationData {
+                    principal: server_ctx.source_name()?.to_string(),
+                    token: Some(base64::engine::general_purpose::STANDARD.encode(&*step)),
+                })
+            }
         }
-    }
+    })
+    .await
+    .map_err(|e| anyhow!("{}", e))?
 }
 
 fn get_boundary(mime: &Mime) -> Result<String> {
@@ -227,62 +241,80 @@ fn encrypt_payload(mut payload: Vec<u8>, server_ctx: &mut ServerCtx) -> Result<V
 }
 
 pub async fn get_request_payload(
-    conn_state: &Arc<Mutex<State>>,
+    conn_state: Arc<Mutex<State>>,
     parts: Parts,
     data: Bytes,
 ) -> Result<Option<Vec<u8>>> {
-    let content_type = match parts.headers.get("Content-Type") {
-        Some(content_type) => content_type,
-        None => bail!("Request does not contain 'Content-Type' header"),
-    };
+    // Multiple blocking operations are done here:
+    // - retrieve encrypted payload from multipart request
+    // - decrypt payload
+    // - decompress payload
 
-    let mime = content_type
-        .to_str()?
-        .parse::<Mime>()
-        .context("Could not parse Content-Type header")?;
-    let boundary = get_boundary(&mime).context("Could not get multipart boundaries")?;
-    let encrypted_payload = multipart::read_multipart_body(&mut &*data, &boundary)
-        .context("Could not retrieve encrypted payload")?;
+    let get_payload_task = tokio::task::spawn_blocking(move || {
+        let content_type = match parts.headers.get("Content-Type") {
+            Some(content_type) => content_type,
+            None => bail!("Request does not contain 'Content-Type' header"),
+        };
 
-    let mut state = conn_state.lock().unwrap();
-    let server_ctx = state
-        .context
-        .as_mut()
-        .ok_or_else(|| anyhow!("Kerberos server context is empty"))?;
+        let mime = content_type
+            .to_str()?
+            .parse::<Mime>()
+            .context("Could not parse Content-Type header")?;
+        let boundary = get_boundary(&mime).context("Could not get multipart boundaries")?;
 
-    let decrypted_message =
-        decrypt_payload(encrypted_payload, server_ctx).context("Could not decrypt payload")?;
+        let encrypted_payload = multipart::read_multipart_body(&mut &*data, &boundary)
+            .context("Could not retrieve encrypted payload")?;
+        let mut state = conn_state.lock().unwrap();
+        let server_ctx = state
+            .context
+            .as_mut()
+            .ok_or_else(|| anyhow!("Kerberos server context is empty"))?;
 
-    let message = match parts.headers.get("Content-Encoding") {
-        Some(value) if value == "SLDC" => {
-            sldc::decompress(&decrypted_message).unwrap_or(decrypted_message)
-        }
-        None => decrypted_message,
-        value => bail!("Unsupported Content-Encoding {:?}", value),
-    };
+        let decrypted_message =
+            decrypt_payload(encrypted_payload, server_ctx).context("Could not decrypt payload")?;
+
+        let message = match parts.headers.get("Content-Encoding") {
+            Some(value) if value == "SLDC" => {
+                sldc::decompress(&decrypted_message).unwrap_or(decrypted_message)
+            }
+            None => decrypted_message,
+            value => bail!("Unsupported Content-Encoding {:?}", value),
+        };
+        Ok(message)
+    });
+    let message = get_payload_task.await??;
 
     Ok(Some(message))
 }
 
-pub fn get_response_payload(
-    conn_state: &Arc<Mutex<State>>,
+pub async fn get_response_payload(
+    conn_state: Arc<Mutex<State>>,
     payload: String,
-    boundary: &str,
+    boundary: String,
 ) -> Result<Vec<u8>> {
-    let mut payload = encode_utf16le(payload).context("Failed to encode payload in utf16le")?;
 
-    let cleartext_payload_len = payload.len();
+    // Multiple blocking operations are done here:
+    // - encode payload
+    // - encrypt payload
+    // - generate multipart body
 
-    let mut state = conn_state.lock().unwrap();
-    let server_ctx = &mut state
-        .context
-        .as_mut()
-        .ok_or_else(|| anyhow!("Kerberos server context is empty"))?;
-    payload = encrypt_payload(payload, server_ctx).context("Failed to encrypt payload")?;
+    tokio::task::spawn_blocking(move || {
+        let mut payload = encode_utf16le(payload).context("Failed to encode payload in utf16le")?;
 
-    Ok(multipart::get_multipart_body(
-        &payload,
-        cleartext_payload_len,
-        boundary,
-    ))
+        let cleartext_payload_len = payload.len();
+
+        let mut state = conn_state.lock().unwrap();
+        let server_ctx = &mut state
+            .context
+            .as_mut()
+            .ok_or_else(|| anyhow!("Kerberos server context is empty"))?;
+        payload = encrypt_payload(payload, server_ctx).context("Failed to encrypt payload")?;
+
+        Ok(multipart::get_multipart_body(
+            &payload,
+            cleartext_payload_len,
+            &boundary,
+        ))
+    })
+    .await?
 }

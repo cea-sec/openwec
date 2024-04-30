@@ -1,10 +1,14 @@
-#![allow(clippy::too_many_arguments)]
+#![deny(unsafe_code)]
 
 use std::env;
 
-use common::{database::schema::Version, settings::DEFAULT_CONFIG_FILE};
-
 use clap::{arg, command, value_parser, Arg, ArgAction, ArgGroup, Command};
+use common::{
+    database::schema::Version,
+    settings::DEFAULT_CONFIG_FILE,
+    subscription::{SubscriptionOutputFormat, DEFAULT_FILE_NAME},
+};
+use strum::VariantNames;
 
 #[tokio::main]
 async fn main() {
@@ -81,7 +85,7 @@ async fn main() {
                         .subcommand(
                             Command::new("add")
                             .about("Add a new output for this subscription")
-                            .arg(arg!(-f --format <FORMAT> "Output format").value_parser(["json", "raw"]).required(true))
+                            .arg(arg!(-f --format <FORMAT> "Output format").value_parser(SubscriptionOutputFormat::VARIANTS.to_vec()).required(true))
                             .subcommand(
                                 Command::new("tcp")
                                 .about("TCP output")
@@ -118,7 +122,7 @@ async fn main() {
                                 .arg(
                                     arg!(--"append-node-name" "Append the configured node name at the end of the generated path (parent dir of <filename>)")
                                 )
-                                .arg(arg!(--filename <FILENAME> "Name of the file where logs will be written.").default_value("messages"))
+                                .arg(arg!(--filename <FILENAME> "Name of the file where logs will be written.").default_value(DEFAULT_FILE_NAME))
                             )
                             .subcommand(
                                 Command::new("unixdatagram")
@@ -202,6 +206,12 @@ async fn main() {
                         .value_parser(value_parser!(u32))
                     )
                     .arg(
+                        arg!(--"locale" [LOCALE] "Language in which openwec wants the rendering info data to be translated (RFC 3066 code)")
+                    )
+                    .arg(
+                        arg!(--"data-locale" [DATA_LOCALE] "Language in which openwec wants the numerical data to be formatted (RFC 3066 code)")
+                    )
+                    .arg(
                         arg!(--"enable" "Enable the subscription")
                     )
                     .arg(
@@ -247,6 +257,14 @@ async fn main() {
                     ))
                 )
                 .subcommand(
+                    Command::new("load")
+                    .about("Load subscriptions from configuration files")
+                    .arg(arg!(<path> "Directory of configuration files or a single configuration file"))
+                    .arg(arg!(-k --keep "Do not delete subscriptions that are not present in the configuration"))
+                    .arg(arg!(-y --yes "Do not prompt for confirmation when <path> is a configuration file and --keep is not used"))
+                    .arg(arg!(-r --revision <REVISION> "Revision name of the configuration. If present, it will be added by openwec as metadata of all events received using this subscription."))
+                )
+                .subcommand(
                     Command::new("delete")
                     .about("Delete an existing subscription")
                     .arg(arg!(-y --yes "Do not prompt for confirmation"))
@@ -283,6 +301,13 @@ async fn main() {
                     .about("Force openwec server to reload subscriptions outputs and clients to establish a new connection.")
                     .arg(arg!(-a --all "Reload all subscriptions"))
                     .arg(arg!(<subscriptions> ... "Name or UUID of subscriptions").action(ArgAction::Append).required(false))
+                )
+                .subcommand(
+                    Command::new("skell")
+                    .about("Generate a subscription configuration file (that may be used with `load`)")
+                    .arg(arg!(-n --name <NAME> "Name of the subscription"))
+                    .arg(arg!(-m --minimal "Generate a minimal subscription configuration"))
+                    .arg(arg!(<path> "Path of the newly generated configuration file. '-' means stdout.").required(false).default_value("-"))
                 )
         )
         .subcommand(

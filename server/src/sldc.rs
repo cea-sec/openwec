@@ -11,7 +11,7 @@ const CTRLSYMB_RESET_1: u16 = 0b1111111110101;
 const CTRLSYMB_RESET_2: u16 = 0b1111111110110;
 const CTRLSYMB_END_MARKER: u16 = 0b1111111111111;
 
-pub fn decompress(compressed_bytes: &Vec<u8>) -> Result<Vec<u8>> {
+pub fn decompress(compressed_bytes: &[u8]) -> Result<Vec<u8>> {
     // Implemented according to ECMA-321
     debug!(
         "Try to decompress SLDC data ({} compressed bytes)",

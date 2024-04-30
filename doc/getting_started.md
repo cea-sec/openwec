@@ -126,13 +126,13 @@ Let's say we want to:
 - and send them in a Kafka topic (`my-kafka-topic`) on `localhost:9092` for further processing.
 
 We need to create 2 outputs:
-* `Files` with base path `/data/logs` using the `json` formatter:
+* The first one uses the `Files` driver with base path `/data/logs` and the `Json` formatter:
 
 ```bash
 $ openwec subscriptions edit my-test-subscription outputs add --format json files /data/logs
 ```
 
-* `Kafka` also using the `Json` formatter:
+* The second one uses the `Kafka` driver and the `Json` formatter:
 
 ```bash
 $ openwec subscriptions edit my-test-subscription outputs add --format json kafka my-kafka-topic -o bootstrap.servers localhost:9092
@@ -209,9 +209,9 @@ To be sure that everything works well, you can:
 ## Going further
 
 Now that you have a basic working collector, you have multiple ways to improve your setup:
-* Add additional sources in your Event query
-* Customize your subscriptions parameters
-* Add multiple OpenWEC nodes for redundancy and scaling. You must use PostgreSQL backend to do that (we advise using CockroachDB). You need to setup a load balancer such as Nginx in front of OpenWEC nodes.
+* Add additional sources in your Event query and customize your subscriptions parameters
+* Configure your subscriptions using configuration files (see [Subscription](subscription.md)) and version them.
+* Add multiple OpenWEC nodes for redundancy and horizontal scaling. You must use PostgreSQL backend to do that (we advise using CockroachDB). You also need to setup a load balancer such as Nginx in front of OpenWEC nodes.
 * Use a gMSA (group Managed Service Account) instead of a standard Active Directory account (you may use [gmsad](https://github.com/cea-sec/gmsad) and [msktutil](https://github.com/msktutil/msktutil)).
 * Create multiple subscriptions with different URIs, for example one by tier. Thus, you can monitor efficiently that you always receive logs from Tier 0 servers. You need to link one GPO per tier with the subscription URI.
 

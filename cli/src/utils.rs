@@ -7,11 +7,14 @@ use std::io::Write;
 
 pub fn confirm(message: &str) -> bool {
     for _ in 0..3 {
-        print!("{} [y/n] ", message);
+        print!("{} [Y/n] ", message);
         io::stdout().flush().unwrap();
         let mut input = String::new();
-        if let Ok(2) = io::stdin().read_line(&mut input) {
-            return input.to_ascii_lowercase().trim() == "y";
+        match io::stdin().read_line(&mut input) {
+            Ok(2) => return input.to_ascii_lowercase().trim() == "y",
+            // defaults to yes
+            Ok(1) => return true,
+            _ => (),
         }
     }
     false

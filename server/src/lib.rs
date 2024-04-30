@@ -1,14 +1,16 @@
 #![allow(clippy::too_many_arguments)]
+#![deny(unsafe_code)]
 
+mod drivers;
 mod event;
-mod formatter;
+mod formats;
 mod heartbeat;
 mod kerberos;
 mod logging;
 mod logic;
 mod multipart;
 mod output;
-mod outputs;
+mod proxy_protocol;
 mod sldc;
 mod soap;
 mod subscription;
@@ -21,71 +23,65 @@ use common::settings::{Authentication, Kerberos, Tls};
 use common::settings::{Collector, Server as ServerSettings, Settings};
 use core::pin::Pin;
 use futures::Future;
-use futures_util::{future::join_all, StreamExt};
+use futures_util::future::join_all;
 use heartbeat::{heartbeat_task, WriteHeartbeatMessage};
-use http::response::Builder;
-use http::status::StatusCode;
-use hyper::body::{to_bytes, HttpBody};
+use http_body_util::combinators::BoxBody;
+use http_body_util::{BodyExt, Empty, Full};
+use hyper::body::{Body, Bytes, Incoming};
 use hyper::header::{CONTENT_TYPE, WWW_AUTHENTICATE};
-use hyper::server::accept;
-use hyper::server::conn::AddrIncoming;
-use hyper::server::conn::AddrStream;
-use hyper::service::{make_service_fn, service_fn};
-use hyper::{Body, Request, Response, Server};
+use hyper::http::response::Builder;
+use hyper::http::status::StatusCode;
+use hyper::server::conn::http1;
+use hyper::service::service_fn;
+use hyper::{Request, Response};
+use hyper_util::rt::TokioIo;
 use kerberos::AuthenticationError;
-use lazy_static::lazy_static;
 use libgssapi::error::MajorFlags;
 use log::{debug, error, info, trace, warn};
 use quick_xml::writer::Writer;
-use regex::Regex;
 use soap::Serializable;
+use socket2::{SockRef, TcpKeepalive};
 use std::boxed::Box;
 use std::collections::HashMap;
 use std::convert::Infallible;
-use std::future::ready;
 use std::io::Cursor;
 use std::net::{IpAddr, SocketAddr};
 use std::str::FromStr;
 use std::sync::Mutex;
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
-use std::{env, mem};
+use std::{env, future, mem};
 use subscription::{reload_subscriptions_task, Subscriptions};
-use tls_listener::TlsListener;
+use tokio::io::AsyncRead;
+use tokio::net::TcpListener;
+use tokio::pin;
+use tokio::runtime::Handle;
 use tokio::signal::unix::SignalKind;
-use tokio::sync::{mpsc, oneshot};
-use tokio_rustls::server::TlsStream;
+use tokio::sync::{mpsc, oneshot, watch};
 use tokio_rustls::TlsAcceptor;
 use tokio_util::sync::CancellationToken;
 
 use crate::logging::ACCESS_LOGGER;
+use crate::proxy_protocol::read_proxy_header;
 use crate::tls::{make_config, subject_from_cert};
 
 pub enum RequestCategory {
     Enumerate(String),
-    Subscription(String),
+    Subscription,
 }
 
-impl TryFrom<&Request<Body>> for RequestCategory {
+impl TryFrom<&Request<Incoming>> for RequestCategory {
     type Error = anyhow::Error;
-    fn try_from(req: &Request<Body>) -> Result<Self, Self::Error> {
+    fn try_from(req: &Request<Incoming>) -> Result<Self, Self::Error> {
         if req.method() != "POST" {
             bail!("Invalid HTTP method {}", req.method());
         }
 
-        lazy_static! {
-            static ref SUBSCRIPTION_RE: Regex = Regex::new(r"^/wsman/subscriptions/([0-9A-Fa-f]{8}\b-[0-9A-Fa-f]{4}\b-[0-9A-Fa-f]{4}\b-[0-9A-Fa-f]{4}\b-[0-9A-F]{12})$").expect("Failed to compile SUBSCRIPTION regular expression");
+        if req.uri().path().starts_with("/wsman/subscriptions/") {
+            Ok(Self::Subscription)
+        } else {
+            Ok(Self::Enumerate(req.uri().to_string()))
         }
-        if let Some(c) = SUBSCRIPTION_RE.captures(req.uri().path()) {
-            return Ok(RequestCategory::Subscription(
-                c.get(1)
-                    .ok_or_else(|| anyhow!("Could not get identifier from URI"))?
-                    .as_str()
-                    .to_owned(),
-            ));
-        }
-
-        return Ok(Self::Enumerate(req.uri().to_string()));
     }
 }
 
@@ -96,7 +92,7 @@ pub struct RequestData {
 }
 
 impl RequestData {
-    fn new(principal: &str, remote_addr: &SocketAddr, req: &Request<Body>) -> Result<Self> {
+    fn new(principal: &str, remote_addr: &SocketAddr, req: &Request<Incoming>) -> Result<Self> {
         Ok(RequestData {
             principal: principal.to_owned(),
             remote_addr: remote_addr.to_owned(),
@@ -128,10 +124,21 @@ pub enum AuthenticationContext {
     Tls(String, String),
 }
 
+fn empty() -> BoxBody<Bytes, Infallible> {
+    // Empty::new().map_err(|never| match never {}).boxed()
+    Empty::new().boxed()
+}
+
+fn full<T: Into<Bytes>>(chunk: T) -> BoxBody<Bytes, Infallible> {
+    Full::new(chunk.into())
+        // .map_err(|never| match never {})
+        .boxed()
+}
+
 async fn get_request_payload(
     collector: &Collector,
     auth_ctx: &AuthenticationContext,
-    req: Request<Body>,
+    req: Request<Incoming>,
 ) -> Result<Option<String>> {
     let (parts, body) = req.into_parts();
 
@@ -151,9 +158,11 @@ async fn get_request_payload(
         );
     }
 
-    let data = to_bytes(body)
+    let data = body
+        .collect()
         .await
-        .context("Could not retrieve request body")?;
+        .context("Could not retrieve request body")?
+        .to_bytes();
 
     if data.is_empty() {
         return Ok(None);
@@ -161,44 +170,50 @@ async fn get_request_payload(
 
     let message = match auth_ctx {
         AuthenticationContext::Tls(_, _) => tls::get_request_payload(parts, data).await?,
-        AuthenticationContext::Kerberos(conn_state) => {
-            kerberos::get_request_payload(conn_state, parts, data).await?
+        AuthenticationContext::Kerberos(conn_state) => { 
+            kerberos::get_request_payload(conn_state.to_owned(), parts, data).await?
         }
     };
 
     match message {
-        Some(bytes) => Ok(Some(decode_utf16le(bytes)?)),
+        Some(bytes) => {
+            // Spawn a blocking task to decode utf16
+            tokio::task::spawn_blocking(|| Ok(Some(decode_utf16le(bytes)?))).await?
+        }
         _ => Ok(None),
     }
 }
 
-fn create_response(
+async fn create_response(
     auth_ctx: &AuthenticationContext,
     mut response: Builder,
     payload: Option<String>,
-) -> Result<Response<Body>> {
+) -> Result<Response<BoxBody<Bytes, Infallible>>> {
     match auth_ctx {
         AuthenticationContext::Tls(_, _) => {
             if payload.is_some() {
                 response = response.header(CONTENT_TYPE, "application/soap+xml;charset=UTF-16");
             }
             let body = match payload {
-                None => Body::empty(),
-                Some(payload) => Body::from(
-                    tls::get_response_payload(payload).context("Failed to compute TLS payload")?,
+                None => empty(),
+                Some(payload) => full(
+                    tls::get_response_payload(payload)
+                        .await
+                        .context("Failed to compute TLS payload")?,
                 ),
             };
             Ok(response.body(body)?)
         }
         AuthenticationContext::Kerberos(conn_state) => {
-            let boundary = "Encrypted Boundary";
+            let boundary = "Encrypted Boundary".to_owned();
             if payload.is_some() {
-                response = response.header(CONTENT_TYPE, "multipart/encrypted;protocol=\"application/HTTP-Kerberos-session-encrypted\";boundary=\"".to_owned() + boundary + "\"");
+                response = response.header(CONTENT_TYPE, "multipart/encrypted;protocol=\"application/HTTP-Kerberos-session-encrypted\";boundary=\"".to_owned() + &boundary + "\"");
             }
             let body = match payload {
-                None => Body::empty(),
-                Some(payload) => Body::from(
-                    kerberos::get_response_payload(conn_state, payload, boundary)
+                None => empty(),
+                Some(payload) => full(
+                    kerberos::get_response_payload(conn_state.clone(), payload, boundary)
+                        .await
                         .context("Failed to compute Kerberos encrypted payload")?,
                 ),
             };
@@ -207,7 +222,7 @@ fn create_response(
     }
 }
 
-fn log_auth_error(addr: &SocketAddr, req: &Request<Body>, err_str: String, do_warn: bool) {
+fn log_auth_error(addr: &SocketAddr, req: &Request<Incoming>, err_str: String, do_warn: bool) {
     let str_format = format!(
         "Authentication failed for {}:{} ({}:{}): {}",
         addr.ip(),
@@ -226,7 +241,7 @@ fn log_auth_error(addr: &SocketAddr, req: &Request<Body>, err_str: String, do_wa
 
 async fn authenticate(
     auth_ctx: &AuthenticationContext,
-    req: &Request<Body>,
+    req: &Request<Incoming>,
     addr: &SocketAddr,
 ) -> Result<(String, Builder)> {
     match auth_ctx {
@@ -241,7 +256,6 @@ async fn authenticate(
             Ok((subject.to_owned(), response))
         }
         AuthenticationContext::Kerberos(conn_state) => {
-            let mut response = Response::builder();
             let auth_result = kerberos::authenticate(conn_state, req)
                 .await
                 .map_err(|err| {
@@ -259,6 +273,9 @@ async fn authenticate(
                     }
                     err
                 })?;
+
+            let mut response = Response::builder();
+
             if let Some(token) = auth_result.token() {
                 response = response.header(WWW_AUTHENTICATE, format!("Kerberos {}", token))
             }
@@ -280,7 +297,12 @@ async fn handle_payload(
     match request_payload {
         None => Ok((StatusCode::OK, None)),
         Some(payload) => {
-            let message = soap::parse(&payload).context("Failed to parse SOAP message")?;
+            // Parsing xml takes some time
+            let message = tokio::task::spawn_blocking(move || {
+                soap::parse(&payload).context("Failed to parse SOAP message")
+            })
+            .await??;
+
             trace!("Parsed request: {:?}", message);
             let response = logic::handle_message(
                 server,
@@ -300,13 +322,30 @@ async fn handle_payload(
                 logic::Response::Ok(action, body) => {
                     let payload = soap::Message::response_from(&message, &action, body)
                         .context("Failed to build a response payload")?;
-                    let mut writer = Writer::new(Cursor::new(Vec::new()));
-                    payload
-                        .serialize(&mut writer)
-                        .context("Failed to serialize response payload")?;
-                    let result = String::from_utf8(writer.into_inner().into_inner())?;
-                    trace!("Response is: {}", result);
-                    Ok((StatusCode::OK, Some(result)))
+                    // If body is Some(), it means that we send EnumerationResponse
+                    // In this case, message serialization takes some time and should be executed
+                    // in a blocking task
+                    let result: Result<String> = if payload.body.is_some() {
+                        tokio::task::spawn_blocking(move || {
+                            let mut writer = Writer::new(Cursor::new(Vec::new()));
+                            payload
+                                .serialize(&mut writer)
+                                .context("Failed to serialize response payload")?;
+                            let result = String::from_utf8(writer.into_inner().into_inner())?;
+                            Ok(result)
+                        })
+                        .await?
+                    } else {
+                        let mut writer = Writer::new(Cursor::new(Vec::new()));
+                        payload
+                            .serialize(&mut writer)
+                            .context("Failed to serialize response payload")?;
+                        let result = String::from_utf8(writer.into_inner().into_inner())?;
+                        Ok(result)
+                    };
+                    let response_payload = result?;
+                    trace!("Response is: {}", response_payload);
+                    Ok((StatusCode::OK, Some(response_payload)))
                 }
             }
         }
@@ -358,10 +397,10 @@ fn log_response(
     log_mdc::clear();
 }
 
-fn build_error_response(status: StatusCode) -> Response<Body> {
+fn build_error_response(status: StatusCode) -> Response<BoxBody<Bytes, Infallible>> {
     Response::builder()
         .status(status)
-        .body(Body::empty())
+        .body(empty())
         .expect("Failed to build HTTP response")
 }
 
@@ -373,8 +412,8 @@ async fn handle(
     heartbeat_tx: mpsc::Sender<WriteHeartbeatMessage>,
     auth_ctx: AuthenticationContext,
     addr: SocketAddr,
-    req: Request<Body>,
-) -> Result<Response<Body>, Infallible> {
+    req: Request<Incoming>,
+) -> Result<Response<BoxBody<Bytes, Infallible>>, Infallible> {
     let start = Instant::now();
 
     debug!(
@@ -556,7 +595,7 @@ async fn handle(
 
     response_builder = response_builder.status(status);
     // Create HTTP response
-    let response = match create_response(&auth_ctx, response_builder, response_payload) {
+    let response = match create_response(&auth_ctx, response_builder, response_payload).await {
         Ok(response) => response,
         Err(e) => {
             error!("Failed to build HTTP response: {:?}", e);
@@ -586,6 +625,44 @@ async fn handle(
     Ok(response)
 }
 
+fn create_keepalive_settings(collector_server_settings: &ServerSettings) -> TcpKeepalive {
+    let tcp_keepalive_time = Duration::from_secs(collector_server_settings.tcp_keepalive_time());
+    let tcp_keepalive_interval = collector_server_settings
+        .tcp_keepalive_intvl()
+        .map(Duration::from_secs);
+    let tcp_keepalive_probes = collector_server_settings.tcp_keepalive_probes();
+
+    let keep_alive = TcpKeepalive::new().with_time(tcp_keepalive_time);
+    let keep_alive = if let Some(tcp_keepalive_interval) = tcp_keepalive_interval {
+        keep_alive.with_interval(tcp_keepalive_interval)
+    } else {
+        keep_alive
+    };
+    if let Some(tcp_keepalive_retries) = tcp_keepalive_probes {
+        keep_alive.with_retries(tcp_keepalive_retries)
+    } else {
+        keep_alive
+    }
+}
+
+async fn read_proxy_protocol_header<I>(stream: I) -> Result<SocketAddr>
+where
+    I: AsyncRead + Unpin,
+{
+    match read_proxy_header(stream).await {
+        Ok((_, addr_opt)) => match addr_opt {
+            Some(addr) => {
+                debug!("Real client address is {:?}", addr);
+                Ok(addr)
+            }
+            None => {
+                bail!("Failed to retrieve client address");
+            }
+        },
+        Err(err) => Err(anyhow!(err)),
+    }
+}
+
 fn create_kerberos_server(
     kerberos_settings: &Kerberos,
     collector_settings: Collector,
@@ -593,68 +670,145 @@ fn create_kerberos_server(
     collector_subscriptions: Subscriptions,
     collector_heartbeat_tx: mpsc::Sender<WriteHeartbeatMessage>,
     collector_server_settings: ServerSettings,
-    addr: SocketAddr,
-) -> Pin<Box<dyn Future<Output = hyper::Result<()>> + Send>> {
-    let principal = kerberos_settings.service_principal_name().to_owned();
+    collector_shutdown_ct: CancellationToken,
+    server_addr: SocketAddr,
+) -> Pin<Box<dyn Future<Output = Result<()>> + Send>> {
+    let server_principal = kerberos_settings.service_principal_name().to_owned();
     // Try to initialize a security context. This is to be sure that an error in
     // Kerberos configuration will be reported as soon as possible.
-    let state = kerberos::State::new(&principal);
+    let state = kerberos::State::new(&server_principal);
     if state.context_is_none() {
         panic!("Could not initialize Kerberos context");
     }
 
-    let tcp_keepalive_time = Duration::from_secs(collector_server_settings.tcp_keepalive_time());
-    let tcp_keepalive_interval = collector_server_settings
-        .tcp_keepalive_intvl()
-        .map(Duration::from_secs);
-    let tcp_keepalive_probes = collector_server_settings.tcp_keepalive_probes();
+    let server = async move {
+        let listener = TcpListener::bind(server_addr).await?;
+        info!("Server listenning on {}", server_addr);
 
-    // A `MakeService` that produces a `Service` to handle each connection.
-    let make_service = make_service_fn(move |conn: &AddrStream| {
-        // We have to clone the context to share it with each invocation of
-        // `make_service`.
+        // Each accepted TCP connection gets a channel 'rx', which is closed when
+        // the connections ends (whether because the client closed the connection
+        // or if a shutdown signal has been received).
+        // On shutdown, the server waits for all 'rx' to be dropped before
+        // resolving terminating using `close_tx.closed().await`.
+        let (close_tx, close_rx) = watch::channel(());
+        loop {
+            let shutdown_ct = collector_shutdown_ct.clone();
 
-        // Initialize Kerberos context once for each TCP connection
-        let collector_settings = collector_settings.clone();
-        let svc_db = collector_db.clone();
-        let svc_server_settings = collector_server_settings.clone();
-        let auth_ctx =
-            AuthenticationContext::Kerberos(Arc::new(Mutex::new(kerberos::State::new(&principal))));
-        let subscriptions = collector_subscriptions.clone();
-        let collector_heartbeat_tx = collector_heartbeat_tx.clone();
+            // Accept new clients and wait for shutdown signal to stop accepting
+            let (mut stream, client_addr) = tokio::select! {
+                conn = listener.accept() => match conn {
+                   Ok(conn) => conn,
+                   Err(err) => {
+                        warn!("Could not get client: {:?}", err);
+                        continue;
+                   }
+                },
+                _ = shutdown_ct.cancelled() => {
+                    debug!("Shutdown signal received, stop accepting new clients connections");
+                    break;
+                }
+            };
 
-        let addr = conn.remote_addr();
+            debug!("Received TCP connection from {}", client_addr);
 
-        debug!("Received TCP connection from {}", addr);
+            // Configure connected socket with keepalive parameters
+            let keep_alive = create_keepalive_settings(&collector_server_settings);
+            let socket_ref = SockRef::from(&stream);
+            socket_ref.set_tcp_keepalive(&keep_alive)?;
 
-        // Create a `Service` for responding to the request.
-        let service = service_fn(move |req| {
-            handle(
-                svc_server_settings.clone(),
-                collector_settings.clone(),
-                svc_db.clone(),
-                subscriptions.clone(),
-                collector_heartbeat_tx.clone(),
-                auth_ctx.clone(),
-                addr,
-                req,
-            )
-        });
+            // We have to clone the context to move it into the tokio task
+            // responsible for handling the client
+            let collector_settings = collector_settings.clone();
+            let svc_db = collector_db.clone();
+            let svc_server_settings = collector_server_settings.clone();
+            let svc_server_principal = server_principal.clone();
+            let subscriptions = collector_subscriptions.clone();
+            let collector_heartbeat_tx = collector_heartbeat_tx.clone();
 
-        // Return the service to hyper.
-        async move { Ok::<_, Infallible>(service) }
-    });
+            // Create a "rx" channel end for the task
+            let close_rx = close_rx.clone();
 
-    // Then bind and serve...
-    let server = Server::bind(&addr)
-        .tcp_keepalive(Some(tcp_keepalive_time))
-        .tcp_keepalive_interval(tcp_keepalive_interval)
-        .tcp_keepalive_retries(tcp_keepalive_probes)
-        .serve(make_service)
-        .with_graceful_shutdown(http_shutdown_signal());
+            tokio::task::spawn(async move {
+                // Parse proxy protocol if enabled
+                let real_client_addr = if collector_settings.enable_proxy_protocol() {
+                    match read_proxy_protocol_header(&mut stream).await {
+                        Ok(addr) => addr,
+                        Err(err) => {
+                            bail!("Failed to read Proxy Protocol header: {}", err);
+                        }
+                    }
+                } else {
+                    client_addr
+                };
 
-    info!("Server listenning on {}", addr);
-    // XXX : because the 2 closures have different types we use this, but may be better way to do this
+                // Initialize Kerberos context once for each TCP connection
+                // This operation takes time so we run it in a blocking task
+                let auth_ctx = tokio::task::spawn_blocking(move || {
+                    AuthenticationContext::Kerberos(Arc::new(Mutex::new(kerberos::State::new(
+                        &svc_server_principal,
+                    ))))
+                })
+                .await?;
+
+                // Hyper needs a wrapper for the stream
+                let io = TokioIo::new(stream);
+
+                // Handle the connection using Hyper http1
+                // conn is a Future that ends when the connection is closed
+                let conn = http1::Builder::new().serve_connection(
+                    io,
+                    service_fn(move |req| {
+                        handle(
+                            svc_server_settings.clone(),
+                            collector_settings.clone(),
+                            svc_db.clone(),
+                            subscriptions.clone(),
+                            collector_heartbeat_tx.clone(),
+                            auth_ctx.clone(),
+                            real_client_addr,
+                            req,
+                        )
+                    }),
+                );
+                // conn needs to be pinned to be able to use tokio::select!
+                pin!(conn);
+
+                // This loop is required to continue to poll the connection after calling
+                // graceful_shutdown().
+                tokio::select! {
+                    res = conn.as_mut() => {
+                        if let Err(err) = res {
+                            debug!("Error serving connection: {:?}", err);
+                        }
+                    },
+                    _ = shutdown_ct.cancelled() => {
+                        debug!("Shutdown signal received, closing connection with {:?}", client_addr);
+                        conn.as_mut().graceful_shutdown();
+                        if let Err(err) = conn.as_mut().await {
+                            debug!("Error serving connection: {:?}", err);
+                        };
+                    }
+                }
+                // Connection is closed, drop "task" rx to inform the server that this task
+                // is ending
+                drop(close_rx);
+
+                Ok(())
+            });
+        }
+
+        // Drop "server" rx to keep only "tasks" rx
+        drop(close_rx);
+
+        info!(
+            "Waiting for {} task(s) to finish",
+            close_tx.receiver_count()
+        );
+        close_tx.closed().await;
+
+        Ok(())
+    };
+
     Box::pin(server)
 }
 
@@ -665,92 +819,170 @@ fn create_tls_server(
     collector_subscriptions: Subscriptions,
     collector_heartbeat_tx: mpsc::Sender<WriteHeartbeatMessage>,
     collector_server_settings: ServerSettings,
-    addr: SocketAddr,
-) -> Pin<Box<dyn Future<Output = hyper::Result<()>> + Send>> {
+    collector_shutdown_ct: CancellationToken,
+    server_addr: SocketAddr,
+) -> Pin<Box<dyn Future<Output = Result<()>> + Send>> {
     // make TLS connection config
     let tls_config = make_config(tls_settings).expect("Error while configuring server");
-
-    let tcp_keepalive_time = Duration::from_secs(collector_server_settings.tcp_keepalive_time());
-    let tcp_keepalive_interval = collector_server_settings
-        .tcp_keepalive_intvl()
-        .map(Duration::from_secs);
-    let tcp_keepalive_probes = collector_server_settings.tcp_keepalive_probes();
-
-    // create the service per connection
-    let make_service = make_service_fn(move |conn: &TlsStream<AddrStream>| {
-        // get peer certificate (= user certificate)
-        let cert = conn
-            .get_ref()
-            .1
-            .peer_certificates()
-            .expect("Peer certificate should exist") // client auth has to happen, so this should not fail
-            .first()
-            .expect("Peer certificate should not be empty") // client cert cannot be empty if authentication succeeded
-            .clone();
-
-        let subject = subject_from_cert(cert.as_ref()).expect("Could not parse client certificate");
-        let thumbprint = tls_config.thumbprint.clone();
-
-        let collector_settings = collector_settings.clone();
-        let svc_db = collector_db.clone();
-        let svc_server_settings = collector_server_settings.clone();
-        let subscriptions = collector_subscriptions.clone();
-        let collector_heartbeat_tx = collector_heartbeat_tx.clone();
-
-        let addr = conn.get_ref().0.remote_addr();
-        let auth_ctx = AuthenticationContext::Tls(subject, thumbprint);
-
-        // create service per request
-        let service = service_fn(move |req| {
-            handle(
-                svc_server_settings.clone(),
-                collector_settings.clone(),
-                svc_db.clone(),
-                subscriptions.clone(),
-                collector_heartbeat_tx.clone(),
-                auth_ctx.clone(),
-                addr,
-                req,
-            )
-        });
-
-        async move { Ok::<_, Infallible>(service) }
-    });
-
     // create acceptor from config
     let tls_acceptor: TlsAcceptor = tls_config.server.into();
 
-    let mut addr_incoming = AddrIncoming::bind(&addr).expect("Could not bind address to listener");
-    addr_incoming.set_keepalive(Some(tcp_keepalive_time));
-    addr_incoming.set_keepalive_interval(tcp_keepalive_interval);
-    addr_incoming.set_keepalive_retries(tcp_keepalive_probes);
+    let server = async move {
+        let listener = TcpListener::bind(server_addr).await?;
+        info!("Server listenning on {}", server_addr);
 
-    // configure listener on the address to use the acceptor
-    let incoming = TlsListener::new(tls_acceptor, addr_incoming)
-        .connections()
-        .filter(|conn| {
-            if let Err(err) = &conn {
-                match err {
-                    tls_listener::Error::TlsAcceptError { error, .. }
-                        if error.to_string() == "tls handshake eof" =>
-                    {
-                        // happens sometimes, not problematic
-                        debug!("Error while establishing a connection: {:?}", err)
+        // Each accepted TCP connection gets a channel 'rx', which is closed when
+        // the connections ends (whether because the client closed the connection
+        // or if a shutdown signal has been received).
+        // On shutdown, the server waits for all 'rx' to be dropped before
+        // resolving terminating using `close_tx.closed().await`.
+        let (close_tx, close_rx) = watch::channel(());
+        loop {
+            let shutdown_ct = collector_shutdown_ct.clone();
+
+            // Accept new clients and wait for shutdown signal to stop accepting
+            let (mut stream, client_addr) = tokio::select! {
+                conn = listener.accept() => match conn {
+                    Ok(conn) => conn,
+                    Err(err) => {
+                        warn!("Could not get client: {:?}", err);
+                        continue;
                     }
-                    _ => warn!("Error while establishing a connection: {:?}", err),
+                },
+                _ = shutdown_ct.cancelled() => {
+                    debug!("Shutdown signal received, stop accepting new clients connections");
+                    break;
+                }
+            };
+
+            debug!("Received TCP connection from {}", client_addr);
+
+            // Configure connected socket with keepalive parameters
+            let keep_alive = create_keepalive_settings(&collector_server_settings);
+            let socket_ref = SockRef::from(&stream);
+            socket_ref.set_tcp_keepalive(&keep_alive)?;
+
+            // We have to clone the context to move it into the tokio task
+            // responsible for handling the client
+            let collector_settings = collector_settings.clone();
+            let svc_db = collector_db.clone();
+            let svc_server_settings = collector_server_settings.clone();
+            let subscriptions = collector_subscriptions.clone();
+            let collector_heartbeat_tx = collector_heartbeat_tx.clone();
+            let thumbprint = tls_config.thumbprint.clone();
+            let tls_acceptor = tls_acceptor.clone();
+
+            // Create a "rx" channel end for the task
+            let close_rx = close_rx.clone();
+
+            tokio::task::spawn(async move {
+                // Parse proxy protocol if enabled
+                let real_client_addr = if collector_settings.enable_proxy_protocol() {
+                    match read_proxy_protocol_header(&mut stream).await {
+                        Ok(addr) => addr,
+                        Err(err) => {
+                            debug!("Failed to read Proxy Protocol header: {}", err);
+                            // Exit task
+                            return;
+                        }
+                    }
+                } else {
+                    client_addr
                 };
-                ready(false)
-            } else {
-                ready(true)
-            }
-        });
 
-    let server = Server::builder(accept::from_stream(incoming))
-        .serve(make_service)
-        .with_graceful_shutdown(http_shutdown_signal());
+                let stream = match tls_acceptor.accept(stream).await {
+                    Ok(stream) => stream,
+                    Err(err) => {
+                        match err.into_inner() {
+                            Some(str) if str.to_string() == "tls handshake eof" => {
+                                // happens sometimes, not problematic
+                                debug!(
+                                    "Error while establishing a connection with '{}': {:?}",
+                                    real_client_addr, str
+                                )
+                            }
+                            other => warn!(
+                                "Error while establishing a connection with '{}': {:?}",
+                                real_client_addr, other
+                            ),
+                        };
+                        return;
+                    }
+                };
 
-    info!("Server listenning on {}", addr);
-    // XXX : because the 2 closures have different types we use this, but may be better way to do this
+                // get peer certificate
+                let cert = stream
+                    .get_ref()
+                    .1
+                    .peer_certificates()
+                    .expect("Peer certificate should exist") // client auth has to happen, so this should not fail
+                    .first()
+                    .expect("Peer certificate should not be empty") // client cert cannot be empty if authentication succeeded
+                    .clone();
+
+                let subject =
+                    subject_from_cert(cert.as_ref()).expect("Could not parse client certificate");
+
+                // Initialize Authentication context once for each TCP connection
+                let auth_ctx = AuthenticationContext::Tls(subject, thumbprint);
+
+                // Hyper needs a wrapper for the stream
+                let io = TokioIo::new(stream);
+
+                // Handle the connection using Hyper http1
+                // conn is a Future that ends when the connection is closed
+                let conn = http1::Builder::new().serve_connection(
+                    io,
+                    service_fn(move |req| {
+                        handle(
+                            svc_server_settings.clone(),
+                            collector_settings.clone(),
+                            svc_db.clone(),
+                            subscriptions.clone(),
+                            collector_heartbeat_tx.clone(),
+                            auth_ctx.clone(),
+                            real_client_addr,
+                            req,
+                        )
+                    }),
+                );
+                // conn needs to be pinned to be able to use tokio::select!
+                pin!(conn);
+
+                // This loop is required to continue to poll the connection after calling
+                // graceful_shutdown().
+                tokio::select! {
+                    res = conn.as_mut() => {
+                        if let Err(err) = res {
+                            debug!("Error serving connection: {:?}", err);
+                        }
+                    },
+                    _ = shutdown_ct.cancelled() => {
+                        debug!("Shutdown signal received, closing connection with {:?}", client_addr);
+                        conn.as_mut().graceful_shutdown();
+                        if let Err(err) = conn.as_mut().await {
+                            debug!("Error serving connection: {:?}", err);
+                        };
+                    }
+                }
+                // Connection is closed, drop "task" rx to inform the server that this task
+                // is ending
+                drop(close_rx);
+            });
+        }
+
+        // Drop "server" rx to keep only "tasks" rx
+        drop(close_rx);
+
+        info!(
+            "Waiting for {} task(s) to finish",
+            close_tx.receiver_count()
+        );
+        close_tx.closed().await;
+
+        Ok(())
+    };
+
     Box::pin(server)
 }
 
@@ -759,30 +991,38 @@ enum ShutdownReason {
     Sigterm,
 }
 
-async fn shutdown_signal() -> ShutdownReason {
+async fn shutdown_signal_task(ct: CancellationToken) {
     let ctrl_c = tokio::signal::ctrl_c();
     let mut sigterm = tokio::signal::unix::signal(SignalKind::terminate())
         .expect("failed to install SIGTERM handler");
 
     tokio::select! {
-        _ = ctrl_c => ShutdownReason::CtrlC,
-        _ = sigterm.recv() => ShutdownReason::Sigterm,
+        _ = ctrl_c => {
+            info!("Received CTRL+C");
+            ShutdownReason::CtrlC
+        },
+        _ = sigterm.recv() => {
+            info!("Received SIGTERM signal");
+            ShutdownReason::Sigterm
+        }
+    };
+
+    // Send the cancellation signal
+    ct.cancel();
+}
+
+fn monitoring_thread(rt_handle: Handle) {
+    info!("Monitoring thread started");
+    loop {
+        std::thread::sleep(Duration::from_secs(3));
+        debug!("Monitoring thread injected dummy task");
+        rt_handle.spawn(future::ready(()));
     }
 }
 
-async fn http_shutdown_signal() {
-    shutdown_signal().await;
-}
-
-async fn force_shutdown_timeout() {
-    match shutdown_signal().await {
-        ShutdownReason::CtrlC => {
-            info!("Received CTRL+C")
-        }
-        ShutdownReason::Sigterm => {
-            info!("Received SIGTERM signal")
-        }
-    }
+async fn force_shutdown_timeout(ct: CancellationToken) {
+    // Wait for the shutdown signal
+    ct.cancelled().await;
     debug!("Start 10 secs timeout before killing HTTP servers");
     tokio::time::sleep(Duration::from_secs(10)).await;
 }
@@ -793,8 +1033,13 @@ pub async fn run(settings: Settings, verbosity: u8) {
         panic!("Failed to setup logging: {:?}", e);
     }
 
-    // XXX : because the 2 closures have different types we use this, but may be better way to do this
-    let mut servers: Vec<Pin<Box<dyn Future<Output = hyper::Result<()>> + Send>>> = Vec::new();
+    let rt_handle = Handle::current();
+
+    // Start monitoring thread
+    // This ensures the whole progress does not get stop if the
+    // tokio runtime is accidently blocked by a "bad" task
+    // See https://github.com/tokio-rs/tokio/issues/4730
+    std::thread::spawn(move || monitoring_thread(rt_handle));
 
     let db: Db = db_from_settings(&settings)
         .await
@@ -839,6 +1084,14 @@ pub async fn run(settings: Settings, verbosity: u8) {
         heartbeat_task(update_task_db, interval, heartbeat_rx, cloned_heartbaat_ct).await
     });
 
+    let shutdown_ct = CancellationToken::new();
+    let cloned_shutdown_ct = shutdown_ct.clone();
+
+    // Shutdown task: waits for shutdown signal and cancel the given CancellationToken
+    tokio::spawn(async move {
+        shutdown_signal_task(cloned_shutdown_ct).await;
+    });
+
     // Set KRB5_KTNAME env variable if necessary (i.e. if at least one collector uses
     // Kerberos authentication)
     if settings.collectors().iter().any(|x| {
@@ -856,12 +1109,15 @@ pub async fn run(settings: Settings, verbosity: u8) {
 
     info!("Server settings: {:?}", settings.server());
 
+    let mut servers: Vec<Pin<Box<dyn Future<Output = Result<()>> + Send>>> = Vec::new();
+
     for collector in settings.collectors() {
         let collector_db = db.clone();
         let collector_subscriptions = subscriptions.clone();
         let collector_settings = collector.clone();
         let collector_heartbeat_tx = heartbeat_tx.clone();
         let collector_server_settings = settings.server().clone();
+        let collector_shutdown_ct = shutdown_ct.clone();
 
         // Construct our SocketAddr to listen on...
         let addr = SocketAddr::from((
@@ -882,10 +1138,10 @@ pub async fn run(settings: Settings, verbosity: u8) {
                     collector_subscriptions,
                     collector_heartbeat_tx,
                     collector_server_settings,
+                    collector_shutdown_ct,
                     addr,
                 ));
             }
-
             Authentication::Tls(tls) => {
                 servers.push(create_tls_server(
                     tls,
@@ -894,6 +1150,7 @@ pub async fn run(settings: Settings, verbosity: u8) {
                     collector_subscriptions,
                     collector_heartbeat_tx,
                     collector_server_settings,
+                    collector_shutdown_ct,
                     addr,
                 ));
             }
@@ -901,7 +1158,7 @@ pub async fn run(settings: Settings, verbosity: u8) {
     }
 
     tokio::select! {
-        _ = force_shutdown_timeout() => {
+        _ = force_shutdown_timeout(shutdown_ct) => {
             warn!("HTTP servers graceful shutdown timed out.");
         },
         result = join_all(servers) => {

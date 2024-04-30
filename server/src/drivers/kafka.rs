@@ -10,16 +10,15 @@ use rdkafka::{
 };
 use std::{sync::Arc, time::Duration};
 
-use crate::{event::EventMetadata, formatter::Format, output::Output};
+use crate::{event::EventMetadata, output::OutputDriver};
 
 pub struct OutputKafka {
-    format: Format,
     config: KafkaConfiguration,
     producer: FutureProducer,
 }
 
 impl OutputKafka {
-    pub fn new(format: Format, config: &KafkaConfiguration) -> Result<Self> {
+    pub fn new(config: &KafkaConfiguration) -> Result<Self> {
         let mut client_config = ClientConfig::new();
         // Set a default value for Kafka delivery timeout
         // This can be overwritten in Kafka configuration
@@ -28,11 +27,10 @@ impl OutputKafka {
             client_config.set(key, value);
         }
         debug!(
-            "Initialize kafka output with format {:?} and config {:?}",
-            format, config
+            "Initialize kafka output with config {:?}",
+            config
         );
         Ok(OutputKafka {
-            format,
             config: config.clone(),
             producer: client_config.create()?,
         })
@@ -40,7 +38,7 @@ impl OutputKafka {
 }
 
 #[async_trait]
-impl Output for OutputKafka {
+impl OutputDriver for OutputKafka {
     async fn write(
         &self,
         _metadata: Arc<EventMetadata>,
@@ -66,13 +64,5 @@ impl Output for OutputKafka {
         }
 
         Ok(())
-    }
-
-    fn describe(&self) -> String {
-        format!("Kafka (topic {})", self.config.topic())
-    }
-
-    fn format(&self) -> &Format {
-        &self.format
     }
 }

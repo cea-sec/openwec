@@ -1,5 +1,4 @@
 use anyhow::{anyhow, bail, ensure, Context, Result};
-use common::utils::new_uuid;
 use log::{debug, trace};
 use quick_xml::events::{BytesText, Event};
 use quick_xml::reader::Reader;
@@ -7,6 +6,7 @@ use quick_xml::writer::Writer;
 use roxmltree::{Document, Node};
 use std::collections::HashMap;
 use std::sync::Arc;
+use uuid::Uuid;
 use xmlparser::XmlCharExt;
 
 const SOAP_ENVELOPE_NS: &str = "http://www.w3.org/2003/05/soap-envelope";
@@ -39,13 +39,17 @@ pub const ACTION_SUBSCRIPTION_END: &str =
 pub const ACTION_HEARTBEAT: &str = "http://schemas.dmtf.org/wbem/wsman/1/wsman/Heartbeat";
 pub const ACTION_ACK: &str = "http://schemas.dmtf.org/wbem/wsman/1/wsman/Ack";
 
+pub fn new_uuid() -> String {
+    format!("uuid:{}", Uuid::new_v4().to_string().to_uppercase())
+}
+
 pub trait Serializable {
     fn serialize<W: std::io::Write>(&self, writer: &mut Writer<W>) -> quick_xml::Result<()>;
 }
 
 #[derive(Debug)]
 pub struct Subscription {
-    pub identifier: String,
+    pub version: String,
     pub header: Header,
     pub body: SubscriptionBody,
 }
@@ -59,7 +63,7 @@ impl Serializable for Subscription {
                 writer
                     .create_element("m:Version")
                     .write_text_content(BytesText::new(
-                        format!("uuid:{}", self.identifier).as_str(),
+                        format!("uuid:{}", self.version).as_str(),
                     ))?;
                 writer
                     .create_element("s:Envelope")
@@ -93,6 +97,10 @@ pub struct SubscriptionBody {
     pub max_time: u32,
     pub max_envelope_size: u32,
     pub thumbprint: Option<String>,
+    pub public_version: String,
+    pub revision: Option<String>,
+    pub locale: Option<String>,
+    pub data_locale: Option<String>,
 }
 
 impl Serializable for SubscriptionBody {
@@ -110,11 +118,19 @@ impl Serializable for SubscriptionBody {
                                     .create_element("a:Address")
                                     .write_text_content(BytesText::new(&self.address))?;
                                 writer
-                                    .create_element("a:ReferenceProperties")
+                                    .create_element("a:ReferenceParameters")
                                     .write_inner_content(|writer| {
                                         writer
                                             .create_element("e:Identifier")
                                             .write_text_content(BytesText::new(&self.identifier))?;
+                                        writer
+                                            .create_element("Version")
+                                            .write_text_content(BytesText::new(&self.public_version))?;
+                                        if let Some(revision) = &self.revision {
+                                            writer
+                                                .create_element("Revision")
+                                                .write_text_content(BytesText::new(revision))?;
+                                        }
                                         Ok::<(), quick_xml::Error>(())
                                     })?;
                                 Ok::<(), quick_xml::Error>(())
@@ -134,13 +150,19 @@ impl Serializable for SubscriptionBody {
                                             .create_element("a:Address")
                                             .write_text_content(BytesText::new(&self.address))?;
                                         writer
-                                            .create_element("a:ReferenceProperties")
+                                            .create_element("a:ReferenceParameters")
                                             .write_inner_content(|writer| {
                                                 writer
                                                     .create_element("e:Identifier")
-                                                    .write_text_content(BytesText::new(
-                                                        &self.identifier,
-                                                    ))?;
+                                                    .write_text_content(BytesText::new(&self.identifier))?;
+                                                writer
+                                                    .create_element("Version")
+                                                    .write_text_content(BytesText::new(&self.public_version))?;
+                                                if let Some(revision) = &self.revision {
+                                                    writer
+                                                        .create_element("Revision")
+                                                        .write_text_content(BytesText::new(revision))?;
+                                                }
                                                 Ok::<(), quick_xml::Error>(())
                                             })?;
                                         writer
@@ -229,16 +251,20 @@ impl Serializable for SubscriptionBody {
                                     .write_text_content(BytesText::new(
                                         format!("{}", self.max_envelope_size).as_str(),
                                     ))?;
-                                writer
-                                    .create_element("w:Locale")
-                                    .with_attribute(("xml:lang", "en-US"))
-                                    .with_attribute(("s:mustUnderstand", "false"))
-                                    .write_empty()?;
-                                writer
-                                    .create_element("p:DataLocale")
-                                    .with_attribute(("xml:lang", "en-US"))
-                                    .with_attribute(("s:mustUnderstand", "false"))
-                                    .write_empty()?;
+                                if let Some(locale) = &self.locale {
+                                    writer
+                                        .create_element("w:Locale")
+                                        .with_attribute(("xml:lang", locale.as_str()))
+                                        .with_attribute(("s:mustUnderstand", "false"))
+                                        .write_empty()?;
+                                }
+                                if let Some(data_locale) = &self.data_locale {
+                                    writer
+                                        .create_element("p:DataLocale")
+                                        .with_attribute(("xml:lang", data_locale.as_str()))
+                                        .with_attribute(("s:mustUnderstand", "false"))
+                                        .write_empty()?;
+                                }
                                 writer
                                     .create_element("w:ContentEncoding")
                                     .write_text_content(BytesText::new("UTF-16"))?;
@@ -301,7 +327,6 @@ pub struct Header {
     action: Option<String>,
     max_envelope_size: Option<u32>,
     message_id: Option<String>,
-    // TODO: difference between Locale and DataLocale
     // Might be interesting to keep this data if you want to translate things ?
     // Locale: String,
     // DataLocale: String,
@@ -318,6 +343,9 @@ pub struct Header {
     identifier: Option<String>,
     bookmarks: Option<String>,
     ack_requested: Option<bool>,
+    // Specific to Events and OpenWEC
+    version: Option<String>,
+    revision: Option<String>,
 }
 
 impl Header {
@@ -338,6 +366,8 @@ impl Header {
             ack_requested: None,
             bookmarks: None,
             identifier: None,
+            version: None,
+            revision: None,
         }
     }
     pub fn new(
@@ -367,6 +397,8 @@ impl Header {
             ack_requested: None,
             bookmarks: None,
             identifier: None,
+            version: None,
+            revision: None,
         }
     }
 
@@ -375,9 +407,16 @@ impl Header {
         self.bookmarks.as_ref()
     }
 
-    /// Get a reference to the header's identifier.
     pub fn identifier(&self) -> Option<&String> {
         self.identifier.as_ref()
+    }
+
+    pub fn version(&self) -> Option<&String> {
+        self.version.as_ref()
+    }
+
+    pub fn revision(&self) -> Option<&String> {
+        self.revision.as_ref()
     }
 }
 
@@ -427,17 +466,6 @@ impl Serializable for Header {
                         .create_element("a:MessageID")
                         .write_text_content(BytesText::new(message_id))?;
                 }
-
-                writer
-                    .create_element("w:Locale")
-                    .with_attribute(("xml:lang", "en-US"))
-                    .with_attribute(("s:mustUnderstand", "false"))
-                    .write_empty()?;
-                writer
-                    .create_element("p:DataLocale")
-                    .with_attribute(("xml:lang", "en-US"))
-                    .with_attribute(("s:mustUnderstand", "false"))
-                    .write_empty()?;
                 if let Some(operation_id) = &self.operation_id {
                     writer
                         .create_element("p:OperationID")
@@ -606,6 +634,8 @@ impl Message {
                 ack_requested: None,
                 bookmarks: None,
                 identifier: None,
+                version: None,
+                revision: None,
             },
             body,
         })
@@ -659,6 +689,12 @@ fn parse_header(header_node: Node) -> Result<Header> {
             ));
         } else if tag == (EVENTING_NS, "Identifier").into() {
             header.identifier = node.text().map(String::from)
+        } else if tag == "Version".into() {
+            // specific to OpenWEC
+            header.version = node.text().map(String::from)
+        } else if tag == "Revision".into() {
+            // specific to OpenWEC
+            header.revision = node.text().map(String::from)
         }
     }
     Ok(header)

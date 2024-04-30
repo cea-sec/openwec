@@ -80,12 +80,11 @@ pub trait Database {
     async fn store_heartbeats(&self, heartbeats: &HeartbeatsCache) -> Result<()>;
 
     async fn get_subscriptions(&self) -> Result<Vec<SubscriptionData>>;
-    async fn get_subscription(&self, version: &str) -> Result<Option<SubscriptionData>>;
     async fn get_subscription_by_identifier(
         &self,
         identifier: &str,
     ) -> Result<Option<SubscriptionData>>;
-    async fn store_subscription(&self, subscription: SubscriptionData) -> Result<()>;
+    async fn store_subscription(&self, subscription: &SubscriptionData) -> Result<()>;
     async fn delete_subscription(&self, uuid: &str) -> Result<()>;
 
     async fn setup_schema(&self) -> Result<()>;
@@ -125,8 +124,9 @@ pub mod tests {
     use crate::{
         heartbeat::{HeartbeatKey, HeartbeatValue},
         subscription::{
-            ContentFormat, FileConfiguration, PrincsFilter, PrincsFilterOperation,
-            SubscriptionOutput, SubscriptionOutputFormat,
+            ContentFormat, FilesConfiguration, PrincsFilter, PrincsFilterOperation,
+            SubscriptionOutput, SubscriptionOutputDriver, SubscriptionOutputFormat,
+            DEFAULT_CONTENT_FORMAT, DEFAULT_IGNORE_CHANNEL_ERROR, DEFAULT_READ_EXISTING_EVENTS,
         },
     };
 
@@ -150,85 +150,69 @@ pub mod tests {
     pub async fn test_subscriptions(db: Arc<dyn Database>) -> Result<()> {
         setup_db(db.clone()).await?;
         assert!(db.get_subscriptions().await?.is_empty(),);
-        assert!(db.get_subscription("toto").await?.is_none(),);
         assert!(db.get_subscription_by_identifier("toto").await?.is_none());
-        assert!(db.get_subscription_by_identifier("toto").await?.is_none());
-        let subscription = SubscriptionData::new(
-            "toto",
-            Some("/test/1"),
-            "query",
-            None,
-            None,
-            None,
-            None,
-            None,
-            false,
-            false,
-            ContentFormat::Raw,
-            true,
-            PrincsFilter::empty(),
-            None,
-        );
-        db.store_subscription(subscription.clone()).await?;
+
+        let mut subscription = SubscriptionData::new("toto", "query");
+        subscription
+            .set_uri(Some("/test/1".to_owned()))
+            .set_enabled(false);
+        db.store_subscription(&subscription).await?;
+
         assert!(db.get_subscriptions().await?.len() == 1);
+
         let toto = &db.get_subscriptions().await?[0];
         assert_eq!(toto.name(), "toto");
         assert_eq!(toto.uri(), Some(&"/test/1".to_string()));
         assert_eq!(toto.query(), "query",);
         assert_eq!(toto.enabled(), false);
-        assert_eq!(toto.read_existing_events(), false);
-        assert_eq!(toto.content_format(), &ContentFormat::Raw);
-        assert_eq!(toto.ignore_channel_error(), true);
+        assert_eq!(toto.read_existing_events(), DEFAULT_READ_EXISTING_EVENTS);
+        assert_eq!(toto.content_format(), &DEFAULT_CONTENT_FORMAT);
+        assert_eq!(toto.ignore_channel_error(), DEFAULT_IGNORE_CHANNEL_ERROR);
         assert_eq!(toto.princs_filter().operation(), None);
         assert_eq!(toto.is_active(), false);
         assert_eq!(toto.is_active_for("couscous"), false);
+        assert_eq!(toto.revision(), None);
+        assert_eq!(toto.data_locale(), None);
+        assert_eq!(toto.locale(), None);
 
         let toto2 = db.get_subscription_by_identifier("toto").await?.unwrap();
         assert_eq!(toto, &toto2);
 
         let toto3 = db
-            .get_subscription_by_identifier(subscription.uuid())
+            .get_subscription_by_identifier(&subscription.uuid_string())
             .await?
             .unwrap();
         assert_eq!(toto, &toto3);
-        let toto4 = db.get_subscription(subscription.version()).await?.unwrap();
-        assert_eq!(toto, &toto4);
 
         let file_config_1 =
-            FileConfiguration::new("/path1".to_string(), None, false, "messages".to_string());
+            FilesConfiguration::new("/path1".to_string(), None, false, "messages".to_string());
         let file_config_2 =
-            FileConfiguration::new("/path2".to_string(), None, false, "messages".to_string());
-        let subscription2 = SubscriptionData::new(
-            "tata",
-            None,
-            "query2",
-            None,
-            None,
-            None,
-            None,
-            None,
-            true,
-            true,
-            ContentFormat::RenderedText,
-            false,
-            PrincsFilter::from(
+            FilesConfiguration::new("/path2".to_string(), None, false, "messages".to_string());
+        let mut subscription2 = SubscriptionData::new("tata", "query2");
+        subscription2
+            .set_read_existing_events(true)
+            .set_content_format(ContentFormat::RenderedText)
+            .set_ignore_channel_error(false)
+            .set_princs_filter(PrincsFilter::from(
                 Some("Only".to_string()),
                 Some("couscous,boulette".to_string()),
-            )?,
-            Some(vec![
-                SubscriptionOutput::Files(
+            )?)
+            .set_outputs(vec![
+                SubscriptionOutput::new(
                     SubscriptionOutputFormat::Json,
-                    file_config_1.clone(),
+                    SubscriptionOutputDriver::Files(file_config_1.clone()),
                     true,
                 ),
-                SubscriptionOutput::Files(
+                SubscriptionOutput::new(
                     SubscriptionOutputFormat::Raw,
-                    file_config_2.clone(),
+                    SubscriptionOutputDriver::Files(file_config_2.clone()),
                     false,
                 ),
-            ]),
-        );
-        db.store_subscription(subscription2).await?;
+            ])
+            .set_revision(Some("1472".to_string()))
+            .set_locale(Some("fr-FR".to_string()))
+            .set_data_locale(Some("en-US".to_string()));
+        db.store_subscription(&subscription2).await?;
 
         assert!(db.get_subscriptions().await?.len() == 2);
 
@@ -252,43 +236,56 @@ pub mod tests {
         assert_eq!(
             tata.outputs(),
             vec![
-                SubscriptionOutput::Files(
+                SubscriptionOutput::new(
                     SubscriptionOutputFormat::Json,
-                    file_config_1.clone(),
-                    true
+                    SubscriptionOutputDriver::Files(file_config_1.clone()),
+                    true,
                 ),
-                SubscriptionOutput::Files(
+                SubscriptionOutput::new(
                     SubscriptionOutputFormat::Raw,
-                    file_config_2.clone(),
+                    SubscriptionOutputDriver::Files(file_config_2.clone()),
                     false,
-                ),
-            ]
+                )
+            ],
         );
         assert_eq!(tata.is_active(), true);
         assert_eq!(tata.is_active_for("couscous"), true);
         // Filter is case-sensitive
         assert_eq!(tata.is_active_for("Couscous"), false);
         assert_eq!(tata.is_active_for("semoule"), false);
+        assert_eq!(tata.revision(), Some("1472".to_string()).as_ref());
+        assert_eq!(tata.locale(), Some("fr-FR".to_string()).as_ref());
+        assert_eq!(tata.data_locale(), Some("en-US".to_string()).as_ref());
 
         let tata_save = tata.clone();
-        tata.set_name("titi".to_string());
-        tata.set_max_time(25000);
-        tata.set_read_existing_events(false);
-        tata.set_content_format(ContentFormat::Raw);
-        tata.set_ignore_channel_error(true);
+        tata.set_name("titi".to_string())
+            .set_max_time(25000)
+            .set_heartbeat_interval(1234)
+            .set_connection_retry_count(3)
+            .set_connection_retry_interval(54321)
+            .set_max_envelope_size(7777)
+            .set_read_existing_events(false)
+            .set_content_format(ContentFormat::Raw)
+            .set_ignore_channel_error(true)
+            .set_revision(Some("1890".to_string()))
+            .set_data_locale(Some("fr-FR".to_string()));
         let mut new_princs_filter = tata.princs_filter().clone();
         new_princs_filter.add_princ("semoule")?;
         tata.set_princs_filter(new_princs_filter);
 
-        db.store_subscription(tata.clone()).await?;
+        db.store_subscription(&tata).await?;
 
         ensure!(db.get_subscriptions().await?.len() == 2);
         let mut tata2 = db
-            .get_subscription_by_identifier(tata.uuid())
+            .get_subscription_by_identifier(&tata.uuid_string())
             .await?
             .unwrap();
         assert_eq!(tata2.name(), "titi");
         assert_eq!(tata2.max_time(), 25000);
+        assert_eq!(tata2.heartbeat_interval(), 1234);
+        assert_eq!(tata2.connection_retry_count(), 3);
+        assert_eq!(tata2.connection_retry_interval(), 54321);
+        assert_eq!(tata2.max_envelope_size(), 7777);
         assert_eq!(tata2.read_existing_events(), false);
         assert_eq!(tata2.content_format(), &ContentFormat::Raw);
         assert_eq!(tata2.ignore_channel_error(), true);
@@ -306,18 +303,21 @@ pub mod tests {
         );
         assert_eq!(tata2.is_active_for("couscous"), true);
         assert_eq!(tata2.is_active_for("semoule"), true);
+        assert_eq!(tata2.revision(), Some("1890".to_string()).as_ref());
+        assert_eq!(tata2.locale(), Some("fr-FR".to_string()).as_ref()); // Unchanged
+        assert_eq!(tata2.data_locale(), Some("fr-FR".to_string()).as_ref());
 
-        assert!(tata2.version() != tata_save.version());
+        assert!(tata2.public_version()? != tata_save.public_version()?);
 
         let mut new_princs_filter = tata2.princs_filter().clone();
         new_princs_filter.delete_princ("couscous")?;
         new_princs_filter.set_operation(Some(PrincsFilterOperation::Except));
         tata2.set_princs_filter(new_princs_filter);
 
-        db.store_subscription(tata2).await?;
+        db.store_subscription(&tata2).await?;
 
         let mut tata2_clone = db
-            .get_subscription_by_identifier(tata.uuid())
+            .get_subscription_by_identifier(&tata.uuid_string())
             .await?
             .unwrap();
         assert_eq!(
@@ -337,10 +337,10 @@ pub mod tests {
         new_princs_filter.set_operation(None);
         tata2_clone.set_princs_filter(new_princs_filter);
 
-        db.store_subscription(tata2_clone).await?;
+        db.store_subscription(&tata2_clone).await?;
 
         let tata2_clone_clone = db
-            .get_subscription_by_identifier(tata.uuid())
+            .get_subscription_by_identifier(&tata.uuid_string())
             .await?
             .unwrap();
         assert_eq!(tata2_clone_clone.princs_filter().operation(), None);
@@ -349,9 +349,11 @@ pub mod tests {
         assert_eq!(tata2_clone_clone.is_active_for("semoule"), true);
         assert_eq!(tata2_clone_clone.is_active_for("boulette"), true);
 
-        db.delete_subscription(toto4.uuid()).await?;
+        db.delete_subscription(&toto3.uuid_string()).await?;
         ensure!(
-            db.get_subscription("toto").await?.is_none(),
+            db.get_subscription_by_identifier(&toto3.uuid_string())
+                .await?
+                .is_none(),
             "The subscription with version 'toto' should not exist yet"
         );
         assert!(db.get_subscriptions().await?.len() == 1);
@@ -359,7 +361,7 @@ pub mod tests {
         let tata3 = &db.get_subscriptions().await?[0];
         assert_eq!(tata.uuid(), tata3.uuid());
 
-        db.delete_subscription(tata.uuid()).await?;
+        db.delete_subscription(&tata.uuid_string()).await?;
         assert!(db.get_subscriptions().await?.is_empty());
 
         clean_db(db.clone()).await?;
@@ -368,152 +370,136 @@ pub mod tests {
 
     pub async fn test_bookmarks(db: Arc<dyn Database>) -> Result<()> {
         setup_db(db.clone()).await?;
-        let subscription_tutu = SubscriptionData::new(
-            "tutu",
-            None,
-            "query",
-            None,
-            None,
-            None,
-            None,
-            None,
-            false,
-            false,
-            ContentFormat::Raw,
-            false,
-            PrincsFilter::empty(),
-            None,
-        );
-        db.store_subscription(subscription_tutu.clone()).await?;
-        let subscription_titi = SubscriptionData::new(
-            "titi",
-            None,
-            "query",
-            None,
-            None,
-            None,
-            None,
-            None,
-            false,
-            false,
-            ContentFormat::RenderedText,
-            true,
-            PrincsFilter::empty(),
-            None,
-        );
-        db.store_subscription(subscription_titi.clone()).await?;
+        let subscription_tutu = SubscriptionData::new("tutu", "query");
+        db.store_subscription(&subscription_tutu).await?;
+        let subscription_titi = SubscriptionData::new("titi", "query");
+        db.store_subscription(&subscription_titi).await?;
 
         // Test non existent bookmark
         assert!(db
-            .get_bookmark("toto", subscription_tutu.uuid())
+            .get_bookmark("toto", &subscription_tutu.uuid_string())
             .await?
             .is_none(),);
 
-        assert!(db.get_bookmarks(subscription_tutu.uuid()).await?.is_empty());
+        assert!(db
+            .get_bookmarks(&subscription_tutu.uuid_string())
+            .await?
+            .is_empty());
 
         // Store a bookmark
-        db.store_bookmark("toto", subscription_tutu.uuid(), "titi")
+        db.store_bookmark("toto", &subscription_tutu.uuid_string(), "titi")
             .await?;
         // Test if the bookmark is correctly remembered
         assert_eq!(
-            db.get_bookmark("toto", subscription_tutu.uuid())
+            db.get_bookmark("toto", &subscription_tutu.uuid_string())
                 .await?
                 .unwrap(),
             "titi",
         );
         assert_eq!(
-            db.get_bookmarks(subscription_tutu.uuid()).await?[0],
+            db.get_bookmarks(&subscription_tutu.uuid_string()).await?[0],
             BookmarkData {
                 machine: "toto".to_owned(),
-                subscription: subscription_tutu.uuid().to_owned(),
+                subscription: subscription_tutu.uuid_string().to_owned(),
                 bookmark: "titi".to_owned()
             }
         );
 
         // Update the bookmark
-        db.store_bookmark("toto", subscription_tutu.uuid(), "toto")
+        db.store_bookmark("toto", &subscription_tutu.uuid_string(), "toto")
             .await?;
         // Test if the bookmark is correctly remembered
         assert_eq!(
-            db.get_bookmark("toto", subscription_tutu.uuid())
+            db.get_bookmark("toto", &subscription_tutu.uuid_string())
                 .await?
                 .unwrap(),
             "toto",
         );
         assert_eq!(
-            db.get_bookmarks(subscription_tutu.uuid()).await?[0],
+            db.get_bookmarks(&subscription_tutu.uuid_string()).await?[0],
             BookmarkData {
                 machine: "toto".to_owned(),
-                subscription: subscription_tutu.uuid().to_owned(),
+                subscription: subscription_tutu.uuid_string().to_owned(),
                 bookmark: "toto".to_owned()
             }
         );
         // Update another bookmark
-        db.store_bookmark("toto", subscription_titi.uuid(), "babar")
+        db.store_bookmark("toto", &subscription_titi.uuid_string(), "babar")
             .await?;
         // Test if the original bookmark is correctly remembered
         assert_eq!(
-            db.get_bookmark("toto", subscription_tutu.uuid())
+            db.get_bookmark("toto", &subscription_tutu.uuid_string())
                 .await?
                 .unwrap(),
             "toto",
         );
         assert_eq!(
-            db.get_bookmarks(subscription_tutu.uuid()).await?[0],
+            db.get_bookmarks(&subscription_tutu.uuid_string()).await?[0],
             BookmarkData {
                 machine: "toto".to_owned(),
-                subscription: subscription_tutu.uuid().to_owned(),
+                subscription: subscription_tutu.uuid_string().to_owned(),
                 bookmark: "toto".to_owned()
             }
         );
         assert_eq!(
-            db.get_bookmark("toto", subscription_titi.uuid())
+            db.get_bookmark("toto", &subscription_titi.uuid_string())
                 .await?
                 .unwrap(),
             "babar",
         );
         assert_eq!(
-            db.get_bookmarks(subscription_titi.uuid()).await?[0],
+            db.get_bookmarks(&subscription_titi.uuid_string()).await?[0],
             BookmarkData {
                 machine: "toto".to_owned(),
-                subscription: subscription_titi.uuid().to_owned(),
+                subscription: subscription_titi.uuid_string().to_owned(),
                 bookmark: "babar".to_owned()
             }
         );
 
         // Test that bookmarks are deleted if subscription is deleted
-        db.delete_subscription(subscription_tutu.uuid()).await?;
+        db.delete_subscription(&subscription_tutu.uuid_string())
+            .await?;
         assert!(db
-            .get_bookmark("toto", subscription_tutu.uuid())
+            .get_bookmark("toto", &subscription_tutu.uuid_string())
             .await?
             .is_none(),);
-        assert!(db.get_bookmarks(subscription_tutu.uuid()).await?.is_empty());
+        assert!(db
+            .get_bookmarks(&subscription_tutu.uuid_string())
+            .await?
+            .is_empty());
         assert_eq!(
-            db.get_bookmark("toto", subscription_titi.uuid())
+            db.get_bookmark("toto", &subscription_titi.uuid_string())
                 .await?
                 .unwrap(),
             "babar",
         );
-        assert!(!db.get_bookmarks(subscription_titi.uuid()).await?.is_empty());
-        db.delete_subscription(subscription_titi.uuid()).await?;
+        assert!(!db
+            .get_bookmarks(&subscription_titi.uuid_string())
+            .await?
+            .is_empty());
+        db.delete_subscription(&subscription_titi.uuid_string())
+            .await?;
         assert!(db
-            .get_bookmark("toto", subscription_titi.uuid())
+            .get_bookmark("toto", &subscription_titi.uuid_string())
             .await?
             .is_none(),);
-        assert!(db.get_bookmarks(subscription_titi.uuid()).await?.is_empty());
+        assert!(db
+            .get_bookmarks(&subscription_titi.uuid_string())
+            .await?
+            .is_empty());
 
-        db.store_subscription(subscription_tutu.clone()).await?;
-        db.store_subscription(subscription_titi.clone()).await?;
+        db.store_subscription(&subscription_tutu).await?;
+        db.store_subscription(&subscription_titi).await?;
 
-        db.store_bookmark("m1", subscription_tutu.uuid(), "m1b1")
+        db.store_bookmark("m1", &subscription_tutu.uuid_string(), "m1b1")
             .await?;
-        db.store_bookmark("m2", subscription_tutu.uuid(), "m2b1")
+        db.store_bookmark("m2", &subscription_tutu.uuid_string(), "m2b1")
             .await?;
-        db.store_bookmark("m1", subscription_titi.uuid(), "m1b2")
+        db.store_bookmark("m1", &subscription_titi.uuid_string(), "m1b2")
             .await?;
 
         // Test Retrieve bookmarks for subscription tutu
-        let bookmarks = db.get_bookmarks(subscription_tutu.uuid()).await?;
+        let bookmarks = db.get_bookmarks(&subscription_tutu.uuid_string()).await?;
         assert_eq!(
             bookmarks
                 .iter()
@@ -531,63 +517,63 @@ pub mod tests {
             "m2b1"
         );
 
-        db.delete_bookmarks(Some("m1"), Some(subscription_titi.uuid()))
+        db.delete_bookmarks(Some("m1"), Some(&subscription_titi.uuid_string()))
             .await?;
         assert!(db
-            .get_bookmark("m1", subscription_titi.uuid())
+            .get_bookmark("m1", &subscription_titi.uuid_string())
             .await?
             .is_none());
 
-        db.store_bookmark("m1", subscription_titi.uuid(), "m1b3")
+        db.store_bookmark("m1", &subscription_titi.uuid_string(), "m1b3")
             .await?;
-        db.delete_bookmarks(None, Some(subscription_tutu.uuid()))
+        db.delete_bookmarks(None, Some(&subscription_tutu.uuid_string()))
             .await?;
         assert!(db
-            .get_bookmark("m1", subscription_tutu.uuid())
+            .get_bookmark("m1", &subscription_tutu.uuid_string())
             .await?
             .is_none());
         assert!(db
-            .get_bookmark("m2", subscription_tutu.uuid())
+            .get_bookmark("m2", &subscription_tutu.uuid_string())
             .await?
             .is_none());
         assert_eq!(
-            db.get_bookmark("m1", subscription_titi.uuid())
+            db.get_bookmark("m1", &subscription_titi.uuid_string())
                 .await?
                 .unwrap(),
             "m1b3"
         );
 
-        db.store_bookmark("m1", subscription_tutu.uuid(), "m1b4")
+        db.store_bookmark("m1", &subscription_tutu.uuid_string(), "m1b4")
             .await?;
-        db.store_bookmark("m2", subscription_tutu.uuid(), "m2b2")
+        db.store_bookmark("m2", &subscription_tutu.uuid_string(), "m2b2")
             .await?;
         db.delete_bookmarks(Some("m1"), None).await?;
         assert_eq!(
-            db.get_bookmark("m2", subscription_tutu.uuid())
+            db.get_bookmark("m2", &subscription_tutu.uuid_string())
                 .await?
                 .unwrap(),
             "m2b2"
         );
         assert!(db
-            .get_bookmark("m1", subscription_tutu.uuid())
+            .get_bookmark("m1", &subscription_tutu.uuid_string())
             .await?
             .is_none());
         assert!(db
-            .get_bookmark("m1", subscription_titi.uuid())
+            .get_bookmark("m1", &subscription_titi.uuid_string())
             .await?
             .is_none());
 
-        db.store_bookmark("m1", subscription_tutu.uuid(), "m1b5")
+        db.store_bookmark("m1", &subscription_tutu.uuid_string(), "m1b5")
             .await?;
-        db.store_bookmark("m2", subscription_titi.uuid(), "m2b3")
+        db.store_bookmark("m2", &subscription_titi.uuid_string(), "m2b3")
             .await?;
         db.delete_bookmarks(None, None).await?;
         assert!(db
-            .get_bookmark("m1", subscription_tutu.uuid())
+            .get_bookmark("m1", &subscription_tutu.uuid_string())
             .await?
             .is_none());
         assert!(db
-            .get_bookmark("m2", subscription_titi.uuid())
+            .get_bookmark("m2", &subscription_titi.uuid_string())
             .await?
             .is_none());
 
@@ -604,24 +590,8 @@ pub mod tests {
 
         assert!(db.get_heartbeats().await?.is_empty());
 
-        let subscription_tutu = SubscriptionData::new(
-            "tutu",
-            None,
-            "query",
-            None,
-            None,
-            None,
-            None,
-            None,
-            false,
-            false,
-            ContentFormat::Raw,
-            true,
-            PrincsFilter::empty(),
-            None,
-        );
-
-        db.store_subscription(subscription_tutu.clone()).await?;
+        let subscription_tutu = SubscriptionData::new("tutu", "query");
+        db.store_subscription(&subscription_tutu).await?;
 
         let before = SystemTime::now();
         sleep(Duration::from_secs(1));
@@ -630,12 +600,12 @@ pub mod tests {
         db.store_heartbeat(
             "toto",
             "127.0.0.1".to_string(),
-            subscription_tutu.uuid(),
+            &subscription_tutu.uuid_string(),
             false,
         )
         .await?;
         let heartbeat = db
-            .get_heartbeats_by_machine("toto", Some(subscription_tutu.uuid()))
+            .get_heartbeats_by_machine("toto", Some(&subscription_tutu.uuid_string()))
             .await?[0]
             .clone();
         assert_eq!(
@@ -665,7 +635,7 @@ pub mod tests {
         );
         assert!(db.get_heartbeats_by_ip("127.0.0.2", None).await?.is_empty(),);
         assert_eq!(
-            db.get_heartbeats_by_ip("127.0.0.1", Some(subscription_tutu.uuid()))
+            db.get_heartbeats_by_ip("127.0.0.1", Some(&subscription_tutu.uuid_string()))
                 .await?[0],
             heartbeat
         );
@@ -675,13 +645,13 @@ pub mod tests {
         db.store_heartbeat(
             "toto",
             "127.0.0.1".to_string(),
-            subscription_tutu.uuid(),
+            &subscription_tutu.uuid_string(),
             true,
         )
         .await?;
 
         let heartbeat = db
-            .get_heartbeats_by_machine("toto", Some(subscription_tutu.uuid()))
+            .get_heartbeats_by_machine("toto", Some(&subscription_tutu.uuid_string()))
             .await?[0]
             .clone();
         assert!(
@@ -693,7 +663,7 @@ pub mod tests {
         db.store_heartbeat(
             "tata",
             "127.0.0.2".to_string(),
-            subscription_tutu.uuid(),
+            &subscription_tutu.uuid_string(),
             false,
         )
         .await?;
@@ -702,7 +672,7 @@ pub mod tests {
         assert_eq!(heartbeats.len(), 2);
 
         assert_eq!(
-            db.get_heartbeats_by_subscription(subscription_tutu.uuid())
+            db.get_heartbeats_by_subscription(&subscription_tutu.uuid_string())
                 .await?,
             heartbeats
         );
@@ -710,14 +680,15 @@ pub mod tests {
         db.store_heartbeat(
             "tata",
             "127.0.0.2".to_string(),
-            subscription_tutu.uuid(),
+            &subscription_tutu.uuid_string(),
             true,
         )
         .await?;
         assert!(!db.get_heartbeats_by_ip("127.0.0.2", None).await?.is_empty());
 
         // Remove subscription and assert that heartbeats have been deleted
-        db.delete_subscription(subscription_tutu.uuid()).await?;
+        db.delete_subscription(&subscription_tutu.uuid_string())
+            .await?;
         assert!(db.get_heartbeats().await?.is_empty());
 
         clean_db(db.clone()).await?;
@@ -727,30 +698,14 @@ pub mod tests {
     pub async fn test_heartbeats_cache(db: Arc<dyn Database>) -> Result<()> {
         setup_db(db.clone()).await?;
 
-        let subscription_tutu = SubscriptionData::new(
-            "tutu",
-            None,
-            "query",
-            None,
-            None,
-            None,
-            None,
-            None,
-            false,
-            false,
-            ContentFormat::RenderedText,
-            false,
-            PrincsFilter::empty(),
-            None,
-        );
-
-        db.store_subscription(subscription_tutu.clone()).await?;
+        let subscription_tutu = SubscriptionData::new("tutu", "query");
+        db.store_subscription(&subscription_tutu).await?;
 
         let mut heartbeats = HeartbeatsCache::new();
         heartbeats.insert(
             HeartbeatKey {
                 machine: "m1".to_string(),
-                subscription: subscription_tutu.uuid().to_owned(),
+                subscription: subscription_tutu.uuid_string().to_owned(),
             },
             HeartbeatValue {
                 ip: "127.0.0.1".to_string(),
@@ -761,7 +716,7 @@ pub mod tests {
         heartbeats.insert(
             HeartbeatKey {
                 machine: "m2".to_string(),
-                subscription: subscription_tutu.uuid().to_owned(),
+                subscription: subscription_tutu.uuid_string().to_owned(),
             },
             HeartbeatValue {
                 ip: "127.0.0.2".to_string(),
@@ -799,7 +754,7 @@ pub mod tests {
         heartbeats.insert(
             HeartbeatKey {
                 machine: "m1".to_string(),
-                subscription: subscription_tutu.uuid().to_owned(),
+                subscription: subscription_tutu.uuid_string().to_owned(),
             },
             HeartbeatValue {
                 ip: "127.0.0.100".to_string(),
@@ -838,7 +793,7 @@ pub mod tests {
             heartbeats.insert(
                 HeartbeatKey {
                     machine: format!("machine${}", i * 2),
-                    subscription: subscription_tutu.uuid().to_owned(),
+                    subscription: subscription_tutu.uuid_string().to_owned(),
                 },
                 HeartbeatValue {
                     ip: "127.0.0.1".to_string(),
@@ -849,7 +804,7 @@ pub mod tests {
             heartbeats.insert(
                 HeartbeatKey {
                     machine: format!("machine${}", i * 2 + 1),
-                    subscription: subscription_tutu.uuid().to_owned(),
+                    subscription: subscription_tutu.uuid_string().to_owned(),
                 },
                 HeartbeatValue {
                     ip: "127.0.0.2".to_string(),
@@ -873,37 +828,21 @@ pub mod tests {
             SubscriptionStatsCounters::new(0, 0, 0, 0)
         );
 
-        let subscription_tutu = SubscriptionData::new(
-            "tutu",
-            None,
-            "query",
-            None,
-            None,
-            None,
-            None,
-            None,
-            false,
-            false,
-            ContentFormat::Raw,
-            true,
-            PrincsFilter::empty(),
-            None,
-        );
-
-        db.store_subscription(subscription_tutu.clone()).await?;
+        let subscription_tutu = SubscriptionData::new("tutu", "query");
+        db.store_subscription(&subscription_tutu).await?;
         assert_eq!(
-            db.get_stats(subscription_tutu.uuid(), 0).await?,
+            db.get_stats(&subscription_tutu.uuid_string(), 0).await?,
             SubscriptionStatsCounters::new(0, 0, 0, 0)
         );
 
         assert!(db
-            .get_machines(subscription_tutu.uuid(), 0, None)
+            .get_machines(&subscription_tutu.uuid_string(), 0, None)
             .await?
             .is_empty());
 
         assert!(db
             .get_machines(
-                subscription_tutu.uuid(),
+                &subscription_tutu.uuid_string(),
                 0,
                 Some(SubscriptionMachineState::Alive)
             )
@@ -912,7 +851,7 @@ pub mod tests {
 
         assert!(db
             .get_machines(
-                subscription_tutu.uuid(),
+                &subscription_tutu.uuid_string(),
                 0,
                 Some(SubscriptionMachineState::Active)
             )
@@ -921,7 +860,7 @@ pub mod tests {
 
         assert!(db
             .get_machines(
-                subscription_tutu.uuid(),
+                &subscription_tutu.uuid_string(),
                 0,
                 Some(SubscriptionMachineState::Dead)
             )
@@ -937,7 +876,7 @@ pub mod tests {
         db.store_heartbeat(
             "toto",
             "127.0.0.1".to_string(),
-            subscription_tutu.uuid(),
+            &subscription_tutu.uuid_string(),
             false,
         )
         .await?;
@@ -945,14 +884,14 @@ pub mod tests {
         println!("{:?}", db.get_heartbeats().await?);
 
         assert_eq!(
-            db.get_stats(subscription_tutu.uuid(), 0).await?,
+            db.get_stats(&subscription_tutu.uuid_string(), 0).await?,
             // total:1, alive:1, active:0, dead:0
             SubscriptionStatsCounters::new(1, 1, 0, 0)
         );
 
         let alive_machines = db
             .get_machines(
-                subscription_tutu.uuid(),
+                &subscription_tutu.uuid_string(),
                 0,
                 Some(SubscriptionMachineState::Alive),
             )
@@ -962,14 +901,16 @@ pub mod tests {
         assert_eq!(alive_machines[0].name(), "toto");
         assert_eq!(alive_machines[0].ip(), "127.0.0.1");
 
-        let total_machines = db.get_machines(subscription_tutu.uuid(), 0, None).await?;
+        let total_machines = db
+            .get_machines(&subscription_tutu.uuid_string(), 0, None)
+            .await?;
         assert_eq!(total_machines.len(), 1);
         assert_eq!(total_machines[0].name(), "toto");
         assert_eq!(total_machines[0].ip(), "127.0.0.1");
 
         assert!(db
             .get_machines(
-                subscription_tutu.uuid(),
+                &&subscription_tutu.uuid_string(),
                 0,
                 Some(SubscriptionMachineState::Active)
             )
@@ -977,7 +918,7 @@ pub mod tests {
             .is_empty());
         assert!(db
             .get_machines(
-                subscription_tutu.uuid(),
+                &subscription_tutu.uuid_string(),
                 0,
                 Some(SubscriptionMachineState::Dead)
             )
@@ -988,20 +929,20 @@ pub mod tests {
         db.store_heartbeat(
             "toto",
             "127.0.0.1".to_string(),
-            subscription_tutu.uuid(),
+            &subscription_tutu.uuid_string(),
             true,
         )
         .await?;
 
         assert_eq!(
-            db.get_stats(subscription_tutu.uuid(), 0).await?,
+            db.get_stats(&subscription_tutu.uuid_string(), 0).await?,
             // total:1, alive:0, active:1, dead:0
             SubscriptionStatsCounters::new(1, 0, 1, 0)
         );
 
         assert_eq!(
             db.get_machines(
-                subscription_tutu.uuid(),
+                &subscription_tutu.uuid_string(),
                 0,
                 Some(SubscriptionMachineState::Active)
             )
@@ -1011,7 +952,7 @@ pub mod tests {
         );
         assert!(db
             .get_machines(
-                subscription_tutu.uuid(),
+                &subscription_tutu.uuid_string(),
                 0,
                 Some(SubscriptionMachineState::Alive)
             )
@@ -1019,14 +960,14 @@ pub mod tests {
             .is_empty());
         assert!(db
             .get_machines(
-                subscription_tutu.uuid(),
+                &subscription_tutu.uuid_string(),
                 0,
                 Some(SubscriptionMachineState::Dead)
             )
             .await?
             .is_empty());
         assert_eq!(
-            db.get_machines(subscription_tutu.uuid(), 0, None)
+            db.get_machines(&subscription_tutu.uuid_string(), 0, None)
                 .await?
                 .len(),
             1
@@ -1038,7 +979,7 @@ pub mod tests {
         db.store_heartbeat(
             "tata",
             "127.0.0.2".to_string(),
-            subscription_tutu.uuid(),
+            &subscription_tutu.uuid_string(),
             false,
         )
         .await?;
@@ -1046,19 +987,20 @@ pub mod tests {
         // We have waited 2 seconds and set heartbeat_interval_start at "now + 1", so
         // only the last stored heartbeat is considered alive.
         assert_eq!(
-            db.get_stats(subscription_tutu.uuid(), now + 1).await?,
+            db.get_stats(&subscription_tutu.uuid_string(), now + 1)
+                .await?,
             // total:2, alive:1, active:0, dead:1
             SubscriptionStatsCounters::new(2, 1, 0, 1)
         );
 
         let total_machines = db
-            .get_machines(subscription_tutu.uuid(), now + 1, None)
+            .get_machines(&subscription_tutu.uuid_string(), now + 1, None)
             .await?;
         assert_eq!(total_machines.len(), 2);
 
         let alive_machines = db
             .get_machines(
-                subscription_tutu.uuid(),
+                &subscription_tutu.uuid_string(),
                 now + 1,
                 Some(SubscriptionMachineState::Alive),
             )
@@ -1069,7 +1011,7 @@ pub mod tests {
 
         let dead_machines = db
             .get_machines(
-                subscription_tutu.uuid(),
+                &subscription_tutu.uuid_string(),
                 now + 1,
                 Some(SubscriptionMachineState::Dead),
             )
@@ -1080,7 +1022,7 @@ pub mod tests {
 
         assert!(db
             .get_machines(
-                subscription_tutu.uuid(),
+                &subscription_tutu.uuid_string(),
                 now + 1,
                 Some(SubscriptionMachineState::Active)
             )
@@ -1091,50 +1033,36 @@ pub mod tests {
         db.store_heartbeat(
             "toto",
             "127.0.0.1".to_string(),
-            subscription_tutu.uuid(),
+            &subscription_tutu.uuid_string(),
             true,
         )
         .await?;
 
         // First machine is active again
         assert_eq!(
-            db.get_stats(subscription_tutu.uuid(), now + 1).await?,
+            db.get_stats(&subscription_tutu.uuid_string(), now + 1)
+                .await?,
             // total:2, alive:1, active:1, dead:0
             SubscriptionStatsCounters::new(2, 1, 1, 0)
         );
 
         // Create another subscription
-        let subscription_tata = SubscriptionData::new(
-            "tata",
-            None,
-            "query",
-            None,
-            None,
-            None,
-            None,
-            None,
-            false,
-            false,
-            ContentFormat::Raw,
-            false,
-            PrincsFilter::empty(),
-            None,
-        );
-
-        db.store_subscription(subscription_tata.clone()).await?;
+        let subscription_tata = SubscriptionData::new("tata", "query");
+        db.store_subscription(&subscription_tata).await?;
 
         // Store an heartbeat for this other subscription
         db.store_heartbeat(
             "toto",
             "127.0.0.1".to_string(),
-            subscription_tata.uuid(),
+            &subscription_tata.uuid_string(),
             true,
         )
         .await?;
 
         // Nothing has changed for first subscription
         assert_eq!(
-            db.get_stats(subscription_tutu.uuid(), now + 1).await?,
+            db.get_stats(&subscription_tutu.uuid_string(), now + 1)
+                .await?,
             // total:2, alive:1, active:1, dead:0
             SubscriptionStatsCounters::new(2, 1, 1, 0)
         );

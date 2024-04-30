@@ -1,16 +1,33 @@
 use std::{
     collections::{HashMap, HashSet},
     fmt::{Display, Formatter},
+    hash::{Hash, Hasher},
     str::FromStr,
 };
 
-use crate::utils::new_uuid;
-use anyhow::{anyhow, bail, Error, Result};
+use anyhow::{anyhow, bail, Result};
 use log::{info, warn};
 use serde::{Deserialize, Serialize};
+use strum::{AsRefStr, EnumString, VariantNames};
 use uuid::Uuid;
 
-#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+use crate::utils::VersionHasher;
+
+pub const DEFAULT_HEARTBEAT_INTERVAL: u32 = 3_600;
+pub const DEFAULT_CONNECTION_RETRY_COUNT: u16 = 5;
+pub const DEFAULT_CONNECTION_RETRY_INTERVAL: u32 = 60;
+pub const DEFAULT_MAX_TIME: u32 = 30;
+pub const DEFAULT_MAX_ENVELOPE_SIZE: u32 = 512_000;
+pub const DEFAULT_READ_EXISTING_EVENTS: bool = false;
+pub const DEFAULT_CONTENT_FORMAT: ContentFormat = ContentFormat::Raw;
+pub const DEFAULT_IGNORE_CHANNEL_ERROR: bool = true;
+pub const DEFAULT_ENABLED: bool = true;
+
+pub const DEFAULT_FILE_APPEND_NODE_NAME: bool = false;
+pub const DEFAULT_FILE_NAME: &str = "messages";
+pub const DEFAULT_OUTPUT_ENABLED: bool = true;
+
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct KafkaConfiguration {
     topic: String,
     options: HashMap<String, String>,
@@ -32,14 +49,14 @@ impl KafkaConfiguration {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct RedisConfiguration {
     addr: String,
     list: String,
 }
 
 impl RedisConfiguration {
-    pub fn new(addr:String, list: String) -> Self {
+    pub fn new(addr: String, list: String) -> Self {
         RedisConfiguration { addr, list }
     }
 
@@ -52,10 +69,9 @@ impl RedisConfiguration {
     pub fn addr(&self) -> &str {
         self.addr.as_ref()
     }
-
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct TcpConfiguration {
     addr: String,
     port: u16,
@@ -78,8 +94,8 @@ impl TcpConfiguration {
 // File storage path format is:
 // <base>/<ip>/<princ>/[<node_name>/]/<filename>
 // <ip> can be splitted (depends of split_on_addr_index)
-#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
-pub struct FileConfiguration {
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
+pub struct FilesConfiguration {
     base: String,
     // None => don't split
     // Some(n) => Split starting on the n-th segment (IPv4 and IPv6)
@@ -89,7 +105,7 @@ pub struct FileConfiguration {
     filename: String,
 }
 
-impl FileConfiguration {
+impl FilesConfiguration {
     pub fn new(
         base: String,
         split_on_addr_index: Option<u8>,
@@ -121,7 +137,7 @@ impl FileConfiguration {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct UnixDatagramConfiguration {
     path: String,
 }
@@ -136,127 +152,86 @@ impl UnixDatagramConfiguration {
     }
 }
 
-#[derive(Debug, Serialize, Clone, Eq, PartialEq, Deserialize)]
-pub enum SubscriptionOutput {
-    // The last bool indicates whether the output is enabled or not.
-    Files(SubscriptionOutputFormat, FileConfiguration, bool),
-    Kafka(SubscriptionOutputFormat, KafkaConfiguration, bool),
-    Tcp(SubscriptionOutputFormat, TcpConfiguration, bool),
-    Redis(SubscriptionOutputFormat, RedisConfiguration, bool),
-    UnixDatagram(SubscriptionOutputFormat, UnixDatagramConfiguration, bool),
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize, AsRefStr)]
+#[strum(serialize_all = "lowercase")]
+pub enum SubscriptionOutputDriver {
+    Files(FilesConfiguration),
+    Kafka(KafkaConfiguration),
+    Tcp(TcpConfiguration),
+    Redis(RedisConfiguration),
+    UnixDatagram(UnixDatagramConfiguration),
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
+pub struct SubscriptionOutput {
+    format: SubscriptionOutputFormat,
+    driver: SubscriptionOutputDriver,
+    enabled: bool,
 }
 
 impl SubscriptionOutput {
+    pub fn new(
+        format: SubscriptionOutputFormat,
+        driver: SubscriptionOutputDriver,
+        enabled: bool,
+    ) -> Self {
+        Self {
+            format,
+            driver,
+            enabled,
+        }
+    }
     pub fn format(&self) -> &SubscriptionOutputFormat {
-        match self {
-            SubscriptionOutput::Files(format, _, _) => format,
-            SubscriptionOutput::Kafka(format, _, _) => format,
-            SubscriptionOutput::Tcp(format, _, _) => format,
-            SubscriptionOutput::Redis(format, _, _) => format,
-            SubscriptionOutput::UnixDatagram(format, _, _) => format,
-        }
+        &self.format
     }
 
-    pub fn is_enabled(&self) -> bool {
-        match self {
-            SubscriptionOutput::Files(_, _, enabled) => *enabled,
-            SubscriptionOutput::Kafka(_, _, enabled) => *enabled,
-            SubscriptionOutput::Tcp(_, _, enabled) => *enabled,
-            SubscriptionOutput::Redis(_, _, enabled) => *enabled,
-            SubscriptionOutput::UnixDatagram(_, _, enabled) => *enabled,
-        }
+    pub fn enabled(&self) -> bool {
+        self.enabled
     }
 
-    pub fn set_enabled(&self, value: bool) -> SubscriptionOutput {
-        match self {
-            SubscriptionOutput::Files(format, config, _) => {
-                SubscriptionOutput::Files(format.clone(), config.clone(), value)
-            }
-            SubscriptionOutput::Kafka(format, config, _) => {
-                SubscriptionOutput::Kafka(format.clone(), config.clone(), value)
-            }
-            SubscriptionOutput::Tcp(format, config, _) => {
-                SubscriptionOutput::Tcp(format.clone(), config.clone(), value)
-            }
-            SubscriptionOutput::Redis(format, config, _) => {
-                SubscriptionOutput::Redis(format.clone(), config.clone(), value)
-            }
-            SubscriptionOutput::UnixDatagram(format, config, _) => {
-                SubscriptionOutput::UnixDatagram(format.clone(), config.clone(), value)
-            }
-        }
+    pub fn set_enabled(&mut self, value: bool) {
+        self.enabled = value;
+    }
+
+    pub fn driver(&self) -> &SubscriptionOutputDriver {
+        &self.driver
     }
 }
 
 impl Display for SubscriptionOutput {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            SubscriptionOutput::Files(format, config, enabled) => {
-                write!(
-                    f,
-                    "Enabled: {:?}, Format: {}, Output: Files({:?})",
-                    enabled, format, config
-                )
-            }
-            SubscriptionOutput::Kafka(format, config, enabled) => {
-                write!(
-                    f,
-                    "Enabled: {:?}, Format: {}, Output: Kafka({:?})",
-                    enabled, format, config
-                )
-            }
-            SubscriptionOutput::Tcp(format, config, enabled) => {
-                write!(
-                    f,
-                    "Enabled: {:?}, Format: {}, Output: Tcp({}:{})",
-                    enabled, format, config.addr, config.port
-                )
-            }
-            SubscriptionOutput::Redis(format, config, enabled) => {
-                write!(
-                    f,
-                    "Enabled: {:?}, Format: {}, Output: Redis({:?})",
-                    enabled, format, config
-                )
-            }
-            SubscriptionOutput::UnixDatagram(format, config, enabled) => {
-                write!(
-                    f,
-                    "Enabled: {:?}, Format: {}, Output: UnixDatagram({:?})",
-                    enabled, format, config
-                )
-            }
-        }
+        write!(
+            f,
+            "Enabled: {:?}, Format: {}, Driver: {:?}",
+            self.enabled,
+            self.format.as_ref(),
+            self.driver
+        )
     }
 }
-
-#[derive(Debug, Serialize, Clone, Eq, PartialEq, Deserialize)]
+#[derive(
+    Debug, Clone, Eq, PartialEq, Serialize, Deserialize, Hash, VariantNames, AsRefStr, EnumString,
+)]
+#[strum(serialize_all = "snake_case", ascii_case_insensitive)]
 pub enum SubscriptionOutputFormat {
     Json,
     Raw,
+    RawJson,
 }
 
-impl Display for SubscriptionOutputFormat {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match *self {
-            SubscriptionOutputFormat::Json => write!(f, "Json"),
-            SubscriptionOutputFormat::Raw => write!(f, "Raw"),
+impl SubscriptionOutputFormat {
+    /// Whether the output format needs to be given a parsed version
+    /// of the event.
+    pub fn needs_parsed_event(&self) -> bool {
+        match self {
+            SubscriptionOutputFormat::Raw => false,
+            SubscriptionOutputFormat::RawJson => false,
+            SubscriptionOutputFormat::Json => true,
         }
     }
 }
 
-impl TryFrom<u8> for SubscriptionOutputFormat {
-    type Error = Error;
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        Ok(match value {
-            0 => SubscriptionOutputFormat::Json,
-            1 => SubscriptionOutputFormat::Raw,
-            _ => bail!("Unknown subscription output format {}", value),
-        })
-    }
-}
-
-#[derive(Debug, Serialize, Clone, Eq, PartialEq, Deserialize)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub enum PrincsFilterOperation {
     Only,
     Except,
@@ -285,7 +260,7 @@ impl PrincsFilterOperation {
     }
 }
 
-#[derive(Debug, Serialize, Clone, Eq, PartialEq, Deserialize)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct PrincsFilter {
     operation: Option<PrincsFilterOperation>,
     princs: HashSet<String>,
@@ -297,6 +272,10 @@ impl PrincsFilter {
             operation: None,
             princs: HashSet::new(),
         }
+    }
+
+    pub fn new(operation: Option<PrincsFilterOperation>, princs: HashSet<String>) -> Self {
+        Self { operation, princs }
     }
 
     pub fn from(operation: Option<String>, princs: Option<String>) -> Result<Self> {
@@ -370,7 +349,7 @@ impl PrincsFilter {
     }
 }
 
-#[derive(Debug, Serialize, Clone, Eq, PartialEq, Deserialize)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub enum ContentFormat {
     Raw,
     RenderedText,
@@ -399,34 +378,101 @@ impl FromStr for ContentFormat {
     }
 }
 
-#[derive(Debug, PartialEq, Clone, Eq, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Clone, Eq, Hash, Copy, Serialize)]
+pub struct SubscriptionUuid(pub Uuid);
+
+impl Display for SubscriptionUuid {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+// Internal version and public version are both uuids
+// We use the newtype pattern so that the compiler can check that
+// we don't use one instead of the other
+
+#[derive(Debug, PartialEq, Clone, Eq, Hash, Copy)]
+pub struct InternalVersion(pub Uuid);
+
+impl Display for InternalVersion {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+#[derive(Debug, PartialEq, Clone, Eq, Default, Hash, Copy)]
+pub struct PublicVersion(pub Uuid);
+
+impl Display for PublicVersion {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+/// Contains subscription parameters visible for clients
+/// When one element of this structure changes, the "public" version
+/// of the subscription is updated and clients are expected to update
+/// their configuration.
+/// Every elements must implement the Hash trait
+#[derive(Debug, PartialEq, Clone, Eq, Hash)]
+pub struct SubscriptionParameters {
+    pub name: String,
+    pub query: String,
+    pub heartbeat_interval: u32,
+    pub connection_retry_count: u16,
+    pub connection_retry_interval: u32,
+    pub max_time: u32,
+    pub max_envelope_size: u32,
+    pub read_existing_events: bool,
+    pub content_format: ContentFormat,
+    pub ignore_channel_error: bool,
+    pub locale: Option<String>,
+    pub data_locale: Option<String>,
+}
+
+#[derive(Debug, PartialEq, Clone, Eq)]
 pub struct SubscriptionData {
-    #[serde(default = "new_uuid")]
-    uuid: String,
-    #[serde(default = "new_uuid")]
-    version: String,
-    name: String,
+    // Unique identifier of the subscription
+    uuid: SubscriptionUuid,
+    // Internal version, NOT the version of the subscription sent to clients
+    // It is generated when the subscription is created and updated every time
+    // there is a change in the subscription.
+    // Its goal is to synchronize the configuration of the subscription between
+    // all openwec nodes.
+    internal_version: InternalVersion,
+    // Optional revision name of the subscription. Can be set using
+    // openwec subscriptions load <...>
+    revision: Option<String>,
+    // Optional URI on which subscription will be shown
     uri: Option<String>,
-    query: String,
-    heartbeat_interval: u32,
-    connection_retry_count: u16,
-    connection_retry_interval: u32,
-    max_time: u32,
-    max_envelope_size: u32,
+    // Enable or disable the subscription
     enabled: bool,
-    read_existing_events: bool,
-    content_format: ContentFormat,
-    ignore_channel_error: bool,
+    // Configure which principal can see the subscription
     princs_filter: PrincsFilter,
-    #[serde(default)]
+    // Public parameters of the subscriptions. This structure is used
+    // to compute the public subscription version sent to clients.
+    parameters: SubscriptionParameters,
+    // Outputs of the subscription
     outputs: Vec<SubscriptionOutput>,
 }
 
 impl Display for SubscriptionData {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "Subscription {}", self.name)?;
+        writeln!(f, "Subscription {}", self.name())?;
         writeln!(f, "\tUUID: {}", self.uuid())?;
-        writeln!(f, "\tVersion: {}", self.version())?;
+        writeln!(f, "\tInternal version: {}", self.internal_version())?;
+        writeln!(
+            f,
+            "\tPublic version: {}",
+            self.public_version().unwrap_or_default()
+        )?;
+        writeln!(
+            f,
+            "\tRevision: {}",
+            match self.revision() {
+                Some(revision) => revision,
+                None => "Not configured",
+            }
+        )?;
         writeln!(
             f,
             "\tURI: {}",
@@ -452,9 +498,25 @@ impl Display for SubscriptionData {
             self.max_time()
         )?;
         writeln!(f, "\tMax envelope size: {} bytes", self.max_envelope_size())?;
-        writeln!(f, "\tReadExistingEvents: {}", self.read_existing_events)?;
+        writeln!(f, "\tRead existing events: {}", self.read_existing_events())?;
         writeln!(f, "\tContent format: {}", self.content_format())?;
         writeln!(f, "\tIgnore channel error: {}", self.ignore_channel_error())?;
+        writeln!(
+            f,
+            "\tLocale: {}",
+            match self.locale() {
+                Some(locale) => locale,
+                None => "Not configured",
+            }
+        )?;
+        writeln!(
+            f,
+            "\tData Locale: {}",
+            match self.data_locale() {
+                Some(data_locale) => data_locale,
+                None => "Not configured",
+            }
+        )?;
         match self.princs_filter().operation() {
             None => {
                 writeln!(f, "\tPrincipal filter: Not configured")?;
@@ -476,103 +538,36 @@ impl Display for SubscriptionData {
                 writeln!(f, "\t- {}: {}", index, output)?;
             }
         }
-        writeln!(f, "\tEnabled: {}", self.enabled)
+        writeln!(f, "\tEnabled: {}", self.enabled)?;
+        writeln!(f, "\tEvent filter query:\n\n{}", self.query())
     }
 }
 
 impl SubscriptionData {
-    pub fn empty() -> Self {
-        SubscriptionData {
-            uuid: Uuid::new_v4().to_string().to_ascii_uppercase(),
-            version: Uuid::new_v4().to_string().to_ascii_uppercase(),
-            name: String::new(),
+    pub fn new(name: &str, query: &str) -> Self {
+        Self {
+            uuid: SubscriptionUuid(Uuid::new_v4()),
+            internal_version: InternalVersion(Uuid::new_v4()),
+            revision: None,
             uri: None,
-            query: String::new(),
-            heartbeat_interval: 3_600,
-            connection_retry_count: 5,
-            connection_retry_interval: 60,
-            max_time: 30,
-            max_envelope_size: 512_000,
-            enabled: true,
-            read_existing_events: false,
-            content_format: ContentFormat::Raw,
-            ignore_channel_error: true,
+            enabled: DEFAULT_ENABLED,
             princs_filter: PrincsFilter::empty(),
             outputs: Vec::new(),
-        }
-    }
-
-    pub fn new(
-        name: &str,
-        uri: Option<&str>,
-        query: &str,
-        heartbeat_interval: Option<&u32>,
-        connection_retry_count: Option<&u16>,
-        connection_retry_interval: Option<&u32>,
-        max_time: Option<&u32>,
-        max_envelope_size: Option<&u32>,
-        enabled: bool,
-        read_existing_events: bool,
-        content_format: ContentFormat,
-        ignore_channel_error: bool,
-        princs_filter: PrincsFilter,
-        outputs: Option<Vec<SubscriptionOutput>>,
-    ) -> Self {
-        SubscriptionData {
-            uuid: Uuid::new_v4().to_string().to_ascii_uppercase(),
-            version: Uuid::new_v4().to_string().to_ascii_uppercase(),
-            name: name.to_owned(),
-            uri: uri.map(|e| e.to_string()),
-            query: query.to_owned(),
-            heartbeat_interval: *heartbeat_interval.unwrap_or(&3_600),
-            connection_retry_count: *connection_retry_count.unwrap_or(&5),
-            connection_retry_interval: *connection_retry_interval.unwrap_or(&60),
-            max_time: *max_time.unwrap_or(&30),
-            max_envelope_size: *max_envelope_size.unwrap_or(&512_000),
-            enabled,
-            read_existing_events,
-            content_format,
-            ignore_channel_error,
-            princs_filter,
-            outputs: outputs.unwrap_or_default(),
-        }
-    }
-
-    pub fn from(
-        uuid: String,
-        version: String,
-        name: String,
-        uri: Option<String>,
-        query: String,
-        heartbeat_interval: u32,
-        connection_retry_count: u16,
-        connection_retry_interval: u32,
-        max_time: u32,
-        max_envelope_size: u32,
-        enabled: bool,
-        read_existing_events: bool,
-        content_format: ContentFormat,
-        ignore_channel_error: bool,
-        princs_filter: PrincsFilter,
-        outputs: Vec<SubscriptionOutput>,
-    ) -> Self {
-        SubscriptionData {
-            uuid,
-            version,
-            name,
-            uri,
-            query,
-            heartbeat_interval,
-            connection_retry_count,
-            connection_retry_interval,
-            max_time,
-            max_envelope_size,
-            enabled,
-            read_existing_events,
-            content_format,
-            ignore_channel_error,
-            princs_filter,
-            outputs,
+            parameters: SubscriptionParameters {
+                name: name.to_string(),
+                query: query.to_string(),
+                // Defaults
+                heartbeat_interval: DEFAULT_HEARTBEAT_INTERVAL,
+                connection_retry_count: DEFAULT_CONNECTION_RETRY_COUNT,
+                connection_retry_interval: DEFAULT_CONNECTION_RETRY_INTERVAL,
+                max_time: DEFAULT_MAX_TIME,
+                max_envelope_size: DEFAULT_MAX_ENVELOPE_SIZE,
+                read_existing_events: DEFAULT_READ_EXISTING_EVENTS,
+                content_format: DEFAULT_CONTENT_FORMAT,
+                ignore_channel_error: DEFAULT_IGNORE_CHANNEL_ERROR,
+                locale: None,
+                data_locale: None,
+            },
         }
     }
 
@@ -584,7 +579,7 @@ impl SubscriptionData {
             res.push_str("[-] ");
         }
 
-        res.push_str(format!("{} ", self.name).as_str());
+        res.push_str(format!("{} ", self.name()).as_str());
         if let Some(uri) = &self.uri {
             res.push_str(format!("({})", uri).as_str());
         } else {
@@ -594,100 +589,116 @@ impl SubscriptionData {
         res
     }
 
-    pub fn update_version(&mut self) {
-        self.version = Uuid::new_v4().to_string().to_ascii_uppercase();
-    }
-
     pub fn update_uuid(&mut self) {
         // This should only be used when duplicating an existing subscription
-        self.uuid = Uuid::new_v4().to_string().to_ascii_uppercase();
+        self.uuid = SubscriptionUuid(Uuid::new_v4());
+    }
+
+    pub fn set_uuid(&mut self, uuid: SubscriptionUuid) -> &mut Self {
+        self.uuid = uuid;
+        self
     }
 
     /// Get a reference to the subscription's uuid.
-    pub fn uuid(&self) -> &str {
-        self.uuid.as_ref()
+    pub fn uuid(&self) -> &SubscriptionUuid {
+        &self.uuid
     }
 
-    /// Get a reference to the subscription's version.
-    pub fn version(&self) -> &str {
-        self.version.as_ref()
+    pub fn uuid_string(&self) -> String {
+        self.uuid.to_string().to_uppercase()
+    }
+
+    /// Compute the subscription's public version
+    pub fn public_version(&self) -> Result<PublicVersion> {
+        let mut hasher = VersionHasher::new()?;
+        self.parameters.hash(&mut hasher);
+        // hasher only gives a u64, but it is enough for this usage
+        let result = hasher.finish();
+        Ok(PublicVersion(Uuid::from_u64_pair(result, result)))
     }
 
     /// Get a reference to the subscription's name.
     pub fn name(&self) -> &str {
-        self.name.as_ref()
+        self.parameters.name.as_ref()
     }
 
     /// Get a reference to the subscription's heartbeat interval.
     pub fn heartbeat_interval(&self) -> u32 {
-        self.heartbeat_interval
+        self.parameters.heartbeat_interval
     }
 
     /// Get a reference to the subscription's connection retry count.
     pub fn connection_retry_count(&self) -> u16 {
-        self.connection_retry_count
+        self.parameters.connection_retry_count
     }
 
     /// Get a reference to the subscription's connection retry interval.
     pub fn connection_retry_interval(&self) -> u32 {
-        self.connection_retry_interval
+        self.parameters.connection_retry_interval
     }
 
     /// Get a reference to the subscription's max time.
     pub fn max_time(&self) -> u32 {
-        self.max_time
+        self.parameters.max_time
     }
 
     /// Get a reference to the subscription's max envelope size.
     pub fn max_envelope_size(&self) -> u32 {
-        self.max_envelope_size
+        self.parameters.max_envelope_size
     }
 
     /// Get a reference to the subscription's query.
     pub fn query(&self) -> &str {
-        self.query.as_ref()
+        self.parameters.query.as_ref()
     }
 
     /// Set the subscription's name.
-    pub fn set_name(&mut self, name: String) {
-        self.name = name;
-        self.update_version();
+    pub fn set_name(&mut self, name: String) -> &mut Self {
+        self.parameters.name = name;
+        self.update_internal_version();
+        self
     }
 
     /// Set the subscription's query.
-    pub fn set_query(&mut self, query: String) {
-        self.query = query;
-        self.update_version();
+    pub fn set_query(&mut self, query: String) -> &mut Self {
+        self.parameters.query = query;
+        self.update_internal_version();
+        self
     }
 
     /// Set the subscription's heartbeat interval.
-    pub fn set_heartbeat_interval(&mut self, heartbeat_interval: u32) {
-        self.heartbeat_interval = heartbeat_interval;
-        self.update_version();
+    pub fn set_heartbeat_interval(&mut self, heartbeat_interval: u32) -> &mut Self {
+        self.parameters.heartbeat_interval = heartbeat_interval;
+        self.update_internal_version();
+        self
     }
 
     /// Set the subscription's connection retry count.
-    pub fn set_connection_retry_count(&mut self, connection_retry_count: u16) {
-        self.connection_retry_count = connection_retry_count;
-        self.update_version();
+    pub fn set_connection_retry_count(&mut self, connection_retry_count: u16) -> &mut Self {
+        self.parameters.connection_retry_count = connection_retry_count;
+        self.update_internal_version();
+        self
     }
 
     /// Set the subscription's connection retry interval.
-    pub fn set_connection_retry_interval(&mut self, connection_retry_interval: u32) {
-        self.connection_retry_interval = connection_retry_interval;
-        self.update_version();
+    pub fn set_connection_retry_interval(&mut self, connection_retry_interval: u32) -> &mut Self {
+        self.parameters.connection_retry_interval = connection_retry_interval;
+        self.update_internal_version();
+        self
     }
 
     /// Set the subscription's max time.
-    pub fn set_max_time(&mut self, max_time: u32) {
-        self.max_time = max_time;
-        self.update_version();
+    pub fn set_max_time(&mut self, max_time: u32) -> &mut Self {
+        self.parameters.max_time = max_time;
+        self.update_internal_version();
+        self
     }
 
     /// Set the subscription's max envelope size.
-    pub fn set_max_envelope_size(&mut self, max_envelope_size: u32) {
-        self.max_envelope_size = max_envelope_size;
-        self.update_version();
+    pub fn set_max_envelope_size(&mut self, max_envelope_size: u32) -> &mut Self {
+        self.parameters.max_envelope_size = max_envelope_size;
+        self.update_internal_version();
+        self
     }
 
     /// Get a reference to the subscription's outputs.
@@ -699,54 +710,65 @@ impl SubscriptionData {
         self.enabled
     }
 
-    pub fn set_enabled(&mut self, enabled: bool) {
+    pub fn set_enabled(&mut self, enabled: bool) -> &mut Self {
         self.enabled = enabled;
-        self.update_version();
+        self.update_internal_version();
+        self
     }
 
     pub fn read_existing_events(&self) -> bool {
-        self.read_existing_events
+        self.parameters.read_existing_events
     }
 
-    pub fn set_read_existing_events(&mut self, read_existing_events: bool) {
-        self.read_existing_events = read_existing_events;
-        self.update_version();
+    pub fn set_read_existing_events(&mut self, read_existing_events: bool) -> &mut Self {
+        self.parameters.read_existing_events = read_existing_events;
+        self.update_internal_version();
+        self
     }
 
     pub fn content_format(&self) -> &ContentFormat {
-        &self.content_format
+        &self.parameters.content_format
     }
 
-    pub fn set_content_format(&mut self, content_format: ContentFormat) {
-        self.content_format = content_format;
-        self.update_version();
+    pub fn set_content_format(&mut self, content_format: ContentFormat) -> &mut Self {
+        self.parameters.content_format = content_format;
+        self.update_internal_version();
+        self
     }
 
     pub fn ignore_channel_error(&self) -> bool {
-        self.ignore_channel_error
+        self.parameters.ignore_channel_error
     }
 
-    pub fn set_ignore_channel_error(&mut self, ignore_channel_error: bool) {
-        self.ignore_channel_error = ignore_channel_error;
-        self.update_version();
+    pub fn set_ignore_channel_error(&mut self, ignore_channel_error: bool) -> &mut Self {
+        self.parameters.ignore_channel_error = ignore_channel_error;
+        self.update_internal_version();
+        self
     }
 
-    pub fn add_output(&mut self, output: SubscriptionOutput) {
+    pub fn set_outputs(&mut self, outputs: Vec<SubscriptionOutput>) -> &mut Self {
+        self.outputs = outputs;
+        self.update_internal_version();
+        self
+    }
+
+    pub fn add_output(&mut self, output: SubscriptionOutput) -> &mut Self {
         self.outputs.push(output);
-        self.update_version();
+        self.update_internal_version();
+        self
     }
 
-    pub fn delete_output(&mut self, index: usize) -> Result<()> {
+    pub fn delete_output(&mut self, index: usize) -> Result<&mut Self> {
         if index >= self.outputs.len() {
             bail!("Index out of range");
         }
         let output = self.outputs.remove(index);
         info!("Deleting output {:?}", output);
-        self.update_version();
-        Ok(())
+        self.update_internal_version();
+        Ok(self)
     }
 
-    pub fn set_output_enabled(&mut self, index: usize, value: bool) -> Result<()> {
+    pub fn set_output_enabled(&mut self, index: usize, value: bool) -> Result<&mut Self> {
         if index >= self.outputs.len() {
             bail!("Index out of range");
         }
@@ -759,31 +781,33 @@ impl SubscriptionData {
         } else {
             info!("Disabling output {:?}", output);
         }
-        self.outputs[index] = output.set_enabled(value);
-        self.update_version();
-        Ok(())
+        self.outputs[index].set_enabled(value);
+        self.update_internal_version();
+        Ok(self)
     }
 
     pub fn uri(&self) -> Option<&String> {
         self.uri.as_ref()
     }
 
-    pub fn set_uri(&mut self, uri: Option<String>) {
+    pub fn set_uri(&mut self, uri: Option<String>) -> &mut Self {
         self.uri = uri;
-        self.update_version();
+        self.update_internal_version();
+        self
     }
 
     pub fn is_active(&self) -> bool {
-        self.enabled() && self.outputs().iter().any(|output| output.is_enabled())
+        self.enabled() && self.outputs().iter().any(|output| output.enabled())
     }
 
     pub fn princs_filter(&self) -> &PrincsFilter {
         &self.princs_filter
     }
 
-    pub fn set_princs_filter(&mut self, princs_filter: PrincsFilter) {
+    pub fn set_princs_filter(&mut self, princs_filter: PrincsFilter) -> &mut Self {
         self.princs_filter = princs_filter;
-        self.update_version();
+        self.update_internal_version();
+        self
     }
 
     pub fn is_active_for(&self, principal: &str) -> bool {
@@ -798,6 +822,48 @@ impl SubscriptionData {
                 !self.princs_filter().princs().contains(principal)
             }
         }
+    }
+
+    pub fn revision(&self) -> Option<&String> {
+        self.revision.as_ref()
+    }
+
+    pub fn set_revision(&mut self, revision: Option<String>) -> &mut Self {
+        self.revision = revision;
+        self.update_internal_version();
+        self
+    }
+
+    pub fn internal_version(&self) -> InternalVersion {
+        self.internal_version
+    }
+
+    pub fn set_internal_version(&mut self, internal_version: InternalVersion) {
+        self.internal_version = internal_version;
+    }
+
+    pub fn update_internal_version(&mut self) {
+        self.internal_version = InternalVersion(Uuid::new_v4());
+    }
+
+    pub fn locale(&self) -> Option<&String> {
+        self.parameters.locale.as_ref()
+    }
+
+    pub fn set_locale(&mut self, locale: Option<String>) -> &mut Self {
+        self.parameters.locale = locale;
+        self.update_internal_version();
+        self
+    }
+
+    pub fn data_locale(&self) -> Option<&String> {
+        self.parameters.data_locale.as_ref()
+    }
+
+    pub fn set_data_locale(&mut self, locale: Option<String>) -> &mut Self {
+        self.parameters.data_locale = locale;
+        self.update_internal_version();
+        self
     }
 }
 

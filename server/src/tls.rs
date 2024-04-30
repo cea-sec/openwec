@@ -2,32 +2,38 @@ use anyhow::{bail, Context, Result};
 use common::encoding::encode_utf16le;
 use hex::ToHex;
 use log::{debug, info};
-use rustls::server::AllowAnyAuthenticatedClient;
-use rustls::{PrivateKey, RootCertStore, ServerConfig};
 use sha1::{Digest, Sha1};
 use std::fs;
 use std::io::BufReader;
 use std::sync::Arc;
+use tokio_rustls::rustls::crypto::aws_lc_rs::{default_provider, ALL_CIPHER_SUITES};
+use tokio_rustls::rustls::pki_types::{CertificateDer, PrivateKeyDer};
+use tokio_rustls::rustls::server::WebPkiClientVerifier;
+use tokio_rustls::rustls::{RootCertStore, ServerConfig, ALL_VERSIONS};
 use x509_parser::oid_registry::OidRegistry;
 use x509_parser::prelude::{FromDer, X509Certificate};
 
 use crate::sldc;
 
 /// Load certificates contained inside a PEM file
-fn load_certs(filename: &str) -> Result<Vec<rustls::Certificate>> {
+fn load_certs(filename: &str) -> Result<Vec<CertificateDer<'static>>> {
     let certfile = fs::File::open(filename)?;
     let mut reader = BufReader::new(certfile);
 
     debug!("Loaded certificate {:?}", filename);
 
-    Ok(rustls_pemfile::certs(&mut reader)?
-        .iter()
-        .map(|v| rustls::Certificate(v.clone()))
-        .collect())
+    let mut certs = Vec::new();
+    for cert_res in rustls_pemfile::certs(&mut reader) {
+        match cert_res {
+            Ok(cert) => certs.push(cert.clone()),
+            Err(error) => return Err(anyhow::anyhow!(error)),
+        }
+    }
+    Ok(certs)
 }
 
 /// Load private key contained inside a file
-fn load_priv_key(filename: &str) -> Result<PrivateKey> {
+fn load_priv_key(filename: &str) -> Result<PrivateKeyDer<'static>> {
     let keyfile = fs::File::open(filename).context("Cannot open private key file")?;
     let mut reader = BufReader::new(keyfile);
 
@@ -35,9 +41,9 @@ fn load_priv_key(filename: &str) -> Result<PrivateKey> {
 
     loop {
         match rustls_pemfile::read_one(&mut reader).context("Cannot parse private key file")? {
-            Some(rustls_pemfile::Item::RSAKey(key)) => return Ok(PrivateKey(key)),
-            Some(rustls_pemfile::Item::PKCS8Key(key)) => return Ok(PrivateKey(key)),
-            Some(rustls_pemfile::Item::ECKey(key)) => return Ok(PrivateKey(key)),
+            Some(rustls_pemfile::Item::Pkcs1Key(key)) => return Ok(PrivateKeyDer::Pkcs1(key)),
+            Some(rustls_pemfile::Item::Pkcs8Key(key)) => return Ok(PrivateKeyDer::Pkcs8(key)),
+            Some(rustls_pemfile::Item::Sec1Key(key)) => return Ok(PrivateKeyDer::Sec1(key)),
             None => break,
             _ => {}
         }
@@ -81,23 +87,24 @@ pub fn make_config(args: &common::settings::Tls) -> Result<TlsConfig> {
 
     let mut client_auth_roots = RootCertStore::empty();
 
-    // stock all certificates from given CA certificate file into certificate store
+    // Put all certificates from given CA certificate file into certificate store
     for root in ca_certs {
         client_auth_roots
-            .add(&root)
+            .add(root)
             .context("Could not add certificate to root of trust")?;
     }
 
     // create verifier : does not allow unauthenticated clients
     // and authenticated clients must be certified by one of the listed CAs
-    let client_cert_verifier = AllowAnyAuthenticatedClient::new(client_auth_roots).boxed();
+    let client_cert_verifier =
+        WebPkiClientVerifier::builder(Arc::new(client_auth_roots)).build()?;
 
+    // Allow everything available in rustls for maximum support
+    let mut crypto_provider = default_provider();
+    crypto_provider.cipher_suites = ALL_CIPHER_SUITES.to_vec();
     // make config
-    let mut config: ServerConfig = ServerConfig::builder()
-        // Allow everything available in rustls for maximum support
-        .with_cipher_suites(rustls::ALL_CIPHER_SUITES)
-        .with_safe_default_kx_groups()
-        .with_protocol_versions(rustls::ALL_VERSIONS)
+    let mut config: ServerConfig = ServerConfig::builder_with_provider(Arc::new(crypto_provider))
+        .with_protocol_versions(ALL_VERSIONS)
         .context("Could not build configuration defaults")?
         .with_client_cert_verifier(client_cert_verifier) // add verifier
         .with_single_cert(cert, priv_key) // add server vertification
@@ -153,13 +160,17 @@ pub fn subject_from_cert(cert: &[u8]) -> Result<String> {
 
 /// Read and decode request payload
 pub async fn get_request_payload(
-    parts: http::request::Parts,
+    parts: hyper::http::request::Parts,
     data: hyper::body::Bytes,
 ) -> Result<Option<Vec<u8>>> {
     let payload = data.to_vec();
 
     let message = match parts.headers.get("Content-Encoding") {
-        Some(value) if value == "SLDC" => sldc::decompress(&payload).unwrap_or(payload),
+        Some(value) if value == "SLDC" => {
+            // Decompression is a blocking operation which can take a few milliseconds
+            tokio::task::spawn_blocking(move || sldc::decompress(&payload).unwrap_or(payload))
+                .await?
+        }
         None => payload,
         value => bail!("Unsupported Content-Encoding {:?}", value),
     };
@@ -168,8 +179,17 @@ pub async fn get_request_payload(
 }
 
 /// Encode payload for response
-pub fn get_response_payload(payload: String) -> Result<Vec<u8>> {
-    encode_utf16le(payload).context("Failed to encode payload in utf16le")
+pub async fn get_response_payload(payload: String) -> Result<Vec<u8>> {
+    // If the payload to encode is large, encoding takes time and should be run
+    // in a bocking task
+    if payload.len() > 1000 {
+        tokio::task::spawn_blocking(move || {
+            encode_utf16le(payload).context("Failed to encode payload in utf16le")
+        })
+        .await?
+    } else {
+        encode_utf16le(payload).context("Failed to encode payload in utf16le")
+    }
 }
 
 #[cfg(test)]
@@ -289,7 +309,7 @@ mod tests {
             163, 248, 217, 35, 131, 227, 14, 217, 59, 94, 135, 246, 176, 220, 152, 199, 89, 21,
             119, 24, 16, 188, 17, 202, 8, 12, 162, 16, 250, 163, 241, 88,
         ];
-        assert_eq!(key.unwrap(), PrivateKey(content.to_vec()));
+        assert_eq!(key.unwrap(), PrivateKeyDer::Sec1(content.to_vec().into()));
 
         // rsa
         // let mut file = std::env::var("CARGO_MANIFEST_DIR").unwrap();
@@ -366,6 +386,6 @@ mod tests {
             132, 223, 102, 86, 216, 5, 218, 125, 237, 212, 218, 133, 165, 97, 62, 73, 27, 106, 224,
             64,
         ];
-        assert_eq!(key.unwrap(), PrivateKey(content.to_vec()));
+        assert_eq!(key.unwrap(), PrivateKeyDer::Pkcs8(content.to_vec().into()));
     }
 }

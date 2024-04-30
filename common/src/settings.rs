@@ -20,6 +20,7 @@ pub enum Database {
 }
 
 #[derive(Debug, Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
 pub struct Tls {
     server_certificate: String,
     server_private_key: String,
@@ -41,12 +42,15 @@ impl Tls {
 }
 
 #[derive(Debug, Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
 pub struct Collector {
     hostname: String,
     listen_address: String,
     listen_port: Option<u16>,
     max_content_length: Option<u64>,
     authentication: Authentication,
+    enable_proxy_protocol: Option<bool>,
+    advertized_port: Option<u16>,
 }
 
 impl Collector {
@@ -65,12 +69,22 @@ impl Collector {
     pub fn max_content_length(&self) -> u64 {
         self.max_content_length.unwrap_or(512_000)
     }
+
     pub fn authentication(&self) -> &Authentication {
         &self.authentication
+    }
+
+    pub fn enable_proxy_protocol(&self) -> bool {
+        self.enable_proxy_protocol.unwrap_or(false)
+    }
+
+    pub fn advertized_port(&self) -> u16 {
+        self.advertized_port.unwrap_or_else(|| self.listen_port())
     }
 }
 
 #[derive(Debug, Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
 pub struct Kerberos {
     service_principal_name: String,
 }
@@ -88,6 +102,7 @@ impl Kerberos {
 }
 
 #[derive(Debug, Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
 pub struct SQLite {
     path: String,
 }
@@ -107,6 +122,7 @@ pub enum PostgresSslMode {
 }
 
 #[derive(Debug, Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
 pub struct Postgres {
     host: String,
     port: u16,
@@ -120,6 +136,7 @@ pub struct Postgres {
 }
 
 impl Postgres {
+    #[cfg(test)]
     pub fn new(
         host: &str,
         port: u16,
@@ -197,7 +214,8 @@ impl FromStr for LoggingType {
     }
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Clone, Default)]
+#[serde(deny_unknown_fields)]
 pub struct Logging {
     verbosity: Option<String>,
     access_logs: Option<String>,
@@ -237,7 +255,8 @@ impl Logging {
     }
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Clone, Default)]
+#[serde(deny_unknown_fields)]
 pub struct Server {
     db_sync_interval: Option<u64>,
     flush_heartbeats_interval: Option<u64>,
@@ -283,12 +302,32 @@ impl Server {
     }
 }
 
+#[derive(Debug, Deserialize, Clone, Default)]
+#[serde(deny_unknown_fields)]
+pub struct Cli {
+    // When set, subscriptions can only be written using
+    // openwec subscriptions load`, defaults to false.
+    #[serde(default)]
+    read_only_subscriptions: bool,
+}
+
+impl Cli {
+    pub fn read_only_subscriptions(&self) -> bool {
+        self.read_only_subscriptions
+    }
+}
+
 #[derive(Debug, Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
 pub struct Settings {
     collectors: Vec<Collector>,
     database: Database,
+    #[serde(default)]
     server: Server,
+    #[serde(default)]
     logging: Logging,
+    #[serde(default)]
+    cli: Cli,
 }
 
 impl std::str::FromStr for Settings {
@@ -322,6 +361,10 @@ impl Settings {
     pub fn logging(&self) -> &Logging {
         &self.logging
     }
+
+    pub fn cli(&self) -> &Cli {
+        &self.cli
+    }
 }
 
 #[cfg(test)]
@@ -335,10 +378,6 @@ mod tests {
         tcp_keepalive_intvl = 1
         tcp_keepalive_probes = 10
 
-        [logging]
-        verbosity = "debug"
-        server_logs = "stdout"
-
         [database]
         type =  "SQLite"
         path = "/tmp/toto.sqlite"
@@ -348,6 +387,8 @@ mod tests {
         listen_address = "0.0.0.0"
         listen_port = 5986
         max_content_length = 1000
+        enable_proxy_protocol = true
+        advertized_port = 15986
 
         [collectors.authentication]
         type = "Kerberos"
@@ -363,6 +404,8 @@ mod tests {
         assert_eq!(collector.listen_address(), "0.0.0.0");
         assert_eq!(collector.listen_port(), 5986);
         assert_eq!(collector.max_content_length(), 1000);
+        assert_eq!(collector.enable_proxy_protocol(), true);
+        assert_eq!(collector.advertized_port(), 15986);
 
         let kerberos = match collector.authentication() {
             Authentication::Kerberos(kerb) => kerb,
@@ -381,19 +424,18 @@ mod tests {
 
         assert_eq!(sqlite.path(), "/tmp/toto.sqlite");
 
-        assert_eq!(s.logging().verbosity().unwrap(), "debug");
+        assert!(s.logging().verbosity().is_none());
         assert!(s.logging().access_logs().is_none());
-        assert_eq!(s.logging().server_logs(), LoggingType::Stdout);
+        assert_eq!(s.logging().server_logs(), LoggingType::Stderr);
         assert_eq!(s.server().tcp_keepalive_time(), 3600);
         assert_eq!(s.server().tcp_keepalive_intvl().unwrap(), 1);
         assert_eq!(s.server().tcp_keepalive_probes().unwrap(), 10);
     }
 
     const CONFIG_TLS_POSTGRES: &str = r#"
-        [server]
-
         [logging]
         access_logs = "/tmp/toto"
+        server_logs = "stdout"
         server_logs_pattern = "toto"
         access_logs_pattern = "tutu"
 
@@ -426,6 +468,8 @@ mod tests {
         // Checks default values
         assert_eq!(collector.listen_port(), 5985);
         assert_eq!(collector.max_content_length(), 512_000);
+        assert_eq!(collector.enable_proxy_protocol(), false);
+        assert_eq!(collector.advertized_port(), 5985);
 
         let tls = match collector.authentication() {
             Authentication::Tls(tls) => tls,
@@ -451,11 +495,93 @@ mod tests {
             s.logging().access_logs(),
             Some(LoggingType::File("/tmp/toto".to_string()))
         );
-        assert_eq!(s.logging().server_logs(), LoggingType::Stderr,);
+        assert_eq!(s.logging().server_logs(), LoggingType::Stdout);
         assert_eq!(s.logging().server_logs_pattern().unwrap(), "toto");
         assert_eq!(s.logging().access_logs_pattern(), "tutu");
         assert_eq!(s.server().tcp_keepalive_time(), 7200);
         assert!(s.server().tcp_keepalive_intvl().is_none());
         assert!(s.server().tcp_keepalive_probes().is_none());
+        assert_eq!(s.cli().read_only_subscriptions(), false);
+    }
+
+    const CONFIG_TLS_POSTGRES_WITH_CLI: &str = r#"
+        [logging]
+        access_logs = "/tmp/toto"
+        server_logs_pattern = "toto"
+        access_logs_pattern = "tutu"
+
+        [database]
+        type =  "Postgres"
+        host = "localhost"
+        port = 26257
+        dbname = "test"
+        user = "root"
+        password = ""
+
+        [[collectors]]
+        hostname = "wec.windomain.local"
+        listen_address = "0.0.0.0"
+
+        [collectors.authentication]
+        type = "Tls"
+        server_certificate = "/etc/server_certificate.pem"
+        server_private_key = "/etc/server_private_key.pem"
+        ca_certificate = "/etc/ca_certificate.pem"
+
+        [cli]
+        read_only_subscriptions = true
+    "#;
+
+    #[test]
+    fn test_settings_tls_postgres_with_cli() {
+        let s = Settings::from_str(CONFIG_TLS_POSTGRES_WITH_CLI).unwrap();
+        assert_eq!(s.cli().read_only_subscriptions(), true);
+    }
+
+    const GETTING_STARTED: &str = r#"
+        [server]
+        keytab = "/etc/wec.windomain.local.keytab"
+
+        [database]
+        type = "SQLite"
+        # You need to create /var/db/openwec yourself
+        path = "/var/db/openwec/db.sqlite"
+
+        [[collectors]]
+        hostname = "wec.windomain.local"
+        listen_address = "0.0.0.0"
+
+        [collectors.authentication]
+        type = "Kerberos"
+        service_principal_name = "http/wec.windomain.local@WINDOMAIN.LOCAL"   
+    "#;
+
+    #[test]
+    fn test_getting_started() {
+        let s = Settings::from_str(GETTING_STARTED).unwrap();
+        assert_eq!(s.collectors().len(), 1);
+        let collector = &s.collectors()[0];
+        assert_eq!(collector.hostname(), "wec.windomain.local");
+        assert_eq!(collector.listen_address(), "0.0.0.0");
+
+        let kerberos = match collector.authentication() {
+            Authentication::Kerberos(kerb) => kerb,
+            _ => panic!("Wrong authentication type"),
+        };
+        assert_eq!(
+            s.server().keytab().unwrap(),
+            "/etc/wec.windomain.local.keytab"
+        );
+        assert_eq!(
+            kerberos.service_principal_name(),
+            "http/wec.windomain.local@WINDOMAIN.LOCAL"
+        );
+
+        let sqlite = match s.database() {
+            Database::SQLite(sqlite) => sqlite,
+            _ => panic!("Wrong database type"),
+        };
+
+        assert_eq!(sqlite.path(), "/var/db/openwec/db.sqlite");
     }
 }

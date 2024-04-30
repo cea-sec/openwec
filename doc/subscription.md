@@ -14,9 +14,13 @@ The set of events is defined by a list of XPath filter queries. For example, her
 </QueryList>
 ```
 
-In Windows Event Forwarding protocol, a subscription is identified by its `version`, a GUID which must be updated each time changes are made to the subscription.
+In Windows Event Forwarding protocol, a subscription is identified by its (public) `version`, a GUID which must be updated each time changes are made to the subscription.
 
-In OpenWEC, each subscription has a `version`, but because `version` is updated at each modification, each subscription is actually identified by another attribute called `uuid`, which is another GUID unique to a subscription and never updated. A subscription can also be identified using its `name` (user defined).
+In OpenWEC, each subscription has two versions which are both GUIDs:
+- the public version is updated whenever a change that is visible to Windows clients occurs. This enables clients to know that they need to make a change.
+- the internal version is updated every time a change is made to the subscription. This is used to synchronize the subscription between openwec nodes.
+
+In addition, each subscription is identified by a GUID called `uuid`, which is never updated. A subscription can also be identified by its user-defined `name`.
 
 Each Windows machine configured to contact a Windows Event Collector server will send an `Enumerate` request to get a list of subscriptions. It will then create locally these subscriptions and fullfill them.
 
@@ -39,6 +43,8 @@ Subscriptions and their parameters are not defined in OpenWEC configuration file
 | `read_existing_events` | No | `False` | If `True`, the event source should replay all possible events that match the filter and any events that subsequently occur for that event source. |
 | `content_format` | No | `Raw` | This option determines whether rendering information are to be passed with events or not. `Raw` means that only event data will be passed without any rendering information, whereas `RenderedText` adds rendering information. |
 | `ignore_channel_error` | No | `true` | This option determines if various filtering options resulting in errors are to result in termination of the processing by clients. |
+| `locale` | No | *Undefined* | This option determines the language in which openwec wants the rendering info data to be translated. Defaults to unset, meaning OpenWEC lets the clent choose. |
+| `data_locale` | No | *Undefined* | This option determines the language in which openwec wants the numerical data to be formatted. Defaults to unset, meaning OpenWEC lets the clent choose. |
 
 ## Subscription management
 
@@ -76,7 +82,64 @@ The principals filter can be configured using openwec cli:
 *  `openwec subscriptions edit <subscription> filter princs {add,delete,set} [princ, ...]` manages the principals in the filter.
 
 
-## Available commands
+## Configuration
+
+There are two methods available to configure subscriptions:
+- using configuration files (recommended)
+- using the `openwec` command line interface (`openwec subscriptions`)
+
+## Configuration Files
+
+A dedicated file in TOML format describes each subscription. To generate such a file, use `openwec subscriptions skell`.
+
+This example sets up a subscription called "my-sub" with a placeholder query and a Files output in Raw format:
+```toml
+# Unique identifier of the subscription
+uuid = "bf9e18e6-1fd5-4e3c-967d-2b866e0f8999"
+# Unique name of the subscription
+name = "my-sub"
+
+# Subscription query
+query = """
+<QueryList>
+    <!-- Put your queries here -->
+</QueryList>
+"""
+
+# Subscription outputs
+[[outputs]]
+driver = "Files"
+format = "Raw"
+config = { base = "/var/log/openwec/" }
+```
+
+Note: `uuid` and `name` must be unique for each subscription.
+
+The OpenWEC server does not load subscription configuration files automatically during startup due to the complexity of doing so in a multi-node environment. Instead, these files must be explicitly loaded using the command 'openwec subscriptions load'.
+
+`openwec subscriptions load` can load either a whole directory of configuration files, or a single configuration file. When loading a directory, it assumes that the user does not want to keep existing subscriptions that are not present in the directory. When loading a file, it assumes that the user wants to keep already existing subscriptions. This behavior can be changed using the `--keep` flag.
+
+To use configuration files, edit them and then run `openwec subscriptions load`. In a multi-node environment, the `load` command only needs to be run once.
+
+### Revisions
+
+When using the `openwec subscriptions load` command, you can use the `--revision` flag to specify a revision string that represents the configuration version. For example, you can use the output of `git rev-parse --short HEAD` if your configuration files are versioned using `git`. 
+
+When a client retrieves its subscriptions, it also receives the associated revision strings. Later, when pushing events or sending heartbeats, the revision string is included as metadata. The revision string received by OpenWEC within events is called `ClientRevision` because it represents the revision "used" by the client at that time. The revision string is not used to compute the subscription version that clients use to determine whether the subscription has been updated since their last `Refresh`. This is because some configuration updates may only affect "server" parameters (i.e. outputs), and we do not want all clients to refresh the subscription unnecessarily. However, if the configuration update affects "client" parameters (such as query), the subscription version is updated and clients will retrieve the new version of the subscription configuration with the new revision string on the next `Refresh`.
+
+When OpenWEC receives an event within a subscription, it processes the event by sending it to the designated outputs using the latest available configuration for that subscription. The revision of the configuration used by OpenWEC is called `ServerRevision`, which may differ from the `ClientRevision`.
+
+Both `ClientRevision` and `ServerRevision` are included with the metadata that OpenWEC adds for each event received (except in `Raw` format).
+
+
+### Configuration files vs cli
+There are a number of advantages to using configuration files in place of the cli:
+- configuration files can be versioned, and their revision can be included in the metadata of each event received. This is very useful for tracing the query responsible for retrieving events.
+- the cli can be difficult to use for editing complex subscriptions.
+
+You can disable all cli commands that edit subscriptions using the OpenWEC setting `cli.read_only_subscriptions`.
+
+## Command line interface
 
 ### `openwec subscriptions`
 

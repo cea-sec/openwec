@@ -11,32 +11,50 @@ env:
 
 jobs:
   build:
-
     runs-on: ubuntu-latest
+    container: rust:slim-bookworm
+
+    # see https://docs.github.com/en/actions/using-containerized-services/creating-postgresql-service-containers
+    # Service containers to run with `build`
+    services:
+      # Label used to access the service container
+      postgres:
+        # Docker Hub image
+        image: postgres
+        # Provide the password for postgres
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: test
+        # Set health checks to wait until postgres has started
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          # Maps tcp port 5432 on service container to the host
+          - 5432:5432
 
     steps:
     - uses: actions/checkout@v3
     - name: Install dependencies
       run: |
-        sudo apt-get update && \
-        sudo apt-get install -y --no-install-recommends \
+        apt-get update && \
+        apt-get install -y --no-install-recommends \
         libkrb5-dev \
-        libssl-dev
-    - name: Install a Postgres database (CockroachDB)
-      run: |
-        git clone https://github.com/cockroachlabs-field/docker-examples.git
-        cd docker-examples/example-nginx/
-        sh up.sh
-    - name: Build
-      run: cargo build --verbose
+        libssl-dev \
+        make \
+        clang \
+        pkgconf ;
     - name: Clippy
-      run: cargo clippy -- -Dwarnings
+      run: rustup component add clippy && cargo clippy -- -Dwarnings
     - name: Run tests
       run: |
-        # Env var to connect to the Postgres docker
-        export POSTGRES_HOST="localhost"
-        export POSTGRES_PORT="26257"
-        export POSTGRES_USER="root"
-        export POSTGRES_PASSWORD=""
+        # Env var to connect to the Postgres service
+        export POSTGRES_HOST="postgres"
+        export POSTGRES_PORT="5432"
+        export POSTGRES_USER="postgres"
+        export POSTGRES_PASSWORD="postgres"
         export POSTGRES_DBNAME="test"
         cargo test --verbose
