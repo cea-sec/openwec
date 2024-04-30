@@ -9,6 +9,7 @@ Group=openwec
 Restart=always
 RestartSec=5s
 LimitNOFILE=65536
+ExecReload=/bin/kill -HUP $MAINPID
 
 [Install]
 WantedBy=multi-user.target
