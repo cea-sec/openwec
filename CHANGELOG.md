@@ -27,6 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add `locale` and `data_locale` subscriptions parameters
 - Add support for Proxy Protocol to allow openwec to be used behind a layer 4 load
 balancer whilst preserving the client IP address and port.
+- Add Nxlog format (#124)
 
 ### Changed
 

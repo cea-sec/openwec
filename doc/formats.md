@@ -245,11 +245,58 @@ processing_error_data := {
 }
 ```
 
+## Nxlog format
+
+This format mimics the output of the `im_msvistalog` module of Nxlog (see https://docs.nxlog.co/refman/current/im/msvistalog.html).
+
+Fields are documentated here:
+- https://docs.nxlog.co/refman/current/im/msvistalog.html#fields
+- https://docs.nxlog.co/refman/current/im/msvistalog_providers.html
+
+There are some differencies between the OpenWEC's Nxlog format and the original format:
+- Some fields are not present in OpenWEC's Nxlog format: `AccountName`, `AccountType`, `Domain`, `SourceModuleName`, `SourceModuleType`.
+- Some fields are only present if OpenWEC's subscription content format is set to `RenderedText`: `Category`, `Message`, `Opcode`.
+- Dates are formatted using RFC3389 format (instead of "Y-m-d H:M:S")
+- A field named `OpenWEC` is added with the following format:
+```json
+openwec_data := {
+    /* IP Address of the Windows client */
+    "IpAddress": string,
+    /* Time when the event was received by OpenWEC */
+    "TimeReceived": date,
+    /* Principal of the Windows client */
+    "Principal": string,
+    /* OpenWEC node that received the event.
+      Only present if server.node_name configuration setting is set */
+    "Node": string,
+    "Subscription": {
+        "Name": string,
+        "Version": string,
+        "Uuid": string,
+        "Uri": string,
+        /* Only if revision is set for this subscription */
+        "ServerRevision": string,
+        "ClientRevision": string
+    },
+    /* Only in case of error during event parsing or serializing */
+    "Error": {
+        "OriginalContent": string,
+        "Type": string,
+        "Message": string
+    }
+}
+```
+
+
 ## How to add a new format ?
 
-- Create a new dedicated module in `server::formats` with a structure that implements `OutputFormat`
 - Add a new variant to `common::subscription::SubscriptionOutputFormat`
-- Fix all the compiler errors about missing variant in matches :-)
 - Adapt import/export format in `common::models::export` (version don't need to be changed if only new variants are added)
 - Adapt config format in `common::models::config`
+
+- Create a new dedicated module in `server::formats` with a structure that implements `OutputFormat`
+
+- Fix all the compiler errors about missing variant in matches :-)
+- Add the new format in `cli::skell`
+
 - Add documentation in `doc/formats.md`
