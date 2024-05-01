@@ -12,7 +12,7 @@ path = "src/main.rs"
 [dependencies]
 common = { path = "../common" }
 anyhow = "1.0.71"
-base64 = "0.21.2"
+base64 = "0.22.0"
 buf-read-ext = "0.4.0"
 httparse = "1.8.0"
 hyper = { version = "1.2.0", features = ["full"] }
