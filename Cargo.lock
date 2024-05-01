@@ -2018,7 +2018,7 @@ version = "0.2.0"
 dependencies = [
  "anyhow",
  "async-trait",
- "base64 0.21.7",
+ "base64 0.22.0",
  "bitreader",
  "buf-read-ext",
  "chrono",
