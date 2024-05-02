@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Add a Dockerfile (#126)
+
 ### Changed
 
 - Use multiplexed connections for Redis driver (#127)
