@@ -42,7 +42,7 @@ impl OutputDriver for OutputRedis {
         for event in events.iter() {
 
             let mut redis_cmd = cmd.clone();
-            let mut redis_connection = self.producer.get_tokio_connection().await?;
+            let mut redis_connection = self.producer.get_multiplexed_tokio_connection().await?;
 
             results.push(async move {
                 redis_cmd
