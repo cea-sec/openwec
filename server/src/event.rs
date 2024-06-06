@@ -3,7 +3,7 @@ use chrono::{DateTime, Utc};
 use log::{debug, info, trace, warn};
 use roxmltree::{Document, Error, Node};
 use serde::Serialize;
-use std::{collections::HashMap, net::SocketAddr, sync::Arc};
+use std::{collections::HashMap, fmt::Display, net::SocketAddr, sync::Arc};
 
 use crate::subscription::Subscription;
 
@@ -61,18 +61,17 @@ pub enum ErrorType {
     Unknown,
 }
 
-impl ToString for ErrorType {
-    fn to_string(&self) -> String {
+impl Display for ErrorType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ErrorType::RawContentRecovered(message) => message.clone(),
-            ErrorType::FailedToRecoverRawContent(message ) => message.clone(),
-            ErrorType::Unrecoverable(message ) => message.clone(),
-            ErrorType::FailedToFeedEvent (message ) => message.clone(),
-            ErrorType::Unknown => "Unknown error".to_string(),
+            ErrorType::RawContentRecovered(message) => write!(f, "{}", message),
+            ErrorType::FailedToRecoverRawContent(message ) => write!(f, "{}", message),
+            ErrorType::Unrecoverable(message ) => write!(f, "{}", message),
+            ErrorType::FailedToFeedEvent (message ) => write!(f, "{}", message),
+            ErrorType::Unknown => write!(f, "Unknown error"),
         }
     }
 }
-
 
 #[derive(Debug, Default, Clone, Eq, PartialEq)]
 pub struct ErrorInfo {
@@ -258,7 +257,7 @@ fn parse_debug_data(debug_data_node: &Node) -> Result<DataType> {
         } else if node.tag_name().name() == "LevelName" {
             debug_data.level_name = node.text().map(str::to_string);
         } else if node.tag_name().name() == "Component" {
-            debug_data.component = node.text().unwrap_or_default().to_owned();
+            node.text().unwrap_or_default().clone_into(&mut debug_data.component);
         } else if node.tag_name().name() == "SubComponent" {
             debug_data.sub_component = node.text().map(str::to_string);
         } else if node.tag_name().name() == "FileLine" {
@@ -266,7 +265,7 @@ fn parse_debug_data(debug_data_node: &Node) -> Result<DataType> {
         } else if node.tag_name().name() == "Function" {
             debug_data.function = node.text().map(str::to_string);
         } else if node.tag_name().name() == "Message" {
-            debug_data.message = node.text().unwrap_or_default().to_owned();
+            node.text().unwrap_or_default().clone_into(&mut debug_data.message);
         }
     }
     Ok(DataType::DebugData(debug_data))
@@ -278,9 +277,9 @@ fn parse_processing_error_data(processing_error_data_node: &Node) -> Result<Data
         if node.tag_name().name() == "ErrorCode" {
             processing_error_data.error_code = node.text().unwrap_or_default().parse()?;
         } else if node.tag_name().name() == "DataItemName" {
-            processing_error_data.data_item_name = node.text().unwrap_or_default().to_owned();
+            node.text().unwrap_or_default().clone_into(&mut processing_error_data.data_item_name);
         } else if node.tag_name().name() == "EventPayload" {
-            processing_error_data.event_payload = node.text().unwrap_or_default().to_owned();
+            node.text().unwrap_or_default().clone_into(&mut processing_error_data.event_payload);
         }
     }
     Ok(DataType::ProcessingErrorData(processing_error_data))
