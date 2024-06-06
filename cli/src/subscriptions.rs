@@ -766,7 +766,7 @@ fn outputs_add_kafka(matches: &ArgMatches) -> Result<KafkaConfiguration> {
     let mut key = String::new();
     for (index, elt) in options {
         if index % 2 == 0 {
-            key = elt.to_owned();
+            elt.clone_into(&mut key);
         } else {
             options_hashmap.insert(key.clone(), elt.to_owned());
         }
