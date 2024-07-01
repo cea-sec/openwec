@@ -20,7 +20,7 @@ itoa = "1.0.6"
 libgssapi = { version = "0.7.0", features = ["iov"] }
 log = "0.4.19"
 mime = "0.3.17"
-quick-xml = "0.31.0"
+quick-xml = "0.35.0"
 roxmltree = "0.19.0"
 tokio = { version = "1.35.1", features = ["full"] }
 rdkafka = { version = "0.36.0", features = ["zstd", "libz", "external-lz4"] }
