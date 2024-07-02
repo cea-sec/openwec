@@ -441,7 +441,15 @@ async fn handle(
                 "-",
                 ConnectionStatus::Alive,
             );
-            return Ok(build_error_response(status));
+            if let AuthenticationContext::Kerberos(_ctx) = auth_ctx {
+                return Ok(Response::builder()
+                    .status(status)
+                    .header(WWW_AUTHENTICATE, "Kerberos")
+                    .body(empty())
+                    .expect("Failed to build HTTP response"))
+            } else {
+                return Ok(build_error_response(status));
+            }
         }
     };
 
