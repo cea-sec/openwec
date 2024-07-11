@@ -5,6 +5,7 @@ use quick_xml::reader::Reader;
 use quick_xml::writer::Writer;
 use roxmltree::{Document, Node};
 use std::collections::HashMap;
+use std::io::ErrorKind;
 use std::sync::Arc;
 use uuid::Uuid;
 use xmlparser::XmlCharExt;
@@ -276,7 +277,7 @@ impl Serializable for SubscriptionBody {
                             .write_inner_content(|writer| {
                                 // Copy filter from "query" field
                                 let mut reader = Reader::from_str(&self.query);
-                                reader.trim_text(true);
+                                reader.config_mut().trim_text(true);
                                 loop {
                                     match reader.read_event() {
                                         Ok(Event::Eof) => break,
@@ -291,7 +292,7 @@ impl Serializable for SubscriptionBody {
                                 .create_element("w:Bookmark")
                                 .write_inner_content(|writer| {
                                     let mut reader = Reader::from_str(bookmark);
-                                    reader.trim_text(true);
+                                    reader.config_mut().trim_text(true);
                                     loop {
                                         match reader.read_event() {
                                             Ok(Event::Eof) => break,
@@ -547,11 +548,14 @@ impl Serializable for Body {
                     })?;
             }
             x => {
-                return Err(quick_xml::Error::UnexpectedToken(format!(
-                    "Can not serialize body of {:?}",
-                    x
-                )))
-            } // anyhow!("Can not serialize body of {:?}", x),
+                return Err(quick_xml::Error::Io(
+                    std::io::Error::new(
+                        ErrorKind::Other,
+                        format!("Can not serialize body of {:?}", x),
+                    )
+                    .into(),
+                ))
+            }
         }
         Ok(())
     }
