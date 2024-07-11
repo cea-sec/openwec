@@ -33,7 +33,7 @@ chrono = { version  = "0.4.26", default-features = false, features = ["clock"] }
 clap = { version = "4.4.2", features = ["cargo"] }
 futures-util = "0.3.28"
 xmlparser = "0.13.5"
-itertools = "0.12.0"
+itertools = "0.13.0"
 futures = "0.3.28"
 bitreader = "0.3.7"
 rustls-pemfile = "2.1.1"
