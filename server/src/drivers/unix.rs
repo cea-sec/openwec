@@ -1,6 +1,9 @@
 use std::sync::Arc;
 
-use crate::{event::EventMetadata, output::OutputDriver};
+use crate::{
+    event::EventMetadata,
+    output::OutputDriver,
+};
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use common::subscription::UnixDatagramConfiguration;
@@ -105,10 +108,7 @@ impl OutputUnixDatagram {
 
         tokio::spawn(async move { run(path, task_rx, cloned_task_ct).await });
 
-        Ok(OutputUnixDatagram {
-            task_tx,
-            task_ct,
-        })
+        Ok(OutputUnixDatagram { task_tx, task_ct })
     }
 }
 

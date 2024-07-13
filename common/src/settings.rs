@@ -1,5 +1,6 @@
 use anyhow::{Error, Result};
 use serde::Deserialize;
+use std::collections::HashMap;
 use std::str::FromStr;
 use std::{fs::File, io::Read};
 
@@ -317,6 +318,56 @@ impl Cli {
     }
 }
 
+#[derive(Debug, Deserialize, Clone, Default)]
+#[serde(deny_unknown_fields)]
+pub struct FilesOutput {
+    // Time after which an unused file descriptor is closed
+    files_descriptor_close_timeout: Option<u64>
+}
+
+impl FilesOutput {
+    pub fn files_descriptor_close_timeout(&self) -> u64 {
+        self.files_descriptor_close_timeout.unwrap_or(600)
+    }
+}
+
+#[derive(Debug, Deserialize, Clone, Default)]
+#[serde(deny_unknown_fields)]
+pub struct KafkaOutput {
+    options: HashMap<String, String>,
+}
+
+impl KafkaOutput {
+    pub fn options(&self) -> &HashMap<String, String> {
+        &self.options
+    }
+}
+
+#[derive(Debug, Deserialize, Clone, Default)]
+#[serde(deny_unknown_fields)]
+pub struct Outputs {
+    // Interval at which the garbage collector is run
+    garbage_collect_interval: Option<u64>,
+    #[serde(default)]
+    files: FilesOutput,
+    #[serde(default)]
+    kafka: KafkaOutput
+}
+
+impl Outputs {
+    pub fn garbage_collect_interval(&self) -> u64 {
+        self.garbage_collect_interval.unwrap_or(600)
+    }
+
+    pub fn files(&self) -> &FilesOutput {
+        &self.files
+    }
+
+    pub fn kafka(&self) -> &KafkaOutput {
+        &self.kafka
+    }
+}
+
 #[derive(Debug, Deserialize, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct Settings {
@@ -328,6 +379,8 @@ pub struct Settings {
     logging: Logging,
     #[serde(default)]
     cli: Cli,
+    #[serde(default)]
+    outputs: Outputs,
 }
 
 impl std::str::FromStr for Settings {
@@ -364,6 +417,10 @@ impl Settings {
 
     pub fn cli(&self) -> &Cli {
         &self.cli
+    }
+
+    pub fn outputs(&self) -> &Outputs {
+        &self.outputs
     }
 }
 
@@ -502,6 +559,9 @@ mod tests {
         assert!(s.server().tcp_keepalive_intvl().is_none());
         assert!(s.server().tcp_keepalive_probes().is_none());
         assert_eq!(s.cli().read_only_subscriptions(), false);
+        assert_eq!(s.outputs().garbage_collect_interval(), 600);
+        assert_eq!(s.outputs().files().files_descriptor_close_timeout(), 600);
+        assert!(s.outputs().kafka().options().is_empty());
     }
 
     const CONFIG_TLS_POSTGRES_WITH_CLI: &str = r#"
@@ -536,6 +596,50 @@ mod tests {
     fn test_settings_tls_postgres_with_cli() {
         let s = Settings::from_str(CONFIG_TLS_POSTGRES_WITH_CLI).unwrap();
         assert_eq!(s.cli().read_only_subscriptions(), true);
+    }
+
+    const CONFIG_TLS_POSTGRES_WITH_OUTPUTS: &str = r#"
+        [logging]
+        access_logs = "/tmp/toto"
+        server_logs_pattern = "toto"
+        access_logs_pattern = "tutu"
+
+        [database]
+        type =  "Postgres"
+        host = "localhost"
+        port = 26257
+        dbname = "test"
+        user = "root"
+        password = ""
+
+        [[collectors]]
+        hostname = "wec.windomain.local"
+        listen_address = "0.0.0.0"
+
+        [collectors.authentication]
+        type = "Tls"
+        server_certificate = "/etc/server_certificate.pem"
+        server_private_key = "/etc/server_private_key.pem"
+        ca_certificate = "/etc/ca_certificate.pem"
+
+        [outputs]
+        garbage_collect_interval = 10
+
+        [outputs.files]
+        files_descriptor_close_timeout = 1
+
+        [outputs.kafka]
+        options = { "bootstrap.servers" = "localhost:9092" }
+    "#;
+
+    #[test]
+    fn test_settings_tls_postgres_with_outputs() {
+        let s = Settings::from_str(CONFIG_TLS_POSTGRES_WITH_OUTPUTS).unwrap();
+        assert_eq!(s.outputs().garbage_collect_interval(), 10);
+        assert_eq!(s.outputs().files().files_descriptor_close_timeout(), 1);
+        let mut map = HashMap::new();
+        map.insert("bootstrap.servers".to_owned(), "localhost:9092".to_owned());
+        assert_eq!(s.outputs().kafka().options(), &map);
     }
 
     const GETTING_STARTED: &str = r#"

@@ -67,7 +67,7 @@
 ##   Logging settings   ##
 ##########################
 
-# [logging]
+[logging]
 
 # [Optional]
 # Set server logging verbosity
@@ -262,10 +262,43 @@
 ##     Cli settings     ##
 ##########################
 
-# [cli]
+[cli]
 
 # [Optional]
 # If set, subscriptions can only be updated using `openwec subscriptions load` command.
 # This is useful if you want to rely on files to configure your subscriptions
 # and want to enforce that subscriptions can not be updated directly.
 # read_only_subscriptions = false
+
+##########################
+##   Outputs settings   ##
+##########################
+
+[outputs]
+
+# [Optional]
+# The interval (in seconds) at which the outputs garbage collector is run.
+# It is responsible for closing unused resources, such as file descriptors that have
+# not been touched in a while (see 'outputs.files.files_descriptor_close_timeout')
+# garbage_collect_interval = 600
+
+# [outputs.files]
+# [Optional]
+# Files descriptor that have not beed written to for more than <files_descriptor_close_timeout>
+# will be closed each time the garbage collector runs.
+# files_descriptor_close_timeout = 600
+
+# [outputs.kafka]
+# [Optional]
+# When using multiple Kafka outputs, there is a chance that they will connect to a single Kafka cluster.
+# In this case, it is more resource efficient to use a single Kafka client instead of
+# one per output.
+# To do this, instead of configuring Kafka options in each output, configure them
+# once here. The options are sent directly to librdkafka
+# (see https://docs.confluent.io/platform/current/clients/librdkafka/html/md_CONFIGURATION.html).
+#
+# Notes:
+# - You can still use different topics for each output.
+# - If you configure Kafka options in an output, a dedicated Kafka client will be
+#     used for that output regardless of this setting.
+# options = {}

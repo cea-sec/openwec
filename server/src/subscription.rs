@@ -1,6 +1,7 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use common::{
     database::Db,
+    settings::Outputs,
     subscription::{
         InternalVersion, PublicVersion, SubscriptionData, SubscriptionOutputFormat,
         SubscriptionUuid,
@@ -18,7 +19,7 @@ use tokio::{
     time,
 };
 
-use crate::output::Output;
+use crate::output::{Output, OutputDriversContext};
 
 pub struct Subscription {
     data: SubscriptionData,
@@ -27,24 +28,6 @@ pub struct Subscription {
     public_version: PublicVersion,
     outputs: Vec<Output>,
     formats: HashSet<SubscriptionOutputFormat>,
-}
-
-impl TryFrom<SubscriptionData> for Subscription {
-    type Error = anyhow::Error;
-    fn try_from(data: SubscriptionData) -> Result<Self, Self::Error> {
-        let mut formats: HashSet<SubscriptionOutputFormat> = HashSet::new();
-        for output in data.outputs() {
-            formats.insert(output.format().clone());
-        }
-        let mut subscription = Subscription {
-            public_version: data.public_version()?,
-            data,
-            outputs: Vec::new(),
-            formats,
-        };
-        subscription.create_outputs()?;
-        Ok(subscription)
-    }
 }
 
 impl Subscription {
@@ -58,16 +41,6 @@ impl Subscription {
         self.public_version.to_string().to_uppercase()
     }
 
-    fn create_outputs(&mut self) -> Result<()> {
-        for output_data in self.data.outputs() {
-            if output_data.enabled() {
-                self.outputs
-                    .push(Output::new(output_data.format(), output_data.driver())?);
-            }
-        }
-        Ok(())
-    }
-
     pub fn data(&self) -> &SubscriptionData {
         &self.data
     }
@@ -79,29 +52,82 @@ impl Subscription {
     pub fn outputs(&self) -> &[Output] {
         &self.outputs
     }
+
+    fn create_outputs(
+        data: &SubscriptionData,
+        context: &mut OutputDriversContext,
+    ) -> Result<Vec<Output>> {
+        let mut outputs = Vec::new();
+        for output_data in data.outputs() {
+            if output_data.enabled() {
+                outputs.push(Output::new(
+                    output_data.format(),
+                    output_data.driver(),
+                    context,
+                )?);
+            }
+        }
+        Ok(outputs)
+    }
+
+    pub fn from_data(data: SubscriptionData, context: &mut OutputDriversContext) -> Result<Self> {
+        let mut formats: HashSet<SubscriptionOutputFormat> = HashSet::new();
+        for output in data.outputs() {
+            formats.insert(output.format().clone());
+        }
+        let outputs = Self::create_outputs(&data, context)?;
+        let subscription = Subscription {
+            public_version: data.public_version()?,
+            data,
+            outputs,
+            formats,
+        };
+
+        Ok(subscription)
+    }
 }
 
 /// In-memory map of currently active subscriptions
 /// <subscription_uuid> => <subscription>
 pub type Subscriptions = Arc<RwLock<HashMap<SubscriptionUuid, Arc<Subscription>>>>;
 
-pub async fn reload_subscriptions_task(db: Db, subscriptions: Subscriptions, interval: u64) {
+pub async fn reload_subscriptions_task(
+    db: Db,
+    subscriptions: Subscriptions,
+    reload_interval: u64,
+    outputs_settings: Outputs,
+) {
     info!("reload_subscriptions task started");
-    let mut interval = time::interval(Duration::from_secs(interval));
+    let mut reload = time::interval(Duration::from_secs(reload_interval));
+    let mut garbage_collect =
+        time::interval(Duration::from_secs(outputs_settings.garbage_collect_interval()));
     let mut sighup = signal(SignalKind::hangup()).expect("Could not listen to SIGHUP");
+
+    let mut context = OutputDriversContext::new(&outputs_settings);
+
+    // Don't call garbage_collect immediatly
+    garbage_collect.reset();
 
     loop {
         tokio::select! {
-            _ = interval.tick() => {
+            // First tick happens instantly
+            _ = reload.tick() => {
                 debug!("Update subscriptions from db (interval tick)");
-                if let Err(e) = reload_subscriptions(db.clone(), subscriptions.clone(), true).await {
+                if let Err(e) = reload_subscriptions(db.clone(), subscriptions.clone(), &mut context, true).await {
                     warn!("Failed to update subscriptions on interval tick: {:?}", e);
+                    continue;
+                }
+            },
+            _ = garbage_collect.tick() => {
+                debug!("Garbage collect output drivers context"); // FIXME
+                if let Err(e) = context.garbage_collect(&outputs_settings) {
+                    warn!("Failed to garbage collect output drivers: {:?}", e);
                     continue;
                 }
             },
             _ = sighup.recv() => {
                 info!("Update subscriptions from db (signal)");
-                if let Err(e) = reload_subscriptions(db.clone(), subscriptions.clone(), false).await {
+                if let Err(e) = reload_subscriptions(db.clone(), subscriptions.clone(), &mut context, false).await {
                     warn!("Failed to update subscriptions on SIGHUP: {:?}", e);
                     continue;
                 }
@@ -113,9 +139,13 @@ pub async fn reload_subscriptions_task(db: Db, subscriptions: Subscriptions, int
 async fn reload_subscriptions(
     db: Db,
     mem_subscriptions: Subscriptions,
+    context: &mut OutputDriversContext,
     keep_already_existing: bool,
 ) -> Result<()> {
     let db_subscriptions = db.get_subscriptions().await?;
+
+    // Make sure that the context is initialized for every active output drivers
+    context.initialize_missing(&db_subscriptions).context("Failed to initialize output drivers context")?;
 
     let mut active_subscriptions: HashSet<InternalVersion> =
         HashSet::with_capacity(db_subscriptions.len());
@@ -126,6 +156,7 @@ async fn reload_subscriptions(
 
     if !keep_already_existing {
         mem_subscriptions.clear();
+        context.clear();
     }
 
     // mem_subscriptions is indexed on "public version"
@@ -182,7 +213,8 @@ async fn reload_subscriptions(
                 }
 
                 // Initialize the new subscription and add it to in-memory subscriptions
-                let new_subscription = Arc::new(Subscription::try_from(subscription_data.clone())?);
+                let new_subscription =
+                    Arc::new(Subscription::from_data(subscription_data.clone(), context)?);
                 // mem_subscriptions is indexed on public version
                 mem_subscriptions.insert(*new_subscription.data().uuid(), new_subscription);
             }

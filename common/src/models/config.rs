@@ -12,6 +12,7 @@ use crate::subscription::{
 #[serde(deny_unknown_fields)]
 struct KafkaConfiguration {
     pub topic: String,
+    #[serde(default)]
     pub options: HashMap<String, String>,
 }
 

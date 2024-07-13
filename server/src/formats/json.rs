@@ -451,14 +451,14 @@ mod tests {
     use std::{net::SocketAddr, str::FromStr, sync::Arc};
 
     use chrono::Utc;
-    use common::subscription::{SubscriptionData, SubscriptionUuid};
+    use common::{settings, subscription::{SubscriptionData, SubscriptionUuid}};
     use serde_json::Value;
     use uuid::Uuid;
 
     use crate::{
         event::{EventData, EventMetadata},
         formats::json::JsonFormat,
-        output::OutputFormat,
+        output::{OutputDriversContext, OutputFormat},
         subscription::Subscription,
     };
 
@@ -497,6 +497,7 @@ Type 3 is a limited token with administrative privileges removed and administrat
     #[test]
     fn test_serialize_4688_event_data() {
         // Generate metadata
+        let mut output_context = OutputDriversContext::new(&settings::Outputs::default());
 
         let mut subscription_data = SubscriptionData::new("Test", "");
         subscription_data
@@ -505,7 +506,7 @@ Type 3 is a limited token with administrative privileges removed and administrat
             ))
             .set_uri(Some("/this/is/a/test".to_string()))
             .set_revision(Some("babar".to_string()));
-        let subscription = Subscription::try_from(subscription_data).unwrap();
+        let subscription = Subscription::from_data(subscription_data, &mut output_context).unwrap();
 
         let mut metadata = EventMetadata::new(
             &SocketAddr::from_str("192.168.58.100:5985").unwrap(),
@@ -549,11 +550,12 @@ Licensing Status=
 
     #[test]
     fn test_serialize_1003_event_data_unamed() {
+        let mut output_context = OutputDriversContext::new(&settings::Outputs::default());
         let mut subscription_data = SubscriptionData::new("Test", "");
         subscription_data.set_uuid(SubscriptionUuid(
             Uuid::from_str("8B18D83D-2964-4F35-AC3B-6F4E6FFA727B").unwrap(),
         ));
-        let subscription = Subscription::try_from(subscription_data).unwrap();
+        let subscription = Subscription::from_data(subscription_data, &mut output_context).unwrap();
 
         let mut metadata = EventMetadata::new(
             &SocketAddr::from_str("192.168.58.100:5985").unwrap(),
@@ -591,6 +593,7 @@ If this computer is a domain controller for the specified domain, it sets up the
 
     #[test]
     fn test_serialize_5719_event_data_binary() {
+        let mut output_context = OutputDriversContext::new(&settings::Outputs::default());
         let mut subscription_data = SubscriptionData::new("Test", "");
         subscription_data
             .set_uuid(SubscriptionUuid(
@@ -598,7 +601,7 @@ If this computer is a domain controller for the specified domain, it sets up the
             ))
             .set_uri(Some("/this/is/a/test".to_string()))
             .set_revision(Some("babar".to_string()));
-        let subscription = Subscription::try_from(subscription_data).unwrap();
+        let subscription = Subscription::from_data(subscription_data, &mut output_context).unwrap();
 
         let mut metadata = EventMetadata::new(
             &SocketAddr::from_str("192.168.58.100:5985").unwrap(),
@@ -631,13 +634,14 @@ If this computer is a domain controller for the specified domain, it sets up the
 
     #[test]
     fn test_serialize_6013_event_data_unamed_empty() {
+        let mut output_context = OutputDriversContext::new(&settings::Outputs::default());
         let mut subscription_data = SubscriptionData::new("Test", "");
         subscription_data
             .set_uuid(SubscriptionUuid(
                 Uuid::from_str("8B18D83D-2964-4F35-AC3B-6F4E6FFA727B").unwrap(),
             ))
             .set_uri(Some("/this/is/a/test".to_string()));
-        let subscription = Subscription::try_from(subscription_data).unwrap();
+        let subscription = Subscription::from_data(subscription_data, &mut output_context).unwrap();
 
         let mut metadata = EventMetadata::new(
             &SocketAddr::from_str("192.168.58.100:5985").unwrap(),
@@ -670,13 +674,14 @@ If this computer is a domain controller for the specified domain, it sets up the
 
     #[test]
     fn test_serialize_1100_user_data() {
+        let mut output_context = OutputDriversContext::new(&settings::Outputs::default());
         let mut subscription_data = SubscriptionData::new("Test", "");
         subscription_data
             .set_uuid(SubscriptionUuid(
                 Uuid::from_str("8B18D83D-2964-4F35-AC3B-6F4E6FFA727B").unwrap(),
             ))
             .set_uri(Some("/this/is/a/test".to_string()));
-        let subscription = Subscription::try_from(subscription_data).unwrap();
+        let subscription = Subscription::from_data(subscription_data, &mut output_context).unwrap();
 
         let mut metadata = EventMetadata::new(
             &SocketAddr::from_str("192.168.58.100:5985").unwrap(),
@@ -709,13 +714,14 @@ If this computer is a domain controller for the specified domain, it sets up the
 
     #[test]
     fn test_serialize_111() {
+        let mut output_context = OutputDriversContext::new(&settings::Outputs::default());
         let mut subscription_data = SubscriptionData::new("Test", "");
         subscription_data
             .set_uuid(SubscriptionUuid(
                 Uuid::from_str("8B18D83D-2964-4F35-AC3B-6F4E6FFA727B").unwrap(),
             ))
             .set_uri(Some("/this/is/a/test".to_string()));
-        let subscription = Subscription::try_from(subscription_data).unwrap();
+        let subscription = Subscription::from_data(subscription_data, &mut output_context).unwrap();
 
         let mut metadata = EventMetadata::new(
             &SocketAddr::from_str("192.168.58.100:5985").unwrap(),
