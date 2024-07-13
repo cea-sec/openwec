@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Added a 'WWWW-Authenticate' header when sending a HTTP response with status 401 (#154)
+
 ## [0.2.1]
 
 ### Added
