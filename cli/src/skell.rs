@@ -90,11 +90,13 @@ fn get_options() -> String {
 
 # This option determines the language in which openwec wants the
 # rendering info data to be translated.
+# Example: en-US
 # Defaults to unset, meaning OpenWEC lets the client choose.
 # locale =
 
 # This option determines the language in which openwec wants the
 # numerical data to be formatted.
+# Example: en-US
 # Defaults to unset, meaning OpenWEC lets the client choose.
 # data_locale =
 "#,
