@@ -88,9 +88,11 @@ where:
 * `node_name` (optional): when you use a multi-node setup, you may want to add the node's name in the path. The node's name is configured in server settings, but you can choose to add it or not in each output settings.
 * `filename`: the name of the file, configured in each output settings. It defaults to `messages`.
 
-When the `Files` driver is initialized, it creates a blank hash table which will contain openned file descriptors. Therefore, each file is openned once.
+The `Files` driver uses a unique thread (even if there are multiple instances of the driver) to write files. This thread maintains a hash table which contains every openned file descriptors. A garbage collector is regularly run (see `outputs.garbage_collect_interval` setting) to close the file descriptors that have not been used in a while (see `outputs.files.file_descriptors_close_timeout`).
 
-You may want to tell OpenWEC to close all its file descriptors and to open them again. This can be done using `openwec subscriptions reload <subscription>`: the subscription outputs will be reloaded at the next "subscriptions reload" tick. You may want to reload subscriptions immediatly by sending a `SIGHUP` signal to `openwecd` process after executing the `openwec subscriptions reload` command.
+It is possible for multiple Files outputs to write to the same file (even in different subscriptions).
+
+You may want to tell OpenWEC to close all its file descriptors and to open them again (for example if you use `logrotate`). You can do that by sending a `SIGHUP` signal to the `openwecd` process.
 
 #### Examples
 
@@ -123,6 +125,8 @@ $ openwec subscriptions edit my-subscription outputs add --format <format> files
 The Kafka driver sends events in a Kafka topic.
 
 For a given subscription, all events will be sent in the configured Kafka topic. You may want to add additionnal options to the inner Kafka client, such as `bootstrap.servers`.
+
+If multiple outputs use the Kafka driver and connect to the same Kafka cluster, it is recommended to configure the additional options in OpenWEC settings (`outputs.kafka.options`). This way, only one Kafka client will be used by all the outputs, which is more resource efficient.
 
 #### Examples
 

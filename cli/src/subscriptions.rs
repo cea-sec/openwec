@@ -993,7 +993,7 @@ async fn load(db: &Db, matches: &ArgMatches) -> Result<()> {
     for subscription in subscriptions.iter() {
         if !check_query_size(subscription.query()).with_context(|| {
             format!(
-                "Failed to check query size for subscription '{}' ({})",
+                "Failed to parse query of subscription '{}' ({})",
                 subscription.name(),
                 subscription.uuid()
             )

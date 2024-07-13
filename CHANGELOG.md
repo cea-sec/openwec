@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Multiple Kafka output drivers that connect to the same Kafka cluster can use a single Kafka client (#155)
+
+### Changed
+
+- Files output drivers use a single thread (for all outputs) to write to files. Multiple Files outputs can write to the same file (which was not safe before) (#155)
+- A garbage collector runs regularly to close unused opened files (#155)
+
 ### Fixed
 
 - Added a 'WWWW-Authenticate' header when sending a HTTP response with status 401 (#154)

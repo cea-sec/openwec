@@ -1,6 +1,9 @@
 use std::sync::Arc;
 
-use crate::{event::EventMetadata, output::OutputDriver};
+use crate::{
+    event::EventMetadata,
+    output::OutputDriver,
+};
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use common::subscription::TcpConfiguration;
@@ -74,7 +77,11 @@ pub async fn run(
             }
         };
     }
-    info!("Exiting TCP output task ({}:{})", config.addr(), config.port());
+    info!(
+        "Exiting TCP output task ({}:{})",
+        config.addr(),
+        config.port()
+    );
 }
 
 pub struct OutputTcp {
@@ -84,10 +91,7 @@ pub struct OutputTcp {
 
 impl OutputTcp {
     pub fn new(config: &TcpConfiguration) -> Result<Self> {
-        debug!(
-            "Initialize TCP output with config {:?}",
-            config,
-        );
+        debug!("Initialize TCP output with config {:?}", config,);
 
         // Create a communication channel with the task responsible for file management
         // TODO: Why 32?
@@ -102,10 +106,7 @@ impl OutputTcp {
         // Launch the task responsible for handling the TCP connection
         tokio::spawn(async move { run(config_cloned, task_rx, cloned_task_ct).await });
 
-        Ok(OutputTcp {
-            task_tx,
-            task_ct,
-        })
+        Ok(OutputTcp { task_tx, task_ct })
     }
 }
 

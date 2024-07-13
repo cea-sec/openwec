@@ -86,14 +86,14 @@ mod tests {
     use std::{net::SocketAddr, str::FromStr, sync::Arc};
 
     use chrono::Utc;
-    use common::subscription::{SubscriptionData, SubscriptionUuid};
+    use common::{settings, subscription::{SubscriptionData, SubscriptionUuid}};
     use serde_json::Value;
     use uuid::Uuid;
 
     use crate::{
         event::{EventData, EventMetadata},
         formats::raw_json::RawJsonFormat,
-        output::OutputFormat,
+        output::{OutputDriversContext, OutputFormat},
         subscription::Subscription,
     };
 
@@ -132,6 +132,7 @@ Type 3 is a limited token with administrative privileges removed and administrat
     #[test]
     fn test_json_format_4688() {
         // Generate metadata
+        let mut output_context = OutputDriversContext::new(&settings::Outputs::default());
         let mut subscription_data = SubscriptionData::new("Test", "");
         subscription_data
             .set_uuid(SubscriptionUuid(
@@ -139,7 +140,7 @@ Type 3 is a limited token with administrative privileges removed and administrat
             ))
             .set_uri(Some("/this/is/a/test".to_string()))
             .set_revision(Some("tutu".to_string()));
-        let subscription = Subscription::try_from(subscription_data).unwrap();
+        let subscription = Subscription::from_data(subscription_data, &mut output_context).unwrap();
 
         let mut metadata = EventMetadata::new(
             &SocketAddr::from_str("192.168.58.100:5985").unwrap(),

@@ -1,6 +1,7 @@
 use async_trait::async_trait;
 use log::{debug, info, warn};
 use tokio::sync::oneshot;
+use tokio::time::Instant;
 
 use crate::event::EventMetadata;
 use crate::output::OutputDriver;
@@ -12,10 +13,54 @@ use std::io::Write;
 use std::net::IpAddr;
 use std::sync::mpsc::{self, Receiver};
 use std::sync::Arc;
+use std::time::Duration;
 use std::{path::PathBuf, str::FromStr};
+
+pub struct OutputFilesContext {
+    tx: mpsc::Sender<WriteFilesMessage>,
+}
+
+impl OutputFilesContext {
+    pub fn new() -> Self {
+        // Create a communication channel with the thread responsible for file management
+        let (tx, rx) = mpsc::channel();
+
+        // Launch a dedicated thread responsible for handling file system operations
+        std::thread::spawn(move || {
+            run(rx);
+        });
+
+        Self { tx }
+    }
+
+    pub fn clear(&mut self) {
+        if let Err(e) = self.tx.send(WriteFilesMessage::ClearHandles) {
+            warn!("Failed to send ClearHandles message to Files handler thread: {}", e);
+        }
+    }
+
+    pub fn garbage_collect(&mut self, files_descriptor_close_timeout: u64) {
+        if let Err(e) = self.tx.send(WriteFilesMessage::GarbageCollect(
+            files_descriptor_close_timeout,
+        )) {
+            warn!("Failed to send Stop message to Files handler thread: {}", e);
+        }
+    }
+}
+
+impl Drop for OutputFilesContext {
+    fn drop(&mut self) {
+        debug!("Dropping Files context");
+        if let Err(e) = self.tx.send(WriteFilesMessage::Stop) {
+            warn!("Failed to send Stop message to Files handler thread: {}", e);
+        }
+    }
+}
 
 enum WriteFilesMessage {
     Write(WriteMessage),
+    GarbageCollect(u64),
+    ClearHandles,
     Stop,
 }
 
@@ -26,17 +71,37 @@ pub struct WriteMessage {
     resp: oneshot::Sender<Result<()>>,
 }
 
-fn handle_message(file_handles: &mut HashMap<PathBuf, File>, message: &WriteMessage) -> Result<()> {
+struct FileContainer {
+    pub file: File,
+    pub last_used: Instant,
+}
+
+impl FileContainer {
+    pub fn new(file: File, last_used: Instant) -> Self {
+        Self { file, last_used }
+    }
+
+    pub fn has_not_been_used_since(&self, instant: Instant) -> bool {
+        self.last_used < instant
+    }
+}
+
+fn handle_message(
+    file_handles: &mut HashMap<PathBuf, FileContainer>,
+    message: &WriteMessage,
+) -> Result<()> {
+    let now = Instant::now();
     let parent = message
         .path
         .parent()
         .ok_or_else(|| anyhow!("Failed to retrieve messages parent folder"))?;
     let path = &message.path;
-    let file = match file_handles.get_mut(path) {
-        Some(file) => {
+    match file_handles.get_mut(path) {
+        Some(file_container) => {
             debug!("File {} is already opened", path.display());
+            file_container.last_used = now;
             // The path already exists in file_handles map
-            file
+            file_container.file.write_all(message.content.as_bytes())?;
         }
         None => {
             // Create directory (if it does not already exist)
@@ -49,31 +114,73 @@ fn handle_message(file_handles: &mut HashMap<PathBuf, File>, message: &WriteMess
                 .append(true)
                 .open(path)
                 .with_context(|| format!("Failed to open file {}", path.display()))?;
+
+            let mut file_container = FileContainer::new(file, now);
+            file_container.file.write_all(message.content.as_bytes())?;
+
             // Insert it into file_buffers map
-            file_handles.insert(path.clone(), file);
-            // Retrieve it
-            file_handles
-                .get_mut(path)
-                .ok_or_else(|| anyhow!("Could not find newly inserted File in file handles"))?
+            file_handles.insert(path.clone(), file_container);
         }
     };
-    file.write_all(message.content.as_bytes())?;
     Ok(())
 }
 
-fn run(rx: Receiver<WriteFilesMessage>) {
-    info!("File output thread started");
-    let mut file_handles: HashMap<PathBuf, File> = HashMap::new();
-    while let Ok(WriteFilesMessage::Write(message)) = rx.recv() {
-        let result = handle_message(&mut file_handles, &message);
-        if let Err(e) = message.resp.send(result) {
-            warn!(
-                "Failed to send File write result because the receiver dropped. Result was: {:?}",
-                e
-            );
+fn garbage_collect(
+    file_handles: &mut HashMap<PathBuf, FileContainer>,
+    files_descriptor_close_timeout: u64,
+) {
+    let instant = Instant::now() - Duration::from_secs(files_descriptor_close_timeout);
+    let mut path_to_remove = Vec::new();
+    for (path, file_container) in file_handles.iter() {
+        if file_container.has_not_been_used_since(instant) {
+            path_to_remove.push(path.clone())
         }
     }
-    info!("Exiting File output thread");
+
+    for path in path_to_remove {
+        debug!(
+            "Closing file descriptor of {} because it has not been used since {} seconds.",
+            path.display(),
+            files_descriptor_close_timeout
+        );
+        file_handles.remove(&path);
+    }
+}
+
+fn run(rx: Receiver<WriteFilesMessage>) {
+    info!("Files output thread started");
+
+    let mut file_handles: HashMap<PathBuf, FileContainer> = HashMap::new();
+    loop {
+        match rx.recv() {
+            Ok(WriteFilesMessage::Write(message)) => {
+                let result = handle_message(&mut file_handles, &message);
+                if let Err(e) = message.resp.send(result) {
+                    warn!(
+                        "Failed to send Files write result because the receiver dropped. Result was: {:?}",
+                        e
+                    );
+                }
+            }
+            Ok(WriteFilesMessage::GarbageCollect(files_descriptor_close_timeout)) => {
+                debug!("Files handler thread received a GarbageCollect command");
+                garbage_collect(&mut file_handles, files_descriptor_close_timeout);
+            }
+            Ok(WriteFilesMessage::ClearHandles) => {
+                debug!("Files handler thread received a ClearHandles command");
+                file_handles.clear();
+            }
+            Ok(WriteFilesMessage::Stop) => {
+                debug!("Files handler thread received a stop command");
+                break;
+            }
+            Err(_) => {
+                warn!("Files handler thread receive channel has hung up");
+                break;
+            }
+        }
+    }
+    info!("Exiting Files output thread");
 }
 
 pub struct OutputFiles {
@@ -82,20 +189,18 @@ pub struct OutputFiles {
 }
 
 impl OutputFiles {
-    pub fn new(config: &FilesConfiguration) -> Self {
+    pub fn new(config: &FilesConfiguration, context: &Option<OutputFilesContext>) -> Result<Self> {
+        let tx = if let Some(files_context) = context {
+            files_context.tx.clone()
+        } else {
+            bail!("Files output context has not been initialized")
+        };
+
         debug!("Initialize Files driver with config {:?}", config);
-        // Create a communication channel with the task responsible for file management
-        let (tx, rx) = mpsc::channel();
-
-        // Launch a dedicated thread responsible for handling file system operations
-        std::thread::spawn(move || {
-            run(rx);
-        });
-
-        OutputFiles {
+        Ok(OutputFiles {
             config: config.clone(),
-            tx,
-        }
+            tx: tx.clone(),
+        })
     }
 
     fn build_path(
@@ -253,14 +358,6 @@ impl OutputDriver for OutputFiles {
     }
 }
 
-impl Drop for OutputFiles {
-    fn drop(&mut self) {
-        if let Err(e) = self.tx.send(WriteFilesMessage::Stop) {
-            warn!("Failed to send Stop message to Files handler thread: {}", e);
-        }
-    }
-}
-
 fn sanitize_name(name: &str) -> String {
     // We only allow strings containing at most 255 chars within [a-z][A-Z][0-9][.-_@]
     let mut new_str = String::with_capacity(name.len());
@@ -321,8 +418,9 @@ mod tests {
         let config =
             FilesConfiguration::new("/base".to_string(), None, false, "messages".to_string());
         let ip: IpAddr = "127.0.0.1".parse()?;
+        let context = Some(OutputFilesContext::new());
 
-        let output_file = OutputFiles::new(&config);
+        let output_file = OutputFiles::new(&config, &context)?;
 
         assert_eq!(
             output_file.build_path(&ip, "princ", None)?,
@@ -331,7 +429,7 @@ mod tests {
 
         let config =
             FilesConfiguration::new("/base".to_string(), None, true, "messages".to_string());
-        let output_file = OutputFiles::new(&config);
+        let output_file = OutputFiles::new(&config, &context)?;
 
         assert_eq!(
             output_file.build_path(&ip, "princ", Some(&"node".to_string()))?,
@@ -340,7 +438,7 @@ mod tests {
 
         let config =
             FilesConfiguration::new("/base".to_string(), Some(1), true, "messages".to_string());
-        let output_file = OutputFiles::new(&config);
+        let output_file = OutputFiles::new(&config, &context)?;
 
         assert_eq!(
             output_file.build_path(&ip, "princ", Some(&"node".to_string()))?,
@@ -349,7 +447,7 @@ mod tests {
 
         let config =
             FilesConfiguration::new("/base".to_string(), Some(2), false, "other".to_string());
-        let output_file = OutputFiles::new(&config);
+        let output_file = OutputFiles::new(&config, &context)?;
 
         assert_eq!(
             output_file.build_path(&ip, "princ", Some(&"node".to_string()))?,
@@ -358,7 +456,7 @@ mod tests {
 
         let config =
             FilesConfiguration::new("/base".to_string(), Some(3), false, "messages".to_string());
-        let output_file = OutputFiles::new(&config);
+        let output_file = OutputFiles::new(&config, &context)?;
 
         assert_eq!(
             output_file.build_path(&ip, "princ", Some(&"node".to_string()))?,
@@ -367,7 +465,7 @@ mod tests {
 
         let config =
             FilesConfiguration::new("/base".to_string(), Some(4), false, "messages".to_string());
-        let output_file = OutputFiles::new(&config);
+        let output_file = OutputFiles::new(&config, &context)?;
 
         assert_eq!(
             output_file.build_path(&ip, "princ", Some(&"node".to_string()))?,
@@ -376,7 +474,7 @@ mod tests {
 
         let config =
             FilesConfiguration::new("/base".to_string(), Some(5), false, "messages".to_string());
-        let output_file = OutputFiles::new(&config);
+        let output_file = OutputFiles::new(&config, &context)?;
 
         assert_eq!(
             output_file.build_path(&ip, "princ", Some(&"node".to_string()))?,
@@ -385,14 +483,14 @@ mod tests {
 
         let config =
             FilesConfiguration::new("/base".to_string(), None, true, "messages".to_string());
-        let output_file = OutputFiles::new(&config);
+        let output_file = OutputFiles::new(&config, &context)?;
 
         assert!(output_file.build_path(&ip, "princ", None).is_err());
 
         let ip: IpAddr = "1:2:3:4:5:6:7:8".parse()?;
         let config =
             FilesConfiguration::new("/base".to_string(), None, false, "messages".to_string());
-        let output_file = OutputFiles::new(&config);
+        let output_file = OutputFiles::new(&config, &context)?;
         assert_eq!(
             output_file.build_path(&ip, "princ", Some(&"node".to_string()))?,
             PathBuf::from_str("/base/1:2:3:4:5:6:7:8/princ/messages")?
@@ -400,7 +498,7 @@ mod tests {
 
         let config =
             FilesConfiguration::new("/base".to_string(), Some(3), false, "messages".to_string());
-        let output_file = OutputFiles::new(&config);
+        let output_file = OutputFiles::new(&config, &context)?;
         assert_eq!(output_file.build_path(&ip, "princ", Some(&"node".to_string()))?,PathBuf::from_str("/base/1:2:3/1:2:3:4/1:2:3:4:5/1:2:3:4:5:6/1:2:3:4:5:6:7/1:2:3:4:5:6:7:8/princ/messages")?);
         Ok(())
     }

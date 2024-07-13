@@ -30,6 +30,7 @@ pub const DEFAULT_OUTPUT_ENABLED: bool = true;
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct KafkaConfiguration {
     topic: String,
+    // If not empty, a standalone Kafka producer will be used for the output
     options: HashMap<String, String>,
 }
 

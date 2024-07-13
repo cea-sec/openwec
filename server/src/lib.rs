@@ -170,7 +170,7 @@ async fn get_request_payload(
 
     let message = match auth_ctx {
         AuthenticationContext::Tls(_, _) => tls::get_request_payload(parts, data).await?,
-        AuthenticationContext::Kerberos(conn_state) => { 
+        AuthenticationContext::Kerberos(conn_state) => {
             kerberos::get_request_payload(conn_state.to_owned(), parts, data).await?
         }
     };
@@ -446,7 +446,7 @@ async fn handle(
                     .status(status)
                     .header(WWW_AUTHENTICATE, "Kerberos")
                     .body(empty())
-                    .expect("Failed to build HTTP response"))
+                    .expect("Failed to build HTTP response"));
             } else {
                 return Ok(build_error_response(status));
             }
@@ -1062,12 +1062,19 @@ pub async fn run(settings: Settings, verbosity: u8) {
 
     let subscriptions = Arc::new(RwLock::new(HashMap::new()));
 
-    let interval = settings.server().db_sync_interval();
+    let reload_interval = settings.server().db_sync_interval();
+    let outputs_settings = settings.outputs().clone();
     let update_task_db = db.clone();
     let update_task_subscriptions = subscriptions.clone();
     // Launch a task responsible for updating subscriptions
     tokio::spawn(async move {
-        reload_subscriptions_task(update_task_db, update_task_subscriptions, interval).await
+        reload_subscriptions_task(
+            update_task_db,
+            update_task_subscriptions,
+            reload_interval,
+            outputs_settings,
+        )
+        .await
     });
 
     // To reduce database load, heartbeats are not saved immediately.

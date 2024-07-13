@@ -543,11 +543,13 @@ mod tests {
     use std::{net::SocketAddr, str::FromStr, sync::Arc};
 
     use chrono::Utc;
+    use common::settings;
     use common::subscription::SubscriptionData;
     use common::subscription::SubscriptionUuid;
     use serde_json::Value;
     use uuid::Uuid;
 
+    use crate::output::OutputDriversContext;
     use crate::{
         event::{EventData, EventMetadata},
         formats::nxlog::NxlogFormat,
@@ -556,6 +558,7 @@ mod tests {
     };
 
     fn compare(xml: &str, expected_json: &str) {
+        let mut output_context = OutputDriversContext::new(&settings::Outputs::default());
         // Generate metadata
         let mut subscription_data = SubscriptionData::new("Test", "");
         subscription_data
@@ -564,7 +567,7 @@ mod tests {
             ))
             .set_uri(Some("/this/is/a/test".to_string()))
             .set_revision(Some("BABAR".to_string()));
-        let subscription = Subscription::try_from(subscription_data).unwrap();
+        let subscription = Subscription::from_data(subscription_data, &mut output_context).unwrap();
 
         let mut metadata = EventMetadata::new(
             &SocketAddr::from_str("192.168.58.100:5985").unwrap(),

@@ -90,7 +90,7 @@ There are two methods available to configure subscriptions:
 
 ## Configuration Files
 
-A dedicated file in TOML format describes each subscription. To generate such a file, use `openwec subscriptions skell`.
+A dedicated file in TOML format describes each subscription. To generate such a file, use `openwec subscriptions skell`. A sample is available in the repositoroty (`subscription.sample.toml`).
 
 This example sets up a subscription called "my-sub" with a placeholder query and a Files output in Raw format:
 ```toml
@@ -115,7 +115,7 @@ config = { base = "/var/log/openwec/" }
 
 Note: `uuid` and `name` must be unique for each subscription.
 
-The OpenWEC server does not load subscription configuration files automatically during startup due to the complexity of doing so in a multi-node environment. Instead, these files must be explicitly loaded using the command 'openwec subscriptions load'.
+The OpenWEC server does not load subscription configuration files automatically during startup due to the complexity of doing so in a multi-node environment. Instead, these files must be explicitly loaded using the command `openwec subscriptions load`.
 
 `openwec subscriptions load` can load either a whole directory of configuration files, or a single configuration file. When loading a directory, it assumes that the user does not want to keep existing subscriptions that are not present in the directory. When loading a file, it assumes that the user wants to keep already existing subscriptions. This behavior can be changed using the `--keep` flag.
 
@@ -133,6 +133,7 @@ Both `ClientRevision` and `ServerRevision` are included with the metadata that O
 
 
 ### Configuration files vs cli
+
 There are a number of advantages to using configuration files in place of the cli:
 - configuration files can be versioned, and their revision can be included in the metadata of each event received. This is very useful for tracing the query responsible for retrieving events.
 - the cli can be difficult to use for editing complex subscriptions.

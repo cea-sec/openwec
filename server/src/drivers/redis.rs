@@ -3,10 +3,13 @@ use async_trait::async_trait;
 use common::subscription::RedisConfiguration;
 use log::debug;
 
-use std::sync::Arc;
+use crate::{
+    event::EventMetadata,
+    output::OutputDriver,
+};
 use futures_util::stream::FuturesUnordered;
 use futures_util::StreamExt;
-use crate::{event::EventMetadata, output::OutputDriver};
+use std::sync::Arc;
 
 pub struct OutputRedis {
     config: RedisConfiguration,
@@ -15,13 +18,10 @@ pub struct OutputRedis {
 
 impl OutputRedis {
     pub fn new(config: &RedisConfiguration) -> Result<Self> {
+        let client = redis::Client::open(format!("redis://{}/", config.addr()))
+            .context("Could not open redis connection")?;
 
-        let client = redis::Client::open(format!("redis://{}/", config.addr())).context("Could not open redis connection")?;
-
-        debug!(
-            "Initialize redis output with config {:?}",
-            config
-        );
+        debug!("Initialize redis output with config {:?}", config);
         Ok(OutputRedis {
             config: config.clone(),
             producer: client,
@@ -40,7 +40,6 @@ impl OutputDriver for OutputRedis {
         let cmd = redis::cmd("LPUSH");
 
         for event in events.iter() {
-
             let mut redis_cmd = cmd.clone();
             let mut redis_connection = self.producer.get_multiplexed_tokio_connection().await?;
 
@@ -50,7 +49,6 @@ impl OutputDriver for OutputRedis {
                     .query_async::<_, Option<u32>>(&mut redis_connection)
                     .await
             });
-
         }
 
         while let Some(result) = results.next().await {

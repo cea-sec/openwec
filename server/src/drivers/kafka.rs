@@ -1,6 +1,6 @@
 use anyhow::{bail, Result};
 use async_trait::async_trait;
-use common::subscription::KafkaConfiguration;
+use common::{settings, subscription::KafkaConfiguration};
 use futures::future::join_all;
 use log::debug;
 use rdkafka::{
@@ -10,7 +10,35 @@ use rdkafka::{
 };
 use std::{sync::Arc, time::Duration};
 
-use crate::{event::EventMetadata, output::OutputDriver};
+use crate::{
+    event::EventMetadata,
+    output::OutputDriver,
+};
+
+pub struct OutputKafkaContext {
+    producer: FutureProducer
+}
+
+impl OutputKafkaContext {
+    pub fn new(settings: &settings::KafkaOutput) -> Result<Self> {
+        let mut client_config = ClientConfig::new();
+        // Set a default value for Kafka delivery timeout
+        // This can be overwritten in Kafka configuration
+        client_config.set("delivery.timeout.ms", "30000");
+        for (key, value) in settings.options() {
+            client_config.set(key, value);
+        }
+
+        if client_config.get("bootstrap.servers").is_none() {
+            bail!("'bootstrap.servers' option must be configured for Kafka outputs to work")
+        }
+
+        debug!("Initialize kafka context with options {:?}", settings.options());
+        Ok(Self {
+            producer: client_config.create()?
+        })
+    }
+}
 
 pub struct OutputKafka {
     config: KafkaConfiguration,
@@ -18,21 +46,32 @@ pub struct OutputKafka {
 }
 
 impl OutputKafka {
-    pub fn new(config: &KafkaConfiguration) -> Result<Self> {
-        let mut client_config = ClientConfig::new();
-        // Set a default value for Kafka delivery timeout
-        // This can be overwritten in Kafka configuration
-        client_config.set("delivery.timeout.ms", "30000");
-        for (key, value) in config.options() {
-            client_config.set(key, value);
-        }
-        debug!(
-            "Initialize kafka output with config {:?}",
-            config
-        );
+    pub fn new(config: &KafkaConfiguration, context: &Option<OutputKafkaContext>) -> Result<Self> {
+        let producer = if config.options().is_empty() {
+            if let Some(kafka_context) = context {
+                debug!("Initialize kafka output with config {:?}", config);
+                kafka_context.producer.clone()
+            } else {
+                bail!("Kafka output options are empty but Kafka context is not initialized")
+            }
+        } else {
+            let mut client_config = ClientConfig::new();
+            // Set a default value for Kafka delivery timeout
+            // This can be overwritten in Kafka configuration
+            client_config.set("delivery.timeout.ms", "30000");
+            for (key, value) in config.options() {
+                client_config.set(key, value);
+            }
+
+            if client_config.get("bootstrap.servers").is_none() {
+                bail!("'bootstrap.servers' option must be configured for Kafka outputs to work")
+            }
+            debug!("Initialize kafka output with a standalone producer and config {:?}", config);
+            client_config.create()?
+        };
         Ok(OutputKafka {
             config: config.clone(),
-            producer: client_config.create()?,
+            producer,
         })
     }
 }
