@@ -6,7 +6,7 @@ use clap::{arg, command, value_parser, Arg, ArgAction, ArgGroup, Command};
 use common::{
     database::schema::Version,
     settings::DEFAULT_CONFIG_FILE,
-    subscription::{SubscriptionOutputFormat, DEFAULT_FILE_NAME},
+    subscription::SubscriptionOutputFormat,
 };
 use strum::VariantNames;
 
@@ -114,15 +114,7 @@ async fn main() {
                             .subcommand(
                                 Command::new("files")
                                 .about("Configures a File output. Path template is <base>/<ip>/<princ>/[<node_name>/]<filename>, where <ip> is the string representation of the IP addr of the machine and <princ> its Kerberos principal. You may split the IP Address to make a hierarchical tree structure. <node_name> is optional, and refers to the eponym server configuration.")
-                                .arg(arg!(<base> "Base path"))
-                                .arg(
-                                    arg!(--"split-on-addr-index" <INDEX> "If specified, splits the IP address on the n-th segment. For example, with an IPv4 addr a.b.c.d, using --split-on-addr-index 1 will result in <ip> being \"a/a.b/a.b.c/a.b.c.d\"")
-                                    .value_parser(value_parser!(u8))
-                                )
-                                .arg(
-                                    arg!(--"append-node-name" "Append the configured node name at the end of the generated path (parent dir of <filename>)")
-                                )
-                                .arg(arg!(--filename <FILENAME> "Name of the file where logs will be written.").default_value(DEFAULT_FILE_NAME))
+                                .arg(arg!(<path> "Destination path that can use variables. Example: \"/archive/{ip}/{principal}/{node}/messages\", where {ip} is the string representation of the IP addr of the machine and {principal} its Kerberos principal. See documentation for other variables."))
                             )
                             .subcommand(
                                 Command::new("unixdatagram")

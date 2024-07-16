@@ -15,10 +15,11 @@ use anyhow::{Context, Result};
 #[serde(tag = "schema", content = "data")]
 enum ImportExport {
     V1(v1::Subscriptions),
+    V2(v2::Subscriptions),
 }
 
 pub fn serialize(subscriptions: &[crate::subscription::SubscriptionData]) -> Result<String> {
-    let export = ImportExport::V1(subscriptions.into());
+    let export = ImportExport::V2(subscriptions.into());
     Ok(serde_json::to_string(&export)?)
 }
 
@@ -26,10 +27,259 @@ pub fn parse(content: &str) -> Result<Vec<crate::subscription::SubscriptionData>
     let import: ImportExport = serde_json::from_str(content).context("Failed to parse file")?;
     let subscriptions = match import {
         ImportExport::V1(subscriptions) => subscriptions.into(),
+        ImportExport::V2(subscriptions) => subscriptions.into(),
     };
     Ok(subscriptions)
 }
+
 mod v1 {
+    use serde::{Deserialize, Serialize};
+    use std::collections::{HashMap, HashSet};
+    use uuid::Uuid;
+
+    use crate::transformers::output_files_use_path::transform_files_config_to_path;
+
+    #[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize)]
+    pub(super) struct KafkaConfiguration {
+        pub topic: String,
+        pub options: HashMap<String, String>,
+    }
+
+    // Used for import
+    impl From<KafkaConfiguration> for crate::subscription::KafkaConfiguration {
+        fn from(value: KafkaConfiguration) -> Self {
+            crate::subscription::KafkaConfiguration::new(value.topic, value.options)
+        }
+    }
+
+    #[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize)]
+    pub(super) struct RedisConfiguration {
+        pub addr: String,
+        pub list: String,
+    }
+
+    impl From<RedisConfiguration> for crate::subscription::RedisConfiguration {
+        fn from(value: RedisConfiguration) -> Self {
+            crate::subscription::RedisConfiguration::new(value.addr, value.list)
+        }
+    }
+
+    #[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize)]
+    pub(super) struct TcpConfiguration {
+        pub addr: String,
+        pub port: u16,
+    }
+
+    impl From<TcpConfiguration> for crate::subscription::TcpConfiguration {
+        fn from(value: TcpConfiguration) -> Self {
+            crate::subscription::TcpConfiguration::new(value.addr, value.port)
+        }
+    }
+
+    #[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize)]
+    pub(super) struct FilesConfiguration {
+        pub base: String,
+        pub split_on_addr_index: Option<u8>,
+        pub append_node_name: bool,
+        pub filename: String,
+    }
+
+    impl From<FilesConfiguration> for crate::subscription::FilesConfiguration {
+        fn from(value: FilesConfiguration) -> Self {
+            let path = transform_files_config_to_path(&Some(value.base), &value.split_on_addr_index, &Some(value.append_node_name), &Some(value.filename)).expect("Failed to convert old Files driver configuration");
+            crate::subscription::FilesConfiguration::new(path)
+        }
+    }
+
+    #[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize)]
+    pub(super) struct UnixDatagramConfiguration {
+        pub path: String,
+    }
+
+    impl From<UnixDatagramConfiguration> for crate::subscription::UnixDatagramConfiguration {
+        fn from(value: UnixDatagramConfiguration) -> Self {
+            crate::subscription::UnixDatagramConfiguration::new(value.path)
+        }
+    }
+
+    #[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize)]
+    pub(super) enum SubscriptionOutputDriver {
+        Files(FilesConfiguration),
+        Kafka(KafkaConfiguration),
+        Tcp(TcpConfiguration),
+        Redis(RedisConfiguration),
+        UnixDatagram(UnixDatagramConfiguration),
+    }
+
+    impl From<SubscriptionOutputDriver> for crate::subscription::SubscriptionOutputDriver {
+        fn from(value: SubscriptionOutputDriver) -> Self {
+            match value {
+                SubscriptionOutputDriver::Files(config) => {
+                    crate::subscription::SubscriptionOutputDriver::Files(config.into())
+                }
+                SubscriptionOutputDriver::Kafka(config) => {
+                    crate::subscription::SubscriptionOutputDriver::Kafka(config.into())
+                }
+                SubscriptionOutputDriver::Tcp(config) => {
+                    crate::subscription::SubscriptionOutputDriver::Tcp(config.into())
+                }
+                SubscriptionOutputDriver::Redis(config) => {
+                    crate::subscription::SubscriptionOutputDriver::Redis(config.into())
+                }
+                SubscriptionOutputDriver::UnixDatagram(config) => {
+                    crate::subscription::SubscriptionOutputDriver::UnixDatagram(config.into())
+                }
+            }
+        }
+    }
+
+    #[derive(Debug, Clone, Eq, PartialEq, Deserialize, Serialize)]
+    pub(super) enum SubscriptionOutputFormat {
+        Json,
+        Raw,
+        RawJson,
+        Nxlog,
+    }
+
+    impl From<SubscriptionOutputFormat> for crate::subscription::SubscriptionOutputFormat {
+        fn from(value: SubscriptionOutputFormat) -> Self {
+            match value {
+                SubscriptionOutputFormat::Json => {
+                    crate::subscription::SubscriptionOutputFormat::Json
+                }
+                SubscriptionOutputFormat::Raw => crate::subscription::SubscriptionOutputFormat::Raw,
+                SubscriptionOutputFormat::RawJson => {
+                    crate::subscription::SubscriptionOutputFormat::RawJson
+                }
+                SubscriptionOutputFormat::Nxlog => {
+                    crate::subscription::SubscriptionOutputFormat::Nxlog
+                }
+            }
+        }
+    }
+
+    #[derive(Deserialize, Debug, Clone, Eq, PartialEq, Serialize)]
+    pub(super) struct SubscriptionOutput {
+        pub format: SubscriptionOutputFormat,
+        pub driver: SubscriptionOutputDriver,
+        pub enabled: bool,
+    }
+
+    impl From<SubscriptionOutput> for crate::subscription::SubscriptionOutput {
+        fn from(value: SubscriptionOutput) -> Self {
+            crate::subscription::SubscriptionOutput::new(
+                value.format.into(),
+                value.driver.into(),
+                value.enabled,
+            )
+        }
+    }
+
+    #[derive(Debug, Clone, Eq, PartialEq, Deserialize, Serialize)]
+    pub(super) enum PrincsFilterOperation {
+        Only,
+        Except,
+    }
+
+    impl From<PrincsFilterOperation> for crate::subscription::PrincsFilterOperation {
+        fn from(value: PrincsFilterOperation) -> Self {
+            match value {
+                PrincsFilterOperation::Except => crate::subscription::PrincsFilterOperation::Except,
+                PrincsFilterOperation::Only => crate::subscription::PrincsFilterOperation::Only,
+            }
+        }
+    }
+
+    #[derive(Debug, Clone, Eq, PartialEq, Deserialize, Serialize)]
+    pub(super) struct PrincsFilter {
+        pub operation: Option<PrincsFilterOperation>,
+        pub princs: HashSet<String>,
+    }
+
+    impl From<PrincsFilter> for crate::subscription::PrincsFilter {
+        fn from(value: PrincsFilter) -> Self {
+            crate::subscription::PrincsFilter::new(value.operation.map(|x| x.into()), value.princs)
+        }
+    }
+
+    #[derive(Debug, Clone, Eq, PartialEq, Deserialize, Serialize)]
+    pub(super) enum ContentFormat {
+        Raw,
+        RenderedText,
+    }
+
+    impl From<ContentFormat> for crate::subscription::ContentFormat {
+        fn from(value: ContentFormat) -> Self {
+            match value {
+                ContentFormat::Raw => crate::subscription::ContentFormat::Raw,
+                ContentFormat::RenderedText => crate::subscription::ContentFormat::RenderedText,
+            }
+        }
+    }
+
+    #[derive(Debug, PartialEq, Clone, Eq, Deserialize, Serialize)]
+    pub(super) struct SubscriptionData {
+        pub uuid: Uuid,
+        pub revision: Option<String>,
+        pub name: String,
+        pub uri: Option<String>,
+        pub query: String,
+        pub heartbeat_interval: u32,
+        pub connection_retry_count: u16,
+        pub connection_retry_interval: u32,
+        pub max_time: u32,
+        pub max_envelope_size: u32,
+        pub enabled: bool,
+        pub read_existing_events: bool,
+        pub content_format: ContentFormat,
+        pub ignore_channel_error: bool,
+        pub locale: Option<String>,
+        pub data_locale: Option<String>,
+        pub filter: PrincsFilter,
+        pub outputs: Vec<SubscriptionOutput>,
+    }
+
+    impl From<SubscriptionData> for crate::subscription::SubscriptionData {
+        fn from(value: SubscriptionData) -> Self {
+            let mut data = crate::subscription::SubscriptionData::new(&value.name, &value.query);
+            data.set_uuid(crate::subscription::SubscriptionUuid(value.uuid))
+                .set_uri(value.uri)
+                .set_heartbeat_interval(value.heartbeat_interval)
+                .set_connection_retry_count(value.connection_retry_count)
+                .set_connection_retry_interval(value.connection_retry_interval)
+                .set_max_time(value.max_time)
+                .set_max_envelope_size(value.max_envelope_size)
+                .set_enabled(value.enabled)
+                .set_read_existing_events(value.read_existing_events)
+                .set_content_format(value.content_format.into())
+                .set_ignore_channel_error(value.ignore_channel_error)
+                .set_princs_filter(value.filter.into())
+                .set_locale(value.locale)
+                .set_data_locale(value.data_locale)
+                .set_outputs(value.outputs.iter().map(|s| s.clone().into()).collect())
+                .set_revision(value.revision);
+            // Note: internal version is not exported nor set
+            data
+        }
+    }
+
+    #[derive(Debug, PartialEq, Clone, Eq, Deserialize, Serialize)]
+    pub(super) struct Subscriptions {
+        pub subscriptions: Vec<SubscriptionData>,
+    }
+
+    impl From<Subscriptions> for Vec<crate::subscription::SubscriptionData> {
+        fn from(value: Subscriptions) -> Self {
+            value
+                .subscriptions
+                .iter()
+                .map(|s| s.clone().into())
+                .collect()
+        }
+    }
+}
+
+pub mod v2 {
     use serde::{Deserialize, Serialize};
     use std::collections::{HashMap, HashSet};
     use uuid::Uuid;
@@ -101,30 +351,19 @@ mod v1 {
 
     #[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize)]
     pub(super) struct FilesConfiguration {
-        pub base: String,
-        pub split_on_addr_index: Option<u8>,
-        pub append_node_name: bool,
-        pub filename: String,
+        pub path: String
     }
 
     impl From<FilesConfiguration> for crate::subscription::FilesConfiguration {
         fn from(value: FilesConfiguration) -> Self {
-            crate::subscription::FilesConfiguration::new(
-                value.base,
-                value.split_on_addr_index,
-                value.append_node_name,
-                value.filename,
-            )
+            crate::subscription::FilesConfiguration::new(value.path)
         }
     }
 
     impl From<crate::subscription::FilesConfiguration> for FilesConfiguration {
         fn from(value: crate::subscription::FilesConfiguration) -> Self {
             Self {
-                base: value.base().to_string(),
-                split_on_addr_index: value.split_on_addr_index(),
-                append_node_name: value.append_node_name(),
-                filename: value.filename().to_string(),
+                path: value.path().to_owned()
             }
         }
     }
@@ -216,8 +455,12 @@ mod v1 {
                     crate::subscription::SubscriptionOutputFormat::Json
                 }
                 SubscriptionOutputFormat::Raw => crate::subscription::SubscriptionOutputFormat::Raw,
-                SubscriptionOutputFormat::RawJson => crate::subscription::SubscriptionOutputFormat::RawJson,
-                SubscriptionOutputFormat::Nxlog => crate::subscription::SubscriptionOutputFormat::Nxlog,
+                SubscriptionOutputFormat::RawJson => {
+                    crate::subscription::SubscriptionOutputFormat::RawJson
+                }
+                SubscriptionOutputFormat::Nxlog => {
+                    crate::subscription::SubscriptionOutputFormat::Nxlog
+                }
             }
         }
     }
@@ -229,8 +472,12 @@ mod v1 {
                     SubscriptionOutputFormat::Json
                 }
                 crate::subscription::SubscriptionOutputFormat::Raw => SubscriptionOutputFormat::Raw,
-                crate::subscription::SubscriptionOutputFormat::RawJson => SubscriptionOutputFormat::RawJson,
-                crate::subscription::SubscriptionOutputFormat::Nxlog => SubscriptionOutputFormat::Nxlog,
+                crate::subscription::SubscriptionOutputFormat::RawJson => {
+                    SubscriptionOutputFormat::RawJson
+                }
+                crate::subscription::SubscriptionOutputFormat::Nxlog => {
+                    SubscriptionOutputFormat::Nxlog
+                }
             }
         }
     }

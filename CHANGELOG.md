@@ -15,10 +15,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Files output drivers use a single thread (for all outputs) to write to files. Multiple Files outputs can write to the same file (which was not safe before) (#155)
 - A garbage collector runs regularly to close unused opened files (#155)
+- Files output driver is now configured using a unique `path` value which can be customized using variables
 
 ### Fixed
 
 - Added a 'WWWW-Authenticate' header when sending a HTTP response with status 401 (#154)
+
+### Deprecated
+
+- Using commands to manage subscriptions and there outputs is deprecated and will be removed in future releases. Use subscription configuration files instead. 
 
 ## [0.2.1]
 

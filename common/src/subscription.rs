@@ -23,8 +23,6 @@ pub const DEFAULT_CONTENT_FORMAT: ContentFormat = ContentFormat::Raw;
 pub const DEFAULT_IGNORE_CHANNEL_ERROR: bool = true;
 pub const DEFAULT_ENABLED: bool = true;
 
-pub const DEFAULT_FILE_APPEND_NODE_NAME: bool = false;
-pub const DEFAULT_FILE_NAME: &str = "messages";
 pub const DEFAULT_OUTPUT_ENABLED: bool = true;
 
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
@@ -92,49 +90,22 @@ impl TcpConfiguration {
     }
 }
 
-// File storage path format is:
-// <base>/<ip>/<princ>/[<node_name>/]/<filename>
-// <ip> can be splitted (depends of split_on_addr_index)
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct FilesConfiguration {
-    base: String,
-    // None => don't split
-    // Some(n) => Split starting on the n-th segment (IPv4 and IPv6)
-    split_on_addr_index: Option<u8>,
-    // requires server.node_name to be configured
-    append_node_name: bool,
-    filename: String,
+    path: String,
 }
 
 impl FilesConfiguration {
     pub fn new(
-        base: String,
-        split_on_addr_index: Option<u8>,
-        append_node_name: bool,
-        filename: String,
+        path: String,
     ) -> Self {
         Self {
-            base,
-            split_on_addr_index,
-            append_node_name,
-            filename,
+            path
         }
     }
 
-    pub fn base(&self) -> &str {
-        self.base.as_ref()
-    }
-
-    pub fn split_on_addr_index(&self) -> Option<u8> {
-        self.split_on_addr_index
-    }
-
-    pub fn append_node_name(&self) -> bool {
-        self.append_node_name
-    }
-
-    pub fn filename(&self) -> &str {
-        self.filename.as_ref()
+    pub fn path(&self) -> &str {
+        &self.path
     }
 }
 

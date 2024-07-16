@@ -1,7 +1,7 @@
 use chrono::{DateTime, Local};
 use common::subscription::{
     DEFAULT_CONNECTION_RETRY_COUNT, DEFAULT_CONNECTION_RETRY_INTERVAL, DEFAULT_CONTENT_FORMAT,
-    DEFAULT_ENABLED, DEFAULT_FILE_APPEND_NODE_NAME, DEFAULT_FILE_NAME, DEFAULT_HEARTBEAT_INTERVAL,
+    DEFAULT_ENABLED, DEFAULT_HEARTBEAT_INTERVAL,
     DEFAULT_IGNORE_CHANNEL_ERROR, DEFAULT_MAX_ENVELOPE_SIZE, DEFAULT_MAX_TIME,
     DEFAULT_READ_EXISTING_EVENTS,
 };
@@ -133,8 +133,7 @@ fn get_filter() -> String {
 }
 
 fn get_outputs() -> String {
-    format!(
-        r#"
+    r#"
 #
 # Outputs
 #
@@ -149,14 +148,9 @@ fn get_outputs() -> String {
 # format = "Raw"
 
 # Files driver has the following parameters:
-# - base (required): the base path in which files will be written
-# - split_on_addr_index (optional, defaults to undefined): split the IP address
-#       of the client on the given index to build a directory tree.
-# - append_node_name (optional, defaults to {}): Add the openwec node's
-#       name to the path.
-# - filename (optional, defaults to "{}"): the name of the file containing events
-#       for one client.
-# config = {{ base = "/var/log/openwec/", split_on_addr_index = 2, append_node_name = {}, filename = "{}" }}
+# - path (required): the path in which files will be written. It can be parameterized
+#       with variables using the syntax {variable} (see available variables in documentation)
+# config = { path = "/var/log/openwec/{ip:2}/{ip:3}/{ip}/{principal}/messages" }
 
 
 # Configure a Kafka output
@@ -170,7 +164,7 @@ fn get_outputs() -> String {
 #      sent to librdkafka (https://docs.confluent.io/platform/current/clients/librdkafka/html/md_CONFIGURATION.html)
 #      You should probably configure this in OpenWEC settings `outputs.kafka.options` if all your
 #      outputs using the Kafka driver connect to the same Kafka cluster.
-# config = {{ topic = "openwec", options = {{ "bootstrap.servers" = "localhost:9092" }} }}
+# config = { topic = "openwec", options = { "bootstrap.servers" = "localhost:9092" } }
 
 
 # Configure a Tcp output
@@ -181,7 +175,7 @@ fn get_outputs() -> String {
 # Tcp driver has the following paramters:
 # - addr (required): Hostname or IP Address to send events to
 # - port (required): Tcp port to send events to
-# config = {{ addr = "localhost", port = 5000 }}
+# config = { addr = "localhost", port = 5000 }
 
 
 # Configure a Redis output
@@ -192,7 +186,7 @@ fn get_outputs() -> String {
 # Redis driver has the following parameters:
 # - addr (required): Hostname or IP Address of the Redis server
 # - list (required): Name of the Redis list to push events to
-# config = {{ addr = "localhost", list = "openwec" }}
+# config = { addr = "localhost", list = "openwec" }
 
 
 # Configure a UnixDatagram output
@@ -202,13 +196,9 @@ fn get_outputs() -> String {
 
 # UnixDatagram driver has the following parameters:
 # - path (required): Path of the Unix socket to send events to
-# config = {{ path = "/tmp/openwec.socket" }}
-"#,
-        format_bool(DEFAULT_FILE_APPEND_NODE_NAME),
-        DEFAULT_FILE_NAME,
-        format_bool(DEFAULT_FILE_APPEND_NODE_NAME),
-        DEFAULT_FILE_NAME
-    )
+# config = { path = "/tmp/openwec.socket" }
+"#
+    .to_string()
 }
 
 pub fn get_minimal_skell_content(uuid: Uuid, name: &str, now: DateTime<Local>) -> String {

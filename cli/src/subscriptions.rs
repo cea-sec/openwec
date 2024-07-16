@@ -50,6 +50,7 @@ pub async fn run(db: &Db, matches: &ArgMatches, settings: &Settings) -> Result<(
             edit(db, matches).await?;
         }
         Some(("export", matches)) => {
+            deprecated_cli_warn();
             export(db, matches).await?;
         }
         Some(("import", matches)) => {
@@ -781,21 +782,12 @@ fn outputs_add_kafka(matches: &ArgMatches) -> Result<KafkaConfiguration> {
 }
 
 fn outputs_add_files(matches: &ArgMatches) -> Result<FilesConfiguration> {
-    let base = matches
-        .get_one::<String>("base")
-        .ok_or_else(|| anyhow!("Missing files base path"))?
+    let path = matches
+        .get_one::<String>("path")
+        .ok_or_else(|| anyhow!("Missing files path"))?
         .to_owned();
 
-    let split_on_addr_index = matches.get_one::<u8>("split-on-addr-index").copied();
-    let append_node_name = *matches
-        .get_one::<bool>("append-node-name")
-        .expect("defaulted by clap");
-    let filename = matches
-        .get_one::<String>("filename")
-        .expect("defaulted by clap")
-        .to_owned();
-
-    let config = FilesConfiguration::new(base, split_on_addr_index, append_node_name, filename);
+    let config = FilesConfiguration::new(path);
     info!("Adding Files output with config {:?}", config);
     Ok(config)
 }
@@ -1103,5 +1095,10 @@ fn check_subscriptions_ro(settings: &Settings) -> Result<()> {
     if settings.cli().read_only_subscriptions() {
         bail!("Subscriptions can only be edited using `openwec subscriptions load` because `cli.read_only_subscriptions` is set in settings.")
     }
+    deprecated_cli_warn();
     Ok(())
+}
+
+fn deprecated_cli_warn() {
+    warn!("Using commands to manage subscriptions and there outputs is deprecated and will be removed in future releases. Use subscription configuration files instead.")
 }

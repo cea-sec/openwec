@@ -15,10 +15,173 @@ When a subscription is updated or reloaded, all its outputs instances are droppe
 Note: OpenWEC does not guarantee that an event will not be written multiple times. Indeed, if one output fails to write a batch of events, these events will not be acknowledged to the client that sent them and it will try to send them again later.
 
 Subscription outputs can be configured using:
-- subscription configuration files (see [Subscription](subscription.md))
-- openwec command line interface
+- **subscription configuration files** (see [Subscription](subscription.md))
+- ~~openwec command line interface~~ (deprecated)
 
-## Commands
+## Drivers 
+
+### Files
+
+The Files driver stores events in files on the collector filesystem.
+
+For a given subscription, all events will be written to the configured `path`. This path can contain variables that will be replaced by their values at runtime, using the syntax `{variable}`.
+
+Available variables are:
+
+| **Name** | **Description** |
+|:----:|-----------------|
+| `ip` | The Windows client IP address |
+| `ip:<n>` | The Windows client IP address until the `<n>`-th separator where `<n>` is an integer between 1 and 4.<br/>- `ip:2` would transform `127.0.0.1` into `127.0`<br/>- `ip:3` would transform `192.168.2.1` into `192.168.2`<br/>- `ip:4` would transform `2001:0:130F:0:0:9C0:876A:130B` into `2001:0:130F:0`.
+| `principal` | The Kerberos principal of the Windows client. Because this principal is used to build a path, all the characters that do not match `[a-zA-Z0-9.\-_@]` are deleted. |
+| `node` | The OpenWEC node's name which is configured in OpenWEC setting `server.node_name`. If the node does not have a name, the string `{node}` is left unchanged and a warning is generated. |
+
+The `Files` driver uses a unique thread (even if there are multiple instances of the driver) to write files. This thread maintains a hash table which contains every opened file descriptors. A garbage collector is run regularly (see `outputs.garbage_collect_interval` setting) to close the file descriptors that have not been used in a while (see `outputs.files.file_descriptors_close_timeout`).
+
+Multiple Files outputs can safely write to the same file (even in different subscriptions).
+
+You may want to tell OpenWEC to close all its file descriptors and to open them again (for example if you use `logrotate`). You can do that by sending a `SIGHUP` signal to the `openwecd` process.
+
+#### Examples
+
+| **Path** | **Description** |
+|----------|-----------------|
+| `/var/events/forwarded.log` | Store events in `/var/events/forwarded.log`
+| `/var/events/{ip}/{principal}/messages` | Store events in `/var/events/<ip>/<principal>/messages`
+| `/var/events/{ip:3}/{ip}/{principal}/messages` | With `<ip> = A.B.C.D`, store events in `/var/events/A.B.C/A.B.C.D/<principal>/messages`
+| `/var/events/{ip:2}/{ip:3}/{ip}/{principal}/my-events` | With `<ip> = A.B.C.D`, store events in `/var/events/A.B/A.B.C/A.B.C.D/<principal>/my-events`
+| `/var/events/{ip:1}/{ip:2}/{ip:3}/{ip}/{principal}/{node}/my-events` | With `<ip> = A.B.C.D`, store events in `/var/events/A/A.B/A.B.C/A.B.C.D/<principal>/<node_name>/my-events`
+
+#### Configuration
+
+```toml
+[[outputs]]
+driver = "Files"
+format = "<format>" # To replace
+config = { path = "<path>" } # To replace
+```
+
+#### Command
+
+> [!WARNING]
+> Using commands to manage subscriptions and there outputs is **deprecated** and will be removed in future releases. Use subscription configuration files instead. 
+
+```
+$ openwec subscriptions edit <subscription> outputs add --format <format> files <path> 
+```
+
+### Kafka
+
+The Kafka driver sends events in a Kafka topic.
+
+For a given subscription, all events will be sent in the configured Kafka topic. You may want to add additionnal options to the inner Kafka client, such as `bootstrap.servers`. This options will be directly given to `librdkafka` (available options are listed here: https://docs.confluent.io/platform/current/clients/librdkafka/html/md_CONFIGURATION.html).
+
+> [!TIP]
+> If multiple outputs use the Kafka driver and connect to the same Kafka cluster, it is recommended to configure the additional options in OpenWEC settings (`outputs.kafka.options`) **and** to omit the `options` parameter in Kafka output configuration. This way, only one Kafka client will be used by all the outputs, which is more resource efficient.
+
+#### Configuration
+
+```toml
+[[outputs]]
+driver = "Kafka"
+format = "<format>" # To replace
+config = { topic = "<topic>", options = { "bootstrap.servers" = "<bootstrap-servers-comma-separated>" } } # To replace
+```
+
+#### Command
+
+> [!WARNING]
+> Using commands to manage subscriptions and there outputs is **deprecated** and will be removed in future releases. Use subscription configuration files instead. 
+
+```
+$ openwec subscriptions edit <subscription> outputs add --format <format> kafka <topic> -o <option_key_1> <option_value_1> -o <option_key_2> <option_value_2>
+```
+
+### TCP
+
+The TCP driver send events in a "raw" TCP connection.
+
+The TCP connection is established when the first event has to be sent. It is kept opened as long as possible, and re-established if required. There is one TCP connection per output using TCP driver.
+
+You must provide an IP address or a hostname and a port to connect to.
+
+#### Configuration
+
+```toml
+[[outputs]]
+driver = "Tcp"
+format = "<format>" # To replace
+config = { addr = "<hostname or IP>", port = <port>} # To replace
+```
+
+#### Command
+
+> [!WARNING]
+> Using commands to manage subscriptions and there outputs is **deprecated** and will be removed in future releases. Use subscription configuration files instead. 
+
+```
+$ openwec subscriptions edit <subscription> outputs add --format <format> tcp <hostname or IP> <port>
+```
+
+### UNIX domain socket
+
+The Unix datagram driver sends events to a Unix domain socket of type `SOCK_DGRAM`.
+
+The connection is established when the first event has to be sent. There is one connection per output using the `UnixDatagram` driver.
+
+The path of the receiver socket is the only mandatory parameter.
+
+#### Configuration
+
+```toml
+[[outputs]]
+driver = "UnixDatagram"
+format = "<format>" # To replace
+config = { path = "<path>"} # To replace
+```
+
+#### Command
+
+> [!WARNING]
+> Using commands to manage subscriptions and there outputs is **deprecated** and will be removed in future releases. Use subscription configuration files instead. 
+
+```
+$ openwec subscriptions edit <subscription> outputs add --format <format> unixdatagram <path>
+```
+
+### Redis
+
+The Redis driver sends events to a Redis list using the [LPUSH command](https://redis.io/commands/lpush/)
+
+You must provide:
+- a redis server address containing the IP and port to connect to.
+- a list name
+
+> [!NOTE]
+> The Redis driver does not support TLS connections to redis nor redis authentication yet.
+
+#### Configuration
+
+```toml
+[[outputs]]
+driver = "Redis"
+format = "<format>" # To replace
+config = { addr = "<redis server>", list = "<list>" } # To replace
+```
+
+#### Command
+
+> [!WARNING]
+> Using commands to manage subscriptions and there outputs is **deprecated** and will be removed in future releases. Use subscription configuration files instead. 
+
+```
+$ openwec subscriptions edit <subscription> outputs add --format <format> unixdatagram <path>
+$ openwec subscriptions edit <subscription> outputs add --format <format> redis <redis server> <list>
+```
+
+## Commands (deprecated)
+
+> [!WARNING]
+> Using commands to manage subscriptions and there outputs is **deprecated** and will be removed in future releases. Use subscription configuration files instead. 
 
 For each subscription, you can manipulate its outputs using `openwec subscriptions edit <identifier> outputs`.
 
@@ -30,7 +193,7 @@ This command prints the current outputs of the subscription.
 
 ```
 $ openwec subscriptions edit my-subscription outputs
-0: Enabled: true, Format: Json, Driver: Files(FilesConfiguration { base: "/var/events/", split_on_addr_index: None, append_node_name: false, filename: "messages" })
+0: Enabled: true, Format: Json, Driver: Files(FilesConfiguration { path: "/var/events/{ip}/{principal}/messages" })
 1: Enabled: true, Format: Json, Driver: Tcp(dc.windomain.local:12000)
 ```
 
@@ -67,127 +230,6 @@ $ openwec subscriptions edit my-subscription outputs delete 0
 ```
 
 This command deletes the first output of the subscription `my-subscription`.
-
-
-## Drivers 
-
-### Files
-
-The Files driver stores events in files on the collector filesystem.
-
-For a given subscription, all events sent by a given Windows client will be stored in the following path:
-```
-<base>/<ip_path>/<principal>[/<node_name>]/<filename>
-```
-where:
-* `base`: base path. It should be an absolute path. It must be configured in the output settings.
-* `ip_path`: two formats can be configured in output settings:
-    * `<ip>`: only the Windows client IP address (default).
-    * The IP address of the client splitted on a given index to build a directory tree. For example, for an IPv4 address `A.B.C.D` and a split index equals to `1`, the resulting path will be `A/A.B/A.B.C/A.B.C.D`.
-* `principal`: the Kerberos principal of the Windows client, without the `$` character. Example: `DC@WINDOMAIN.LOCAL`.
-* `node_name` (optional): when you use a multi-node setup, you may want to add the node's name in the path. The node's name is configured in server settings, but you can choose to add it or not in each output settings.
-* `filename`: the name of the file, configured in each output settings. It defaults to `messages`.
-
-The `Files` driver uses a unique thread (even if there are multiple instances of the driver) to write files. This thread maintains a hash table which contains every openned file descriptors. A garbage collector is regularly run (see `outputs.garbage_collect_interval` setting) to close the file descriptors that have not been used in a while (see `outputs.files.file_descriptors_close_timeout`).
-
-It is possible for multiple Files outputs to write to the same file (even in different subscriptions).
-
-You may want to tell OpenWEC to close all its file descriptors and to open them again (for example if you use `logrotate`). You can do that by sending a `SIGHUP` signal to the `openwecd` process.
-
-#### Examples
-
-* Store events in `/var/events/<ip>/<princ>/messages` for subscription `my-subscription`:
-
-```
-$ openwec subscriptions edit my-subscription outputs add --format <format> files /var/events/
-```
-
-* With `<ip> = A.B.C.D`, store events in `/var/events/A.B.C/A.B.C.D/<princ>/messages` for subscription `my-subscription`:
-
-```
-$ openwec subscriptions edit my-subscription outputs add --format <format> files /var/events/ --split-on-addr-index 3
-```
-
-* With `<ip> = A.B.C.D`, store events in `/var/events/A.B/A.B.C/A.B.C.D/<princ>/my-events` for subscription `my-subscription`:
-
-```
-$ openwec subscriptions edit my-subscription outputs add --format <format> files /var/events/ --split-on-addr-index 2 --filename my-events
-```
-
-* With `<ip> = A.B.C.D`, store events in `/var/events/A/A.B/A.B.C/A.B.C.D/<princ>/<node_name>/my-events` for subscription `my-subscription`:
-
-```
-$ openwec subscriptions edit my-subscription outputs add --format <format> files /var/events/ --split-on-addr-index 1 --filename my-events --append-node-name
-```
-
-### Kafka
-
-The Kafka driver sends events in a Kafka topic.
-
-For a given subscription, all events will be sent in the configured Kafka topic. You may want to add additionnal options to the inner Kafka client, such as `bootstrap.servers`.
-
-If multiple outputs use the Kafka driver and connect to the same Kafka cluster, it is recommended to configure the additional options in OpenWEC settings (`outputs.kafka.options`). This way, only one Kafka client will be used by all the outputs, which is more resource efficient.
-
-#### Examples
-
-* Send events to a Kafka cluster with two bootstrap servers `kafka1:9092` and `kafka2:9092` in topic `my-topic`:
-
-```
-$ openwec subscriptions edit my-subscription outputs add --format <format> kafka my-topic -o bootstrap.servers kafka1:9092,kafka2:9092
-```
-
-### TCP
-
-The TCP driver send events in a "raw" TCP connection.
-
-The TCP connection is established when the first event has to be sent. It is kept openned as long as possible, and re-established if required.
-
-You must provide an IP address or a hostname and a port to connect to.
-
-#### Examples
-
-* Send events to a TCP server `my.server.windomain.local` using port `12000`:
-
-```
-$ openwec subscriptions edit my-subscription outputs add --format <format> tcp my.server.windomain.local 12000
-```
-
-### UNIX domain socket
-
-The Unix datagram driver sends events to a Unix domain socket of type `SOCK_DGRAM`.
-
-The connection is established when the first event has to be sent.
-
-The path of the receiver socket is the only mandatory parameter.
-
-#### Examples
-
-* Send raw events to a UNIX datagram socket `/run/openwec.sock`:
-
-```
-$ openwec subscriptions edit my-subscription outputs add --format raw unixdatagram /run/openwec.sock
-```
-
-### Redis
-
-The Redis driver sends events to a Redis list using the [LPUSH command](https://redis.io/commands/lpush/)
-
-You must provide:
-- a redis server address containing the IP and port to connect to.
-- a list name
-
-TODO:
-- [ ] implement TLS connections to redis
-- [ ] support redis auth
-- [ ] ...
-
-#### Examples
-
-* Send events to a redis server into a list named "wec":
-
-```
-$ openwec subscriptions edit my-test-subscription outputs add --format <format> redis 127.0.0.1:6377 wec
-```
 
 ## How to add a new driver ?
 

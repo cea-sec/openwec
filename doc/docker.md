@@ -95,7 +95,7 @@ query = """
 [[outputs]]
 driver = "Files"
 format = "Raw"
-config = { base = "/var/lib/openwec/data/simple/" }
+config = { path = "/var/lib/openwec/data/simple/{ip}/{principal}/messages" }
 ```
 - `test`:
 ```toml
@@ -121,7 +121,7 @@ content_format = "RenderedText"
 [[outputs]]
 driver = "Files"
 format = "RawJson"
-config = { base = "/var/lib/openwec/data/test" }
+config = { path = "/var/lib/openwec/data/test/{ip}/{principal}/messages" }
 ```
 
 You should end up with the following tree structure:

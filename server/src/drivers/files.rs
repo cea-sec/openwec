@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use leon::Template;
 use log::{debug, info, warn};
 use tokio::sync::oneshot;
 use tokio::time::Instant;
@@ -7,6 +8,8 @@ use crate::event::EventMetadata;
 use crate::output::OutputDriver;
 use anyhow::{anyhow, bail, Context, Result};
 use common::subscription::FilesConfiguration;
+use std::borrow::Cow;
+use std::cmp::min;
 use std::collections::HashMap;
 use std::fs::{create_dir_all, File, OpenOptions};
 use std::io::Write;
@@ -183,6 +186,95 @@ fn run(rx: Receiver<WriteFilesMessage>) {
     info!("Exiting Files output thread");
 }
 
+struct PathValues {
+    metadata: Arc<EventMetadata>
+}
+
+impl PathValues {
+    fn split(&self, ip_str: &str, capacity: usize, index: u8, sep: char) -> String {
+        let mut result = String::with_capacity(capacity);
+        let mut count = 0;
+        for ch in ip_str.chars() {
+            if ch != sep {
+                result.push(ch);
+            } else {
+                count += 1;
+                if count >= index {
+                    break;
+                }
+                result.push(sep);
+            }
+        }
+        result
+    }
+
+    fn split_ip(&self, ip: &IpAddr, index: u8) -> String {
+        match ip {
+            IpAddr::V4(ipv4) => {
+                // Sanitize index
+                let index = if index < 1 {
+                    warn!("index can not be inferior as 1: found {}", index);
+                    1
+                } else if index > 4 {
+                    warn!("index can not be superior as 4 for IPv4: found {}", index);
+                    4
+                } else {
+                    index
+                };
+
+                
+                let ip_str = ipv4.to_string();
+                self.split(&ip_str, ip_str.capacity(), index, '.')
+            }
+            IpAddr::V6(ipv6) => {
+                // Sanitize index
+                let index = if index < 1 {
+                    warn!("File configuration split_on_addr_index can not be inferior as 1: found {}", index);
+                    1
+                } else if index > 8 {
+                    warn!("File configuration split_on_addr_index can not be superior as 8 for IPv6: found {}", index);
+                    8
+                } else {
+                    index
+                };
+
+                let ip_str = ipv6.to_string();
+                self.split(&ip_str, ip_str.capacity(), index, ':')
+            }
+        }
+            
+    }
+
+}
+
+impl leon::Values for PathValues {
+    fn get_value(&self, key: &str) -> Option<Cow<'_, str>> {
+        if key == "ip" {
+            Some(Cow::from(self.metadata.addr().ip().to_string()))
+        } else if key == "principal" {
+            Some(sanitize_name(self.metadata.principal()).into())
+        } else if key == "node" {
+            if let Some(node_name) = self.metadata.node_name() {
+                Some(node_name.as_str().into())
+            } else {
+                warn!("node name is not configured on this node but is used to build a path in Files driver");
+                Some("{node}".into())
+            }
+        } else if key.starts_with("ip:") {
+            // unwrap is safe because we just checked that the string contains the separator
+            let (_, index_str) = key.split_once(':').unwrap();
+            if let Ok(index) = u8::from_str(index_str) {
+                Some(Cow::from(self.split_ip(&self.metadata.addr().ip(), index)))
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    }
+}
+ 
+
 pub struct OutputFiles {
     config: FilesConfiguration,
     tx: mpsc::Sender<WriteFilesMessage>,
@@ -205,119 +297,15 @@ impl OutputFiles {
 
     fn build_path(
         &self,
-        ip: &IpAddr,
-        principal: &str,
-        node_name: Option<&String>,
+        metadata: &Arc<EventMetadata>
     ) -> Result<PathBuf> {
-        let mut path: PathBuf = PathBuf::from_str(self.config.base())?;
-
-        match self.config.split_on_addr_index() {
-            Some(index) => {
-                match ip {
-                    IpAddr::V4(ipv4) => {
-                        // Sanitize index
-                        let index = if index < 1 {
-                            warn!("File configuration split_on_addr_index can not be inferior as 1: found {}", index);
-                            1
-                        } else if index > 4 {
-                            warn!("File configuration split_on_addr_index can not be superior as 4 for IPv4: found {}", index);
-                            4
-                        } else {
-                            index
-                        };
-
-                        // Split on "."
-                        // a.b.c.d
-                        // 1 => a/a.b/a.b.c/a.b.c.d
-                        // 2 => a.b/a.b.c/a.b.c.d
-                        // 3 => a.b.c/a.b.c.d
-                        // 4 => a.b.c.d
-                        let octets = ipv4.octets();
-                        for i in index..5 {
-                            let mut fname = String::new();
-                            for j in 0..i {
-                                fname.push_str(
-                                    format!(
-                                        "{}",
-                                        octets.get(j as usize).ok_or_else(|| anyhow!(
-                                            "Could not get segment {} of ipv4 addr {:?}",
-                                            j,
-                                            ipv4
-                                        ))?
-                                    )
-                                    .as_ref(),
-                                );
-                                // There is probably a better way to write this
-                                if j != i - 1 {
-                                    fname.push('.');
-                                }
-                            }
-                            path.push(&fname);
-                        }
-                    }
-                    IpAddr::V6(ipv6) => {
-                        // Sanitize index
-                        let index = if index < 1 {
-                            warn!("File configuration split_on_addr_index can not be inferior as 1: found {}", index);
-                            1
-                        } else if index > 8 {
-                            warn!("File configuration split_on_addr_index can not be superior as 8 for IPv6: found {}", index);
-                            8
-                        } else {
-                            index
-                        };
-
-                        // Split on ":"
-                        // a:b:c:d:e:f:g:h
-                        // 1 => a/a:b/a:b:c/...
-                        // 2 => a:b/a:b:c/...
-                        // 3 => a:b:c/a:b:c:d/...
-                        // 4 => a:b:c:d/...
-                        // 5 => a:b:c:d:e/...
-                        // 6 => a:b:c:d:e:f/...
-                        // 7 => a:b:c:d:e:f:g/
-                        // 8 => a:b:c:d:e:f:g:h
-                        let segments = ipv6.segments();
-                        for i in index..9 {
-                            let mut fname = String::new();
-                            for j in 0..i {
-                                fname.push_str(
-                                    format!(
-                                        "{:x}",
-                                        segments.get(j as usize).ok_or_else(|| anyhow!(
-                                            "Could not get segment {} of ipv6 addr {:?}",
-                                            j,
-                                            ipv6
-                                        ))?
-                                    )
-                                    .as_ref(),
-                                );
-                                // There is probably a better way to write this
-                                if j != i - 1 {
-                                    fname.push(':');
-                                }
-                            }
-                            path.push(&fname);
-                        }
-                    }
-                }
-            }
-            None => {
-                path.push(ip.to_string());
-            }
-        }
-
-        path.push(sanitize_name(principal));
-
-        if self.config.append_node_name() {
-            match node_name {
-                Some(name) => path.push(name),
-                None => bail!("Could not append node name to path because it is unset"),
-            }
-        }
-
-        path.push(self.config.filename());
-        Ok(path)
+        let values = PathValues { metadata: metadata.clone() };
+        // It would be cool to parse the template only once
+        // However, Template::parse takes a reference to a str and has the same
+        // lifetime than the str. I don't know how to store that...
+        let template = Template::parse(self.config.path())?;
+        let path = template.render(&values)?;
+        Ok(PathBuf::from_str(&path)?)
     }
 }
 
@@ -329,11 +317,8 @@ impl OutputDriver for OutputFiles {
         events: Arc<Vec<Arc<String>>>,
     ) -> Result<()> {
         // Build path
-        let path = self.build_path(
-            &metadata.addr().ip(),
-            metadata.principal(),
-            metadata.node_name(),
-        )?;
+        let path = self.build_path(&metadata)?;
+
         debug!("Computed path is {}", path.display());
 
         // Build the "content" string to write
@@ -360,7 +345,7 @@ impl OutputDriver for OutputFiles {
 
 fn sanitize_name(name: &str) -> String {
     // We only allow strings containing at most 255 chars within [a-z][A-Z][0-9][.-_@]
-    let mut new_str = String::with_capacity(name.len());
+    let mut new_str = String::with_capacity(min(name.len(), 255));
 
     let mut count: usize = 0;
     for ch in name.chars() {
@@ -393,7 +378,29 @@ fn sanitize_name(name: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::net::{IpAddr, SocketAddr};
+
+    use common::{settings, subscription::{SubscriptionData, SubscriptionUuid}};
+    use uuid::Uuid;
+
+    use crate::{output::OutputDriversContext, subscription::Subscription};
+
     use super::*;
+
+    fn create_event_metadata(addr: IpAddr, principal: &str, node_name: Option<String>) -> Arc<EventMetadata> {
+        let addr = SocketAddr::new(addr, 8080);
+        let mut output_context = OutputDriversContext::new(&settings::Outputs::default());
+        let mut subscription_data = SubscriptionData::new("Test", "");
+        subscription_data
+            .set_uuid(SubscriptionUuid(
+                Uuid::from_str("8B18D83D-2964-4F35-AC3B-6F4E6FFA727B").unwrap(),
+            ))
+            .set_uri(Some("/this/is/a/test".to_string()))
+            .set_revision(Some("babar".to_string()));
+        let subscription = Subscription::from_data(subscription_data, &mut output_context).unwrap();
+        
+        Arc::new(EventMetadata::new(&addr, principal, node_name, &subscription, subscription.public_version_string(), None))
+    }
 
     #[test]
     fn test_sanitize() {
@@ -416,90 +423,112 @@ mod tests {
     #[tokio::test]
     async fn test_build_path() -> Result<()> {
         let config =
-            FilesConfiguration::new("/base".to_string(), None, false, "messages".to_string());
+            FilesConfiguration::new("/base/{ip}/{principal}/messages".to_string());
+        
         let ip: IpAddr = "127.0.0.1".parse()?;
+        let principal = "princ";
+        let node = Some("node".to_string());
+        let event_metadata_without_node = create_event_metadata(ip, principal, None);
+        let event_metadata_with_node = create_event_metadata(ip, principal, node);
+
+
         let context = Some(OutputFilesContext::new());
 
         let output_file = OutputFiles::new(&config, &context)?;
 
         assert_eq!(
-            output_file.build_path(&ip, "princ", None)?,
+            output_file.build_path(&event_metadata_without_node)?,
             PathBuf::from_str("/base/127.0.0.1/princ/messages")?
         );
 
         let config =
-            FilesConfiguration::new("/base".to_string(), None, true, "messages".to_string());
+            FilesConfiguration::new("/base/{ip}/{node}/messages".to_string());
         let output_file = OutputFiles::new(&config, &context)?;
 
         assert_eq!(
-            output_file.build_path(&ip, "princ", Some(&"node".to_string()))?,
-            PathBuf::from_str("/base/127.0.0.1/princ/node/messages")?
+            output_file.build_path(&event_metadata_with_node)?,
+            PathBuf::from_str("/base/127.0.0.1/node/messages")?
         );
 
         let config =
-            FilesConfiguration::new("/base".to_string(), Some(1), true, "messages".to_string());
+            FilesConfiguration::new("/base/{ip:1}/{ip:2}/{ip:3}/{ip}/{node}/messages".to_string());
         let output_file = OutputFiles::new(&config, &context)?;
 
         assert_eq!(
-            output_file.build_path(&ip, "princ", Some(&"node".to_string()))?,
-            PathBuf::from_str("/base/127/127.0/127.0.0/127.0.0.1/princ/node/messages")?
+            output_file.build_path(&event_metadata_with_node)?,
+            PathBuf::from_str("/base/127/127.0/127.0.0/127.0.0.1/node/messages")?
         );
 
         let config =
-            FilesConfiguration::new("/base".to_string(), Some(2), false, "other".to_string());
+            FilesConfiguration::new("/base/{ip:2}/{ip:3}/{ip}/{principal}/other".to_string());
         let output_file = OutputFiles::new(&config, &context)?;
 
         assert_eq!(
-            output_file.build_path(&ip, "princ", Some(&"node".to_string()))?,
+            output_file.build_path(&event_metadata_with_node)?,
             PathBuf::from_str("/base/127.0/127.0.0/127.0.0.1/princ/other")?
         );
 
         let config =
-            FilesConfiguration::new("/base".to_string(), Some(3), false, "messages".to_string());
+            FilesConfiguration::new("/base/{ip:3}/{ip}/messages".to_string());
         let output_file = OutputFiles::new(&config, &context)?;
 
         assert_eq!(
-            output_file.build_path(&ip, "princ", Some(&"node".to_string()))?,
-            PathBuf::from_str("/base/127.0.0/127.0.0.1/princ/messages")?
+            output_file.build_path(&event_metadata_without_node)?,
+            PathBuf::from_str("/base/127.0.0/127.0.0.1/messages")?
         );
 
         let config =
-            FilesConfiguration::new("/base".to_string(), Some(4), false, "messages".to_string());
+            FilesConfiguration::new("/base/{ip:4}/{principal}/messages".to_string());
         let output_file = OutputFiles::new(&config, &context)?;
 
         assert_eq!(
-            output_file.build_path(&ip, "princ", Some(&"node".to_string()))?,
+            output_file.build_path(&event_metadata_without_node)?,
             PathBuf::from_str("/base/127.0.0.1/princ/messages")?
         );
 
         let config =
-            FilesConfiguration::new("/base".to_string(), Some(5), false, "messages".to_string());
+            FilesConfiguration::new("/base/{ip:5}/messages".to_string());
         let output_file = OutputFiles::new(&config, &context)?;
 
         assert_eq!(
-            output_file.build_path(&ip, "princ", Some(&"node".to_string()))?,
-            PathBuf::from_str("/base/127.0.0.1/princ/messages")?
+            output_file.build_path(&event_metadata_without_node)?,
+            PathBuf::from_str("/base/127.0.0.1/messages")?
         );
 
         let config =
-            FilesConfiguration::new("/base".to_string(), None, true, "messages".to_string());
+            FilesConfiguration::new("/base/{node}/messages".to_string());
         let output_file = OutputFiles::new(&config, &context)?;
 
-        assert!(output_file.build_path(&ip, "princ", None).is_err());
+        assert_eq!(
+            output_file.build_path(&event_metadata_without_node)?,
+            PathBuf::from_str("/base/{node}/messages")?
+        );
 
         let ip: IpAddr = "1:2:3:4:5:6:7:8".parse()?;
+        let event_metadata_without_node = create_event_metadata(ip, principal, None);
         let config =
-            FilesConfiguration::new("/base".to_string(), None, false, "messages".to_string());
+            FilesConfiguration::new("/base/{ip}/messages".to_string());
         let output_file = OutputFiles::new(&config, &context)?;
         assert_eq!(
-            output_file.build_path(&ip, "princ", Some(&"node".to_string()))?,
-            PathBuf::from_str("/base/1:2:3:4:5:6:7:8/princ/messages")?
+            output_file.build_path(&event_metadata_without_node)?,
+            PathBuf::from_str("/base/1:2:3:4:5:6:7:8/messages")?
         );
 
         let config =
-            FilesConfiguration::new("/base".to_string(), Some(3), false, "messages".to_string());
+            FilesConfiguration::new("/base/{ip:3}/{ip:6}/{ip:8}/messages".to_string());
         let output_file = OutputFiles::new(&config, &context)?;
-        assert_eq!(output_file.build_path(&ip, "princ", Some(&"node".to_string()))?,PathBuf::from_str("/base/1:2:3/1:2:3:4/1:2:3:4:5/1:2:3:4:5:6/1:2:3:4:5:6:7/1:2:3:4:5:6:7:8/princ/messages")?);
+        assert_eq!(
+            output_file.build_path(&event_metadata_without_node)?,
+            PathBuf::from_str("/base/1:2:3/1:2:3:4:5:6/1:2:3:4:5:6:7:8/messages")?);
+
+        let event_metadata_without_node = create_event_metadata(ip, "COMPUTER$@REALM", None);
+        let config =
+            FilesConfiguration::new("/base/{principal}/messages".to_string());
+        let output_file = OutputFiles::new(&config, &context)?;
+        assert_eq!(
+            output_file.build_path(&event_metadata_without_node)?,
+            PathBuf::from_str("/base/COMPUTER@REALM/messages")?
+        );
         Ok(())
     }
 }
