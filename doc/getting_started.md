@@ -1,8 +1,10 @@
 # Getting started
 
-## Building OpenWEC
+## Installing OpenWEC
 
-OpenWEC is not yet packaged for any distribution we know about. Therefore, you need to build it from source or get a precompiled binary from the release page.
+OpenWEC is not yet packaged for any distribution we know about. Therefore, you can either use the official Docker image (see [docker.md](docker.md)), build it from source, get a precompiled binary or get a deb package from the release page.
+
+### Building OpenWEC
 
 To build OpenWEC, you will need:
 * cargo and rustc
@@ -50,17 +52,124 @@ type = "Kerberos"
 service_principal_name = "http/wec.windomain.local@WINDOMAIN.LOCAL"
 ```
 
-See [openwec.conf.sample.toml](../openwec.conf.sample.toml) for further information on available parameters.
+> [!TIP]
+> See [openwec.conf.sample.toml](../openwec.conf.sample.toml) for further information on available parameters.
 
-We have configured OpenWEC to use the SQLite backend. The SQLite database will be stored on disk in `/var/db/openwec/db.sqlite`. You need to make sure that `/var/db/openwec` exists.
+We have configured OpenWEC to use the SQLite backend. The SQLite database will be stored on disk in `/var/db/openwec/db.sqlite`. 
 
 We have set up a collector server. It listens on `0.0.0.0` (default port is `5985`) and can be contacted by Windows computers using `wec.windomain.local`.
 
 Authentication is made using Kerberos. A valid keytab containing credentials for `http/wec.windomain.local@WINDOMAIN.LOCAL` must be present in `/etc/wec.windomain.local.keytab`.
 
-## System configuration
+## Initializing database
 
-You should run OpenWEC with an unprivileged user, for example `openwec`.
+We have configured the SQLite database to be stored on disk in `/var/db/openwec/db.sqlite`. We need to make sure that `/var/db/openwec` exists:
+
+```bash
+$ mkdir -p /var/db/openwec
+```
+
+Then, the database schema needs to be initialized using:
+
+```bash
+$ openwec db init
+```
+
+## Creating subscriptions
+
+To retrieve Windows events and handle them, we need to create subscriptions. A subscription consists of a list of event queries (what events to collect), a list of outputs (what OpenWEC should do with them) and some configuration.
+
+In this example, we will create one subscription named `my-test-subscription`.
+
+### Event Query
+
+You need to build a query to retrieve events you are interested in. Event queries syntax is described by Microsoft [here](https://learn.microsoft.com/en-us/previous-versions/bb399427(v=vs.90)).
+
+In this example, let's say we want to retrieve every events in *Security*, *System*, *Application* and *Setup* sources. Our query will be:
+```xml
+<Query Id="0" Path="Application">
+    <Select Path="Application">*</Select>
+    <Select Path="Security">*</Select>
+    <Select Path="Setup">*</Select>
+    <Select Path="System">*</Select>
+</Query>
+```
+
+### Outputs
+
+In this example, we want to:
+- store events in `Raw` format in files in the path `/data/logs/<ip>/<principal>/messages`, where `<ip>` is the IP address of the machine who sent the log messages and `<principal>` its Kerberos principal
+- send events in `RawJson` format in a Kafka topic (`my-kafka-topic`) on `localhost:9092` for further processing
+
+We need to configure two outputs:
+- one using the `Files` driver and the `Raw` format with path `/data/logs/{ip}/{principal}/messages`
+- one using the `Kafka` driver and the `RawJson` format with topic `my-kafka-topic` and option `bootstrap-servers=localhost:9092`
+
+### Configuration file
+
+It is typically advisable to use multiple subscriptions. It is recommended to create a directory `conf` containing each subscription configuration file.
+
+Create a directory `conf` (wherever you want):
+```bash
+$ mkdir conf
+```
+
+Create a file `my-test-subscription.toml` representing the subscription:
+```toml
+# conf/my-test-subscription.toml
+
+# Unique identifier of the subscription
+uuid = "28fcc206-1336-4e4a-b76b-18b0ab46e585"
+# Unique name of the subscription
+name = "my-test-subscription"
+
+# Subscription query
+query = """
+<QueryList>
+    <Query Id="0" Path="Application">
+        <Select Path="Application">*</Select>
+        <Select Path="Security">*</Select>
+        <Select Path="Setup">*</Select>
+        <Select Path="System">*</Select>
+    </Query>
+</QueryList>
+"""
+
+# Subscription outputs
+[[outputs]]
+driver = "Files"
+format = "Raw"
+config = { path = "/data/logs/{ip}/{principal}/messages" }
+
+# Subscription outputs
+[[outputs]]
+driver = "Kafka"
+format = "RawJson"
+config = { topic = "my-kafka-topic", options = { "bootstrap.servers" = "localhost:9092" } }
+```
+
+> [!TIP]
+> See [subscription.sample.toml](../subscription.sample.toml) for further information on available parameters. You can also use `openwec subscriptions skell` to generate a subscription file.
+
+## Loading subscriptions
+
+Subscription files need to be loaded using the command `openwec subscriptions load <path>` (`path` can be a directory or a file).
+
+```bash
+$ openwec subscriptions load conf
+```
+
+> [!NOTE]
+> You don't need `openwecd` to be running, restarted or reloaded to apply subscriptions.
+
+You can print the loaded subscription using `openwec subscriptions show <name>`:
+```bash
+$ openwec subscriptions show my-test-subscription
+```
+
+## Running OpenWEC server
+
+You should run `openwecd` (OpenWEC server) with an unprivileged user, for example `openwec`.
 
 You may want to create a *systemd* service:
 
@@ -81,76 +190,11 @@ ExecStart=/usr/bin/openwecd
 WantedBy=multi-user.target
 ```
 
-## Initializing database
-
-Database schema needs to be initialized manually using:
-
-```bash
-$ openwec db init
+```
+# systemctl start openwec
 ```
 
-## Creating a new subscription
-
-You need to build a query to retrieve events you are interested in. Event queries syntax is described by Microsoft [here](https://learn.microsoft.com/en-us/previous-versions/bb399427(v=vs.90)).
-
-In this example, let's say we want to retrieve every events in *Security*, *System*, *Application* and *Setup* sources.
-
-Create a file `query.xml` containing:
-
-```xml
-<!-- query.xml -->
-<QueryList>
-    <Query Id="0">
-        <Select Path="Application">*</Select>
-        <Select Path="Security">*</Select>
-        <Select Path="Setup">*</Select>
-        <Select Path="System">*</Select>
-    </Query>
-</QueryList>
-```
-
-You can then create the subscription:
-
-```bash
-$ openwec subscriptions new my-test-subscription query.xml
-```
-
-You may provide additional arguments to customize the subscriptions settings (see [OpenWEC subscription settings](subscription.md)), but you will be able to edit it later.
-
-Your newly created subscription is not yet enabled. You need to configure at least one [output](outputs.md).
-
-## Configuring outputs for the subscription
-
-Let's say we want to:
-- store events in JSON format in files in the path `/data/logs/<ip>/<princ>/messages`, where `<ip>` is the IP address of the machine who sent the log messages and `<princ>` its Kerberos principal
-- and send them in a Kafka topic (`my-kafka-topic`) on `localhost:9092` for further processing.
-
-We need to create 2 outputs:
-* The first one uses the `Files` driver with base path `/data/logs` and the `Json` formatter:
-
-```bash
-$ openwec subscriptions edit my-test-subscription outputs add --format json files /data/logs
-```
-
-* The second one uses the `Kafka` driver and the `Json` formatter:
-
-```bash
-$ openwec subscriptions edit my-test-subscription outputs add --format json kafka my-kafka-topic -o bootstrap.servers localhost:9092
-```
-
-## Enabling the subscription
-
-You may want to check your subscription configuration using:
-
-```bash
-$ openwec subscriptions show my-test-subscription
-```
-
-If everything is OK, then you can enable the subscription:
-
-```bash
-$ openwec subscriptions enable my-test-subscription
-```
+OpenWEC is ready :clap:
 
 ## Configuring Windows machines
 
@@ -174,9 +218,12 @@ Go to Computer Configuration > Policies > Windows Settings > Security Settings >
 - Select "Enabled"
 - Click on "Show"
 - Add `Server=http://wec.windomain.local:5985/test,Refresh=30` which tells your Windows machines to
-    - fetch subscriptions from wec.windomain.local:5985
-    - use URI "/test"
-    - look for subscriptions update every 30 seconds
+    - fetch subscriptions from `wec.windomain.local:5985`
+    - use URI `/test`
+    - look for subscriptions update every `30` seconds
+
+> [!NOTE]
+> 30 seconds is very low as a refresh interval but it can be useful if you want to test different subscription parameters. As soon as you reach a stable configuration,  it is recommended to set this parameter to 3600 seconds (1 hour).
 
 3. Set event channels permissions
 
@@ -196,7 +243,8 @@ For example, to give the right to read the "Security" channel to Network Service
 - Add this security descriptor in SDDL format in the "Log Access" field: `O:BAG:SYD:(A;;0xf0005;;;SY)(A;;0x5;;;BA)(A;;0x1;;;S-1-5-32-573)(A;;0x1;;;NS)`
 - Do the same for "Configure log access (legacy)"
 
-There is a lot of recommendations, explanations and tips on configuring WinRM and Windows Event Forwarding in the ANSSI guide ["Recommandations de sécurité pour la journalisation des systèmes Microsoft Windows en environnement Active Directory"](https://www.ssi.gouv.fr/uploads/2022/01/anssi-guide-recommandations_securite_journalisation_systemes_microsoft_windows_environnement_active_directory.pdf) (in french). We strongly recommend that you read it before deploying this GPO in a production environment.
+> [!TIP]
+> There is a lot of recommendations, explanations and tips on configuring WinRM and Windows Event Forwarding in the ANSSI guide ["Recommandations de sécurité pour la journalisation des systèmes Microsoft Windows en environnement Active Directory"](https://www.ssi.gouv.fr/uploads/2022/01/anssi-guide-recommandations_securite_journalisation_systemes_microsoft_windows_environnement_active_directory.pdf) (in french). We strongly recommend that you read it before deploying this GPO in a production environment.
 
 Link your GPO and wait until it is applied on all Windows machines.
 
@@ -209,9 +257,7 @@ To be sure that everything works well, you can:
 ## Going further
 
 Now that you have a basic working collector, you have multiple ways to improve your setup:
-* Add additional sources in your Event query and customize your subscriptions parameters
-* Configure your subscriptions using configuration files (see [Subscription](subscription.md)) and version them.
-* Add multiple OpenWEC nodes for redundancy and horizontal scaling. You must use PostgreSQL backend to do that (we advise using CockroachDB). You also need to setup a load balancer such as Nginx in front of OpenWEC nodes.
+* Add additional sources in your event query and customize your subscriptions parameters
+* Add multiple OpenWEC nodes for redundancy and horizontal scaling. You must use PostgreSQL backend to do that (we advise using CockroachDB). You also need to setup a load balancer such as haproxy in front of OpenWEC nodes.
 * Use a gMSA (group Managed Service Account) instead of a standard Active Directory account (you may use [gmsad](https://github.com/cea-sec/gmsad) and [msktutil](https://github.com/msktutil/msktutil)).
 * Create multiple subscriptions with different URIs, for example one by tier. Thus, you can monitor efficiently that you always receive logs from Tier 0 servers. You need to link one GPO per tier with the subscription URI.
-

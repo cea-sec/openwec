@@ -1,12 +1,13 @@
 use std::collections::{HashMap, HashSet};
 
 use anyhow::{bail, Context, Result};
+use log::error;
 use serde::Deserialize;
 use uuid::Uuid;
 
-use crate::subscription::{
-    SubscriptionData, DEFAULT_FILE_APPEND_NODE_NAME, DEFAULT_FILE_NAME, DEFAULT_OUTPUT_ENABLED,
-};
+use crate::{subscription::{
+    SubscriptionData, DEFAULT_OUTPUT_ENABLED,
+}, transformers::output_files_use_path::transform_files_config_to_path};
 
 #[derive(Debug, Clone, Deserialize, Eq, PartialEq)]
 #[serde(deny_unknown_fields)]
@@ -51,7 +52,8 @@ impl From<TcpConfiguration> for crate::subscription::TcpConfiguration {
 #[derive(Debug, Clone, Deserialize, Eq, PartialEq)]
 #[serde(deny_unknown_fields)]
 struct FilesConfiguration {
-    pub base: String,
+    pub path: Option<String>,
+    pub base: Option<String>,
     pub split_on_addr_index: Option<u8>,
     pub append_node_name: Option<bool>,
     pub filename: Option<String>,
@@ -59,14 +61,19 @@ struct FilesConfiguration {
 
 impl From<FilesConfiguration> for crate::subscription::FilesConfiguration {
     fn from(value: FilesConfiguration) -> Self {
-        crate::subscription::FilesConfiguration::new(
-            value.base,
-            value.split_on_addr_index,
-            value
-                .append_node_name
-                .unwrap_or(DEFAULT_FILE_APPEND_NODE_NAME),
-            value.filename.unwrap_or(DEFAULT_FILE_NAME.to_owned()),
-        )
+        let path = match value.path {
+            Some(path) => path,
+            None => {
+                match transform_files_config_to_path(&value.base, &value.split_on_addr_index, &value.append_node_name, &value.filename) {
+                    Ok(path) => path,
+                    Err(err) => {
+                        error!("Failed to import Files configuration {:?}: {:?}", value, err);
+                        String::new()
+                    }
+                }
+            }
+        };
+        crate::subscription::FilesConfiguration::new(path)
     }
 }
 
@@ -346,7 +353,7 @@ ignore_channel_error = true
 operation = "Only" # or Except
 princs = ["toto@windomain.local", "tutu@windomain.local"]
 
-## Files output 
+## Files output with old config format
 [[outputs]]
 driver = "Files"
 format = "Json" # or "Raw"
@@ -354,7 +361,7 @@ enabled = true
 
 [outputs.config]
 base = "/tmp/"
-split_on_addr_index = 5
+split_on_addr_index = 2 
 append_node_name = true
 filename = "courgette"
 
@@ -398,6 +405,15 @@ driver = "UnixDatagram"
 
 [outputs.config]
 path = "/tmp/openwec.socket"
+
+## Files output with new config format
+[[outputs]]
+driver = "Files"
+format = "Json" # or "Raw"
+enabled = true
+
+[outputs.config]
+path = "/whatever/you/{ip}/want/{principal}/{ip:2}/{node}/end"
     "#;
 
     #[test]
@@ -431,10 +447,7 @@ path = "/tmp/openwec.socket"
                 crate::subscription::SubscriptionOutputFormat::Json,
                 crate::subscription::SubscriptionOutputDriver::Files(
                     crate::subscription::FilesConfiguration::new(
-                        "/tmp/".to_string(),
-                        Some(5),
-                        true,
-                        "courgette".to_string(),
+                        "/tmp/{ip:2}/{ip:3}/{ip}/{principal}/{node}/courgette".to_string()
                     ),
                 ),
                 true,
@@ -471,6 +484,15 @@ path = "/tmp/openwec.socket"
                 crate::subscription::SubscriptionOutputDriver::UnixDatagram(
                     crate::subscription::UnixDatagramConfiguration::new(
                         "/tmp/openwec.socket".to_string(),
+                    ),
+                ),
+                true,
+            ),
+            crate::subscription::SubscriptionOutput::new(
+                crate::subscription::SubscriptionOutputFormat::Json,
+                crate::subscription::SubscriptionOutputDriver::Files(
+                    crate::subscription::FilesConfiguration::new(
+                        "/whatever/you/{ip}/want/{principal}/{ip:2}/{node}/end".to_string()
                     ),
                 ),
                 true,

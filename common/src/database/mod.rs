@@ -185,9 +185,9 @@ pub mod tests {
         assert_eq!(toto, &toto3);
 
         let file_config_1 =
-            FilesConfiguration::new("/path1".to_string(), None, false, "messages".to_string());
+            FilesConfiguration::new("/path1/{ip}/{principal}/messages".to_string());
         let file_config_2 =
-            FilesConfiguration::new("/path2".to_string(), None, false, "messages".to_string());
+            FilesConfiguration::new("/path2/{ip}/{principal}/messages".to_string());
         let mut subscription2 = SubscriptionData::new("tata", "query2");
         subscription2
             .set_read_existing_events(true)

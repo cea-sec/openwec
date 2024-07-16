@@ -119,7 +119,7 @@ pub async fn reload_subscriptions_task(
                 }
             },
             _ = garbage_collect.tick() => {
-                debug!("Garbage collect output drivers context"); // FIXME
+                debug!("Garbage collect output drivers context");
                 if let Err(e) = context.garbage_collect(&outputs_settings) {
                     warn!("Failed to garbage collect output drivers: {:?}", e);
                     continue;
