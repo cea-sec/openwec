@@ -139,7 +139,7 @@ fn get_outputs() -> String {
 #
 
 # For each output, you must configure a driver and a format.
-# The format can be one of: "Raw", "JsonRaw", "Json", "Nxlog"
+# The format can be one of: "Raw", "RawJson", "Json", "Nxlog"
 # The driver can be one of: "Files", "Kafka", "Tcp", "Redis", "UnixDatagram"
 
 # Configure a Files output
