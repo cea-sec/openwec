@@ -113,7 +113,7 @@ async fn main() {
                             )
                             .subcommand(
                                 Command::new("files")
-                                .about("Configures a File output. Path template is <base>/<ip>/<princ>/[<node_name>/]<filename>, where <ip> is the string representation of the IP addr of the machine and <princ> its Kerberos principal. You may split the IP Address to make a hierarchical tree structure. <node_name> is optional, and refers to the eponym server configuration.")
+                                .about("Configures a Files output which will store events on disk at configured path")
                                 .arg(arg!(<path> "Destination path that can use variables. Example: \"/archive/{ip}/{principal}/{node}/messages\", where {ip} is the string representation of the IP addr of the machine and {principal} its Kerberos principal. See documentation for other variables."))
                             )
                             .subcommand(
