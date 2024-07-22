@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.3.0]
+
 ### Added
 
 - Multiple Kafka output drivers that connect to the same Kafka cluster can use a single Kafka client (#155)
