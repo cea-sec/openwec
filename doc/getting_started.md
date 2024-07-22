@@ -87,7 +87,7 @@ You need to build a query to retrieve events you are interested in. Event querie
 
 In this example, let's say we want to retrieve every events in *Security*, *System*, *Application* and *Setup* sources. Our query will be:
 ```xml
-<Query Id="0" Path="Application">
+<Query Id="0">
     <Select Path="Application">*</Select>
     <Select Path="Security">*</Select>
     <Select Path="Setup">*</Select>
@@ -126,7 +126,7 @@ name = "my-test-subscription"
 # Subscription query
 query = """
 <QueryList>
-    <Query Id="0" Path="Application">
+    <Query Id="0">
         <Select Path="Application">*</Select>
         <Select Path="Security">*</Select>
         <Select Path="Setup">*</Select>
@@ -145,6 +145,8 @@ config = { path = "/data/logs/{ip}/{principal}/messages" }
 [[outputs]]
 driver = "Kafka"
 format = "RawJson"
+# FIXME: `config.options` should be configured in OpenWEC settings (`outputs.kafka.options`)
+# to use only one kafka producer client for all kafka outputs
 config = { topic = "my-kafka-topic", options = { "bootstrap.servers" = "localhost:9092" } }
 ```
 
