@@ -32,7 +32,11 @@ Requirements:
 * A keytab file containing keys for `http/wec.windomain.local@WINDOMAIN.LOCAL` SPN, available in `/etc/wec.windomain.local.keytab`.
 
 Write the following content in `/etc/openwec.conf.toml`:
-
+<!--
+    WARNING!
+    The following content is tested in `common/src/settings.rs`.
+    If you update it, make sure to also do the update in the test.
+-->
 ```toml
 # /etc/openwec.conf.toml
 [server]
@@ -115,6 +119,12 @@ $ mkdir conf
 ```
 
 Create a file `my-test-subscription.toml` representing the subscription:
+<!--
+    WARNING!
+    The following content is tested in `common/src/models/config.rs`.
+    If you update it, make sure to also do the update in the test.
+-->
+
 ```toml
 # conf/my-test-subscription.toml
 

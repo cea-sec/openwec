@@ -665,4 +665,97 @@ path = "/tmp/my.socket"
     fn test_random_field() {
         parse(RANDOM_FIELD, None).unwrap();
     }
+
+    const GETTING_STARTED_CONF: &str = r#"
+# conf/my-test-subscription.toml
+
+# Unique identifier of the subscription
+uuid = "28fcc206-1336-4e4a-b76b-18b0ab46e585"
+# Unique name of the subscription
+name = "my-test-subscription"
+
+# Subscription query
+query = """
+<QueryList>
+    <Query Id="0">
+        <Select Path="Application">*</Select>
+        <Select Path="Security">*</Select>
+        <Select Path="Setup">*</Select>
+        <Select Path="System">*</Select>
+    </Query>
+</QueryList>
+"""
+
+# Subscription outputs
+[[outputs]]
+driver = "Files"
+format = "Raw"
+config = { path = "/data/logs/{ip}/{principal}/messages" }
+
+# Subscription outputs
+[[outputs]]
+driver = "Kafka"
+format = "RawJson"
+# FIXME: `config.options` should be configured in OpenWEC settings (`outputs.kafka.options`)
+# to use only one kafka producer client for all kafka outputs
+config = { topic = "my-kafka-topic", options = { "bootstrap.servers" = "localhost:9092" } }
+    "#;
+    const GETTING_STARTED_QUERY: &str = r#"<QueryList>
+    <Query Id="0">
+        <Select Path="Application">*</Select>
+        <Select Path="Security">*</Select>
+        <Select Path="Setup">*</Select>
+        <Select Path="System">*</Select>
+    </Query>
+</QueryList>
+"#;
+
+    #[test]
+    fn test_getting_started_conf() -> Result<()> {
+        let mut data = parse(GETTING_STARTED_CONF, None)?;
+
+        let mut expected =
+            crate::subscription::SubscriptionData::new("my-test-subscription", GETTING_STARTED_QUERY);
+        expected
+            .set_uuid(crate::subscription::SubscriptionUuid(Uuid::from_str(
+                "28fcc206-1336-4e4a-b76b-18b0ab46e585",
+            )?));
+
+        let mut kafka_options = HashMap::new();
+        kafka_options.insert("bootstrap.servers".to_string(), "localhost:9092".to_string());
+
+        let outputs = vec![
+            crate::subscription::SubscriptionOutput::new(
+                crate::subscription::SubscriptionOutputFormat::Raw,
+                crate::subscription::SubscriptionOutputDriver::Files(
+                    crate::subscription::FilesConfiguration::new(
+                        "/data/logs/{ip}/{principal}/messages".to_string()
+                    ),
+                ),
+                true,
+            ),
+            crate::subscription::SubscriptionOutput::new(
+                crate::subscription::SubscriptionOutputFormat::RawJson,
+                crate::subscription::SubscriptionOutputDriver::Kafka(
+                    crate::subscription::KafkaConfiguration::new(
+                        "my-kafka-topic".to_string(),
+                        kafka_options,
+                    ),
+                ),
+                true,
+            ),
+        ];
+
+        expected.set_outputs(outputs);
+
+        // The only difference between both subscriptions should be the
+        // internal version, so we set both the same value
+        let version = Uuid::new_v4();
+        // Must be done last
+        expected.set_internal_version(crate::subscription::InternalVersion(version.clone()));
+        data.set_internal_version(crate::subscription::InternalVersion(version.clone()));
+
+        assert_eq!(data, expected);
+        Ok(())
+    }
 }
