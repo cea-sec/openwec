@@ -219,7 +219,7 @@ fn check_query_size(query: &str) -> Result<bool> {
     let channels = get_query_channels(doc.root_element())?;
 
     // Windows clients seem to not like queries selecting more than 256 channels
-    if channels.len() >= 256 {
+    if channels.len() > 256 {
         println!("The query selects more than 256 channels and will probably not work on Windows clients.");
         Ok(utils::confirm(
             "Do you want to ignore this warning and continue?",
