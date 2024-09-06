@@ -4,6 +4,7 @@ version = "0.3.0"
 edition = "2021"
 # Used by cargo-deb
 homepage = "https://github.com/cea-sec/openwec"
+description = "A Windows Event Collector server using WEF for GNU/Linux"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -35,6 +36,7 @@ serial_test = "3.0.0"
 name="openwec"
 maintainer = "CEA"
 copyright = "2023, CEA"
+license-file = ["../LICENSE", "0"]
 extended-description = """\
 An implementation of a Windows Event Collector \
 server running on GNU/Linux."""
