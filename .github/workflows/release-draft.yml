@@ -48,6 +48,9 @@ jobs:
     name: Github release draft
     needs: [build]
     runs-on: ubuntu-latest
+    # Sets the permissions granted to the `GITHUB_TOKEN` for the actions in this job.
+    permissions:
+      contents: write
     steps:
       - name: Download debian bookworm package
         uses: actions/download-artifact@v4
