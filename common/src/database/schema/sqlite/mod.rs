@@ -14,7 +14,8 @@ use self::{
     _009_alter_outputs_format::AlterOutputsFormat,
     _010_add_revision_field_in_subscriptions_table::AddRevisionFieldInSubscriptionsTable,
     _011_add_locale_fields_in_subscriptions_table::AddLocaleFieldsInSubscriptionsTable,
-    _012_alter_outputs_files_config::AlterOutputsFilesConfig
+    _012_alter_outputs_files_config::AlterOutputsFilesConfig,
+    _013_add_max_elements_field_in_subscriptions_table::AddMaxElementsFieldInSubscriptionsTable,
 };
 
 mod _001_create_subscriptions_table;
@@ -29,6 +30,7 @@ mod _009_alter_outputs_format;
 mod _010_add_revision_field_in_subscriptions_table;
 mod _011_add_locale_fields_in_subscriptions_table;
 mod _012_alter_outputs_files_config;
+mod _013_add_max_elements_field_in_subscriptions_table;
 
 pub fn register_migrations(sqlite_db: &mut SQLiteDatabase) {
     sqlite_db.register_migration(Arc::new(CreateSubscriptionsTable));
@@ -43,4 +45,5 @@ pub fn register_migrations(sqlite_db: &mut SQLiteDatabase) {
     sqlite_db.register_migration(Arc::new(AddRevisionFieldInSubscriptionsTable));
     sqlite_db.register_migration(Arc::new(AddLocaleFieldsInSubscriptionsTable));
     sqlite_db.register_migration(Arc::new(AlterOutputsFilesConfig));
+    sqlite_db.register_migration(Arc::new(AddMaxElementsFieldInSubscriptionsTable));
 }

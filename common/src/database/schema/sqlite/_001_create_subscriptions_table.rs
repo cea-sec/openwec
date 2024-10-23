@@ -19,7 +19,6 @@ impl SQLiteMigration for CreateSubscriptionsTable {
                         connection_retry_count INTEGER,
                         connection_retry_interval INTEGER,
                         max_time INTEGER,
-                        max_elements INTEGER,
                         max_envelope_size INTEGER,
                         enabled INTEGER,
                         read_existing_events INTEGER,
