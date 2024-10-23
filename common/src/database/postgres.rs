@@ -211,6 +211,7 @@ fn row_to_subscription(row: &Row) -> Result<SubscriptionData> {
     let connection_retry_interval: i32 = row.try_get("connection_retry_interval")?;
     let max_envelope_size: i32 = row.try_get("max_envelope_size")?;
     let max_time: i32 = row.try_get("max_time")?;
+    let max_elements: Option<i32> = row.try_get("max_elements")?;
 
     let princs_filter = PrincsFilter::from(
         row.try_get("princs_filter_op")?,
@@ -226,6 +227,10 @@ fn row_to_subscription(row: &Row) -> Result<SubscriptionData> {
         .set_connection_retry_count(connection_retry_count.try_into()?)
         .set_connection_retry_interval(connection_retry_interval.try_into()?)
         .set_max_time(max_time.try_into()?)
+        .set_max_elements(match max_elements {
+            Some(x) => Some(x.try_into()?),
+            None => None,
+        })
         .set_max_envelope_size(max_envelope_size.try_into()?)
         .set_enabled(row.try_get("enabled")?)
         .set_read_existing_events(row.try_get("read_existing_events")?)
@@ -614,6 +619,11 @@ impl Database for PostgresDatabase {
         let connection_retry_count: i32 = subscription.connection_retry_count().into();
         let connection_retry_interval: i32 = subscription.connection_retry_interval().try_into()?;
         let max_time: i32 = subscription.max_time().try_into()?;
+        let max_elements: Option<i32> = match subscription.max_elements() {
+            Some(x) => Some(x.try_into()?),
+            None => None,
+        };
+
         let max_envelope_size: i32 = subscription.max_envelope_size().try_into()?;
         let count = self
             .pool
@@ -622,10 +632,10 @@ impl Database for PostgresDatabase {
             .execute(
                 r#"INSERT INTO subscriptions (uuid, version, revision, name, uri, query,
                     heartbeat_interval, connection_retry_count, connection_retry_interval,
-                    max_time, max_envelope_size, enabled, read_existing_events, content_format,
+                    max_time, max_elements, max_envelope_size, enabled, read_existing_events, content_format,
                     ignore_channel_error, princs_filter_op, princs_filter_value, outputs, locale,
                     data_locale)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
                     ON CONFLICT (uuid) DO UPDATE SET
                         version = excluded.version,
                         revision = excluded.revision,
@@ -636,6 +646,7 @@ impl Database for PostgresDatabase {
                         connection_retry_count = excluded.connection_retry_count,
                         connection_retry_interval = excluded.connection_retry_interval,
                         max_time = excluded.max_time,
+                        max_elements = excluded.max_elements,
                         max_envelope_size = excluded.max_envelope_size,
                         enabled = excluded.enabled,
                         read_existing_events = excluded.read_existing_events,
@@ -657,6 +668,7 @@ impl Database for PostgresDatabase {
                     &connection_retry_count,
                     &connection_retry_interval,
                     &max_time,
+                    &max_elements,
                     &max_envelope_size,
                     &subscription.enabled(),
                     &subscription.read_existing_events(),

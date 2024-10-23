@@ -200,6 +200,7 @@ async fn handle_enumerate(
             connection_retry_count: subscription_data.connection_retry_count(),
             connection_retry_interval: subscription_data.connection_retry_interval(),
             max_time: subscription_data.max_time(),
+            max_elements: subscription_data.max_elements(),
             max_envelope_size: subscription_data.max_envelope_size(),
             thumbprint: match auth_ctx {
                 AuthenticationContext::Tls(_, thumbprint) => Some(thumbprint.clone()),

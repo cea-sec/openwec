@@ -69,6 +69,12 @@ fn get_options() -> String {
 # events before sending them.
 # max_time = {}
 
+# The maximum number of events that the client should aggregate before
+# sending a batch.
+# Defaults to unset, meaning that only max_time and max_envelope_size will
+# limit the aggregation.
+# max_elements =
+
 # The maximum number of bytes in the SOAP envelope used to deliver
 # the events.
 # max_envelope_size = {}

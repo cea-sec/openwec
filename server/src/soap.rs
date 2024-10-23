@@ -96,6 +96,7 @@ pub struct SubscriptionBody {
     pub connection_retry_interval: u32,
     pub connection_retry_count: u16,
     pub max_time: u32,
+    pub max_elements: Option<u32>,
     pub max_envelope_size: u32,
     pub thumbprint: Option<String>,
     pub public_version: String,
@@ -243,6 +244,11 @@ impl Serializable for SubscriptionBody {
                                     .write_text_content(BytesText::new(
                                         format!("PT{}.0S", self.connection_retry_interval).as_str(),
                                     ))?;
+                                if let Some(max_elements) = &self.max_elements {
+                                    writer.create_element("w:MaxElements").write_text_content(
+                                        BytesText::new(format!("{}", max_elements).as_str()),
+                                    )?;
+                                }
                                 writer.create_element("w:MaxTime").write_text_content(
                                     BytesText::new(format!("PT{}.000S", self.max_time).as_str()),
                                 )?;

@@ -38,6 +38,7 @@ Subscriptions and their parameters are not defined in OpenWEC configuration file
 | `connection_retry_count` | No | 5 | Number of times the client will attempt to connect if the subscriber is unreachable. |
 | `connection_retry_interval` | No | 60 | Interval observed between each connection attempt if the subscriber is unreachable. |
 | `max_time` | No | 30 | The maximum time, in seconds, that the client should aggregate new events before sending them. |
+| `max_elements` | No | *Undefined* | The maximum number of events that the client should aggregate before sending a batch. Defaults to unset, meaning that only max_time and max_envelope_size will limit the aggregation. |
 | `max_envelope_size` | No | 512000 | The maximum number of bytes in the SOAP envelope used to deliver the events. |
 | `enabled` | No | `False` | Whether the subscription is enabled or not. Not that a new subscription is **disabled** by default, and **can not** be enabled unless you configure at least one output. As a safe guard, subscriptions without outputs are ignored by openwec server. |
 | `read_existing_events` | No | `False` | If `True`, the event source should replay all possible events that match the filter and any events that subsequently occur for that event source. |

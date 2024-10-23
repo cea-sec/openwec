@@ -175,6 +175,7 @@ fn row_to_subscription(row: &Row) -> Result<SubscriptionData> {
         .set_connection_retry_count(row.get("connection_retry_count")?)
         .set_connection_retry_interval(row.get("connection_retry_interval")?)
         .set_max_time(row.get("max_time")?)
+        .set_max_elements(row.get("max_elements")?)
         .set_max_envelope_size(row.get("max_envelope_size")?)
         .set_enabled(row.get("enabled")?)
         .set_read_existing_events(row.get("read_existing_events")?)
@@ -553,12 +554,12 @@ impl Database for SQLiteDatabase {
                 conn.execute(
                     r#"INSERT INTO subscriptions (uuid, version, revision, name, uri, query,
                     heartbeat_interval, connection_retry_count, connection_retry_interval,
-                    max_time, max_envelope_size, enabled, read_existing_events, content_format, 
+                    max_time, max_elements, max_envelope_size, enabled, read_existing_events, content_format,
                     ignore_channel_error, princs_filter_op, princs_filter_value, outputs, locale,
                     data_locale)
                     VALUES (:uuid, :version, :revision, :name, :uri, :query,
                         :heartbeat_interval, :connection_retry_count, :connection_retry_interval,
-                        :max_time, :max_envelope_size, :enabled, :read_existing_events, :content_format,
+                        :max_time, :max_elements, :max_envelope_size, :enabled, :read_existing_events, :content_format,
                         :ignore_channel_error, :princs_filter_op, :princs_filter_value, :outputs,
                         :locale, :data_locale)
                     ON CONFLICT (uuid) DO UPDATE SET
@@ -571,6 +572,7 @@ impl Database for SQLiteDatabase {
                         connection_retry_count = excluded.connection_retry_count,
                         connection_retry_interval = excluded.connection_retry_interval,
                         max_time = excluded.max_time,
+                        max_elements = excluded.max_elements,
                         max_envelope_size = excluded.max_envelope_size,
                         enabled = excluded.enabled,
                         read_existing_events = excluded.read_existing_events,
@@ -592,6 +594,7 @@ impl Database for SQLiteDatabase {
                         ":connection_retry_count": subscription.connection_retry_count(),
                         ":connection_retry_interval": subscription.connection_retry_interval(),
                         ":max_time": subscription.max_time(),
+                        ":max_elements": subscription.max_elements(),
                         ":max_envelope_size": subscription.max_envelope_size(),
                         ":enabled": subscription.enabled(),
                         ":read_existing_events": subscription.read_existing_events(),

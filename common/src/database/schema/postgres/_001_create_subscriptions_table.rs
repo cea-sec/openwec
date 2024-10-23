@@ -20,6 +20,7 @@ impl PostgresMigration for CreateSubscriptionsTable {
                         connection_retry_count INT4,
                         connection_retry_interval INT4,
                         max_time INT4,
+                        max_elements INT4,
                         max_envelope_size INT4,
                         enabled BOOLEAN,
                         read_existing_events BOOLEAN,

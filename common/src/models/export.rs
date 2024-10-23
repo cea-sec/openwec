@@ -589,6 +589,7 @@ pub mod v2 {
         pub connection_retry_count: u16,
         pub connection_retry_interval: u32,
         pub max_time: u32,
+        pub max_elements: Option<u32>,
         pub max_envelope_size: u32,
         pub enabled: bool,
         pub read_existing_events: bool,
@@ -609,6 +610,7 @@ pub mod v2 {
                 .set_connection_retry_count(value.connection_retry_count)
                 .set_connection_retry_interval(value.connection_retry_interval)
                 .set_max_time(value.max_time)
+                .set_max_elements(value.max_elements)
                 .set_max_envelope_size(value.max_envelope_size)
                 .set_enabled(value.enabled)
                 .set_read_existing_events(value.read_existing_events)
@@ -637,6 +639,7 @@ pub mod v2 {
                 connection_retry_count: value.connection_retry_count(),
                 connection_retry_interval: value.connection_retry_interval(),
                 max_time: value.max_time(),
+                max_elements: value.max_elements(),
                 max_envelope_size: value.max_envelope_size(),
                 enabled: value.enabled(),
                 read_existing_events: value.read_existing_events(),
@@ -698,6 +701,7 @@ mod tests {
             .set_ignore_channel_error(false)
             .set_max_envelope_size(10000)
             .set_max_time(1)
+            .set_max_elements(Some(100))
             .set_read_existing_events(false)
             .set_uri(Some("toto".to_string()))
             .set_princs_filter(crate::subscription::PrincsFilter::new(

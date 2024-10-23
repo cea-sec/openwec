@@ -395,6 +395,7 @@ pub struct SubscriptionParameters {
     pub connection_retry_count: u16,
     pub connection_retry_interval: u32,
     pub max_time: u32,
+    pub max_elements: Option<u32>,
     pub max_envelope_size: u32,
     pub read_existing_events: bool,
     pub content_format: ContentFormat,
@@ -471,6 +472,14 @@ impl Display for SubscriptionData {
             "\tMax time without heartbeat/events: {}s",
             self.max_time()
         )?;
+        writeln!(
+            f,
+            "\tMax events in a batch: {}",
+            match self.max_elements() {
+                Some(max_elements) => max_elements.to_string(),
+                None => "Not configured".to_string(),
+            }
+        )?;
         writeln!(f, "\tMax envelope size: {} bytes", self.max_envelope_size())?;
         writeln!(f, "\tRead existing events: {}", self.read_existing_events())?;
         writeln!(f, "\tContent format: {}", self.content_format())?;
@@ -535,6 +544,7 @@ impl SubscriptionData {
                 connection_retry_count: DEFAULT_CONNECTION_RETRY_COUNT,
                 connection_retry_interval: DEFAULT_CONNECTION_RETRY_INTERVAL,
                 max_time: DEFAULT_MAX_TIME,
+                max_elements: None,
                 max_envelope_size: DEFAULT_MAX_ENVELOPE_SIZE,
                 read_existing_events: DEFAULT_READ_EXISTING_EVENTS,
                 content_format: DEFAULT_CONTENT_FORMAT,
@@ -616,6 +626,11 @@ impl SubscriptionData {
         self.parameters.max_time
     }
 
+    /// Get a reference to the subscription's max elements.
+    pub fn max_elements(&self) -> Option<u32> {
+        self.parameters.max_elements
+    }
+
     /// Get a reference to the subscription's max envelope size.
     pub fn max_envelope_size(&self) -> u32 {
         self.parameters.max_envelope_size
@@ -664,6 +679,13 @@ impl SubscriptionData {
     /// Set the subscription's max time.
     pub fn set_max_time(&mut self, max_time: u32) -> &mut Self {
         self.parameters.max_time = max_time;
+        self.update_internal_version();
+        self
+    }
+
+     /// Set the subscription's max elements.
+     pub fn set_max_elements(&mut self, max_elements: Option<u32>) -> &mut Self {
+        self.parameters.max_elements = max_elements;
         self.update_internal_version();
         self
     }
