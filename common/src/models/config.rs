@@ -361,7 +361,7 @@ enabled = true
 
 [outputs.config]
 base = "/tmp/"
-split_on_addr_index = 2 
+split_on_addr_index = 2
 append_node_name = true
 filename = "courgette"
 

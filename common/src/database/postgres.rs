@@ -155,8 +155,8 @@ impl PostgresDatabase {
             client
                 .query(
                     format!(
-                        r#"SELECT * 
-                            FROM heartbeats 
+                        r#"SELECT *
+                            FROM heartbeats
                             JOIN subscriptions ON subscriptions.uuid = heartbeats.subscription
                             WHERE {} = $1
                             AND subscription = $2"#,
@@ -170,8 +170,8 @@ impl PostgresDatabase {
             client
                 .query(
                     format!(
-                        r#"SELECT * 
-                        FROM heartbeats 
+                        r#"SELECT *
+                        FROM heartbeats
                         JOIN subscriptions ON subscriptions.uuid = heartbeats.subscription
                         WHERE {} = $1"#,
                         field
@@ -572,7 +572,7 @@ impl Database for PostgresDatabase {
             .await?
             .query(
                 r#"
-            SELECT * 
+            SELECT *
             FROM subscriptions
             "#,
                 &[],
@@ -596,7 +596,7 @@ impl Database for PostgresDatabase {
             .get()
             .await?
             .query_opt(
-                r#"SELECT * 
+                r#"SELECT *
                         FROM subscriptions
                         WHERE uuid = $1 OR name = $1"#,
                 &[&identifier],
@@ -626,7 +626,7 @@ impl Database for PostgresDatabase {
                     ignore_channel_error, princs_filter_op, princs_filter_value, outputs, locale,
                     data_locale)
                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
-                    ON CONFLICT (uuid) DO UPDATE SET 
+                    ON CONFLICT (uuid) DO UPDATE SET
                         version = excluded.version,
                         revision = excluded.revision,
                         name = excluded.name,

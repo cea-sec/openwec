@@ -3,19 +3,19 @@
 // license (MIT), we include below its copyright notice and permission notice:
 //
 //       The MIT License (MIT)
-//       
+//
 //       Copyright (c) 2015 Skyler Lipthay
-//       
+//
 //       Permission is hereby granted, free of charge, to any person obtaining a copy
 //       of this software and associated documentation files (the "Software"), to deal
 //       in the Software without restriction, including without limitation the rights
 //       to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
 //       copies of the Software, and to permit persons to whom the Software is
 //       furnished to do so, subject to the following conditions:
-//       
+//
 //       The above copyright notice and this permission notice shall be included in all
 //       copies or substantial portions of the Software.
-//       
+//
 //       THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 //       IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
 //       FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
@@ -125,7 +125,7 @@ impl SQLiteDatabase {
                     )?;
                     let rows = statement.query_and_then(&[(":field_value", &field_value), (":subscription", &value)], row_to_heartbeat)?;
 
-                    let mut heartbeats = Vec::new(); 
+                    let mut heartbeats = Vec::new();
                     for heartbeat in rows {
                         heartbeats.push(heartbeat?);
                     }
@@ -134,7 +134,7 @@ impl SQLiteDatabase {
                     let mut statement = conn.prepare(
                         format!(
                             r#"SELECT *
-                            FROM heartbeats 
+                            FROM heartbeats
                             JOIN subscriptions ON subscriptions.uuid = heartbeats.subscription
                             WHERE {} = :field_value"#,
                             field
@@ -142,7 +142,7 @@ impl SQLiteDatabase {
                         .as_str()
                     )?;
                     let rows = statement.query_and_then(&[(":field_value", &field_value)], row_to_heartbeat)?;
-                    let mut heartbeats = Vec::new(); 
+                    let mut heartbeats = Vec::new();
                     for heartbeat in rows {
                         heartbeats.push(heartbeat?);
                     }
@@ -321,12 +321,12 @@ impl Database for SQLiteDatabase {
             (None, None) => {
                 client.interact(move |conn| {
                     conn.execute("DELETE FROM bookmarks", [])
-                }).await 
+                }).await
             }
         };
         future.map_err(|err| anyhow!(format!("{}", err)))??;
         Ok(())
-        
+
     }
 
     async fn get_heartbeats_by_machine(
@@ -469,7 +469,7 @@ impl Database for SQLiteDatabase {
             for (key, value) in heartbeats_cloned {
                 match value.last_event_seen {
                     Some(last_event_seen) => {
-                        query_with_event 
+                        query_with_event
                             .execute(
                                 params![
                                     &key.machine,
@@ -561,7 +561,7 @@ impl Database for SQLiteDatabase {
                         :max_time, :max_envelope_size, :enabled, :read_existing_events, :content_format,
                         :ignore_channel_error, :princs_filter_op, :princs_filter_value, :outputs,
                         :locale, :data_locale)
-                    ON CONFLICT (uuid) DO UPDATE SET 
+                    ON CONFLICT (uuid) DO UPDATE SET
                         version = excluded.version,
                         revision = excluded.revision,
                         name = excluded.name,
@@ -776,7 +776,7 @@ impl Database for SQLiteDatabase {
             .interact(move |conn| {
                 conn.query_row(
                     r#"SELECT COUNT(machine)
-                    FROM heartbeats 
+                    FROM heartbeats
                     WHERE subscription = :subscription"#,
                     &[(":subscription", &subscription_owned)],
                     |row| row.get(0),
