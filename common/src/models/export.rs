@@ -549,7 +549,7 @@ pub mod v2 {
         fn from(value: crate::subscription::PrincsFilter) -> Self {
             Self {
                 operation: value.operation().map(|x| x.clone().into()),
-                princs: value.princs().clone(),
+                princs: value.princ_literals().clone(),
             }
         }
     }
