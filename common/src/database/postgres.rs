@@ -31,7 +31,7 @@ use crate::bookmark::BookmarkData;
 use crate::heartbeat::{HeartbeatKey, HeartbeatsCache};
 use crate::settings::PostgresSslMode;
 use crate::subscription::{
-    ContentFormat, InternalVersion, PrincsFilter, SubscriptionMachine, SubscriptionMachineState,
+    ContentFormat, InternalVersion, ClientFilter, SubscriptionMachine, SubscriptionMachineState,
     SubscriptionStatsCounters, SubscriptionUuid,
 };
 use crate::{
@@ -213,10 +213,19 @@ fn row_to_subscription(row: &Row) -> Result<SubscriptionData> {
     let max_time: i32 = row.try_get("max_time")?;
     let max_elements: Option<i32> = row.try_get("max_elements")?;
 
-    let princs_filter = PrincsFilter::from(
-        row.try_get("princs_filter_op")?,
-        row.try_get("princs_filter_value")?,
-    )?;
+    let client_filter_op: Option<String> = row.try_get("client_filter_op")?;
+
+    let client_filter = match client_filter_op {
+        Some(op) =>  {
+            let client_filter_kind: Option<String> = row.try_get("client_filter_kind")?;
+            let client_filter_flags: Option<i32> = row.try_get("client_filter_flags")?;
+            Some(
+                ClientFilter::from(op, client_filter_kind.unwrap(),
+                client_filter_flags.map(|c| c.try_into()).transpose()?, row.try_get("client_filter_targets")?)?
+            )
+        },
+        None => None
+    };
 
     let mut subscription = SubscriptionData::new(row.try_get("name")?, row.try_get("query")?);
     subscription
@@ -238,7 +247,7 @@ fn row_to_subscription(row: &Row) -> Result<SubscriptionData> {
         .set_ignore_channel_error(row.try_get("ignore_channel_error")?)
         .set_locale(row.try_get("locale")?)
         .set_data_locale(row.try_get("data_locale")?)
-        .set_princs_filter(princs_filter)
+        .set_client_filter(client_filter)
         .set_outputs(outputs);
 
     // This needs to be done at the end because version is updated each time
@@ -625,6 +634,11 @@ impl Database for PostgresDatabase {
         };
 
         let max_envelope_size: i32 = subscription.max_envelope_size().try_into()?;
+        let client_filter_op: Option<String> = subscription.client_filter().map(|f| f.operation().to_string());
+        let client_filter_kind = subscription.client_filter().map(|f| f.kind().to_string());
+        let client_filter_flags: Option<i32> = subscription.client_filter().map(|f| f.flags().bits().try_into()).transpose()?;
+        let client_filter_targets = subscription.client_filter().and_then(|f| f.targets_to_opt_string());
+
         let count = self
             .pool
             .get()
@@ -633,9 +647,9 @@ impl Database for PostgresDatabase {
                 r#"INSERT INTO subscriptions (uuid, version, revision, name, uri, query,
                     heartbeat_interval, connection_retry_count, connection_retry_interval,
                     max_time, max_elements, max_envelope_size, enabled, read_existing_events, content_format,
-                    ignore_channel_error, princs_filter_op, princs_filter_value, outputs, locale,
+                    ignore_channel_error, client_filter_op, client_filter_kind, client_filter_flags, client_filter_targets, outputs, locale,
                     data_locale)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
                     ON CONFLICT (uuid) DO UPDATE SET
                         version = excluded.version,
                         revision = excluded.revision,
@@ -652,8 +666,10 @@ impl Database for PostgresDatabase {
                         read_existing_events = excluded.read_existing_events,
                         content_format = excluded.content_format,
                         ignore_channel_error = excluded.ignore_channel_error,
-                        princs_filter_op = excluded.princs_filter_op,
-                        princs_filter_value = excluded.princs_filter_value,
+                        client_filter_op = excluded.client_filter_op,
+                        client_filter_kind = excluded.client_filter_kind,
+                        client_filter_flags = excluded.client_filter_flags,
+                        client_filter_targets = excluded.client_filter_targets,
                         outputs = excluded.outputs,
                         locale = excluded.locale,
                         data_locale = excluded.data_locale"#,
@@ -674,11 +690,10 @@ impl Database for PostgresDatabase {
                     &subscription.read_existing_events(),
                     &subscription.content_format().to_string(),
                     &subscription.ignore_channel_error(),
-                    &subscription
-                        .princs_filter()
-                        .operation()
-                        .map(|x| x.to_string()),
-                    &subscription.princs_filter().princs_to_opt_string(),
+                    &client_filter_op,
+                    &client_filter_kind,
+                    &client_filter_flags,
+                    &client_filter_targets,
                     &serde_json::to_string(subscription.outputs())?.as_str(),
                     &subscription.locale(),
                     &subscription.data_locale()

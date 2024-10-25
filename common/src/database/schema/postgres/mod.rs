@@ -16,6 +16,7 @@ use self::{
     _011_add_locale_fields_in_subscriptions_table::AddLocaleFieldsInSubscriptionsTable,
     _012_alter_outputs_files_config::AlterOutputsFilesConfig,
     _013_add_max_elements_field_in_subscriptions_table::AddMaxElementsFieldInSubscriptionsTable,
+    _014_alter_client_filter_in_subscriptions::AlterClientFilterInSubscriptionsTable,
 };
 
 mod _001_create_subscriptions_table;
@@ -31,6 +32,7 @@ mod _010_add_revision_field_in_subscriptions_table;
 mod _011_add_locale_fields_in_subscriptions_table;
 mod _012_alter_outputs_files_config;
 mod _013_add_max_elements_field_in_subscriptions_table;
+mod _014_alter_client_filter_in_subscriptions;
 
 pub fn register_migrations(postgres_db: &mut PostgresDatabase) {
     postgres_db.register_migration(Arc::new(CreateSubscriptionsTable));
@@ -46,4 +48,5 @@ pub fn register_migrations(postgres_db: &mut PostgresDatabase) {
     postgres_db.register_migration(Arc::new(AddLocaleFieldsInSubscriptionsTable));
     postgres_db.register_migration(Arc::new(AlterOutputsFilesConfig));
     postgres_db.register_migration(Arc::new(AddMaxElementsFieldInSubscriptionsTable));
+    postgres_db.register_migration(Arc::new(AlterClientFilterInSubscriptionsTable));
 }

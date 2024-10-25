@@ -180,13 +180,15 @@ async fn handle_enumerate(
         }
 
         // Skip subscriptions that filter out this principal
-        if !subscription_data.is_active_for(request_data.principal()) {
+        let machine_id = message.header().machine_id().map(|m| m.as_str());
+        if !subscription_data.is_active_for(request_data.principal(), machine_id) {
             debug!(
-                "Skip subscription \"{}\" ({}) which principals filter {:?} rejects {}",
+                "Skip subscription \"{}\" ({}) which client filter {:?} rejects {} ({})",
                 subscription_data.name(),
                 subscription_data.uuid(),
-                subscription_data.princs_filter(),
-                request_data.principal()
+                subscription_data.client_filter(),
+                request_data.principal(),
+                machine_id.unwrap_or("unknown MachineID"),
             );
             continue;
         }
@@ -306,12 +308,14 @@ async fn handle_heartbeat(
         }
     };
 
-    if !subscription.data().is_active_for(request_data.principal()) {
+    let machine_id = message.header().machine_id().map(|m| m.as_str());
+    if !subscription.data().is_active_for(request_data.principal(), machine_id) {
         debug!(
-            "Received Heartbeat from {}:{} ({}) for subscription {} ({}) but the principal is not allowed to use the subscription.",
+            "Received Heartbeat from {}:{} ({}, {}) for subscription {} ({}) but the client is not allowed to use the subscription.",
             request_data.remote_addr().ip(),
             request_data.remote_addr().port(),
             request_data.principal(),
+            machine_id.unwrap_or("unknown MachineID"),
             subscription.data().name(),
             subscription.uuid_string()
         );
@@ -436,12 +440,14 @@ async fn handle_events(
             }
         };
 
-        if !subscription.data().is_active_for(request_data.principal()) {
+        let machine_id = message.header().machine_id().map(|m| m.as_str());
+        if !subscription.data().is_active_for(request_data.principal(), machine_id) {
             debug!(
-                "Received Events from {}:{} ({}) for subscription {} ({}) but the principal is not allowed to use this subscription.",
+                "Received Events from {}:{} ({}, {}) for subscription {} ({}) but the client is not allowed to use this subscription.",
                 request_data.remote_addr().ip(),
                 request_data.remote_addr().port(),
                 request_data.principal(),
+                machine_id.unwrap_or("unknown MachineID"),
                 subscription.data().name(),
                 subscription.uuid_string(),
             );
