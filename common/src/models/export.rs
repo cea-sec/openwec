@@ -198,7 +198,7 @@ mod v1 {
 
     impl From<PrincsFilter> for crate::subscription::PrincsFilter {
         fn from(value: PrincsFilter) -> Self {
-            crate::subscription::PrincsFilter::new(value.operation.map(|x| x.into()), value.princs)
+            crate::subscription::PrincsFilter::new(value.operation.map(|x| x.into()), value.princs, vec![])
         }
     }
 
@@ -283,6 +283,7 @@ pub mod v2 {
     use serde::{Deserialize, Serialize};
     use std::collections::{HashMap, HashSet};
     use uuid::Uuid;
+    use glob::Pattern;
 
     #[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize)]
     pub(super) struct KafkaConfiguration {
@@ -537,11 +538,13 @@ pub mod v2 {
     pub(super) struct PrincsFilter {
         pub operation: Option<PrincsFilterOperation>,
         pub princs: HashSet<String>,
+        pub princ_globs: Vec<String>
     }
 
     impl From<PrincsFilter> for crate::subscription::PrincsFilter {
         fn from(value: PrincsFilter) -> Self {
-            crate::subscription::PrincsFilter::new(value.operation.map(|x| x.into()), value.princs)
+            let princ_globs = value.princ_globs.iter().map(|p| Pattern::new(p).unwrap()).collect();
+            crate::subscription::PrincsFilter::new(value.operation.map(|x| x.into()), value.princs, princ_globs)
         }
     }
 
@@ -550,6 +553,7 @@ pub mod v2 {
             Self {
                 operation: value.operation().map(|x| x.clone().into()),
                 princs: value.princ_literals().clone(),
+                princ_globs: value.princ_globs().iter().map(|p| p.as_str().to_owned()).collect()
             }
         }
     }
@@ -707,6 +711,7 @@ mod tests {
             .set_princs_filter(crate::subscription::PrincsFilter::new(
                 Some(crate::subscription::PrincsFilterOperation::Except),
                 princs,
+                vec![],
             ))
             .set_outputs(vec![crate::subscription::SubscriptionOutput::new(
                 crate::subscription::SubscriptionOutputFormat::Json,
