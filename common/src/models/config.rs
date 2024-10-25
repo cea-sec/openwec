@@ -218,6 +218,7 @@ impl From<PrincsFilterOperation> for crate::subscription::PrincsFilterOperation 
 #[serde(deny_unknown_fields)]
 struct PrincsFilter {
     pub operation: Option<PrincsFilterOperation>,
+    #[serde(alias = "cert_subjects")]
     pub princs: HashSet<String>,
 }
 
