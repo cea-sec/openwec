@@ -325,6 +325,14 @@ impl PrincsFilter {
         })
     }
 
+    pub fn eval(&self, principal: &str) -> bool {
+        match self.operation {
+            None => true,
+            Some(PrincsFilterOperation::Only) => self.princs.contains(principal),
+            Some(PrincsFilterOperation::Except) => !self.princs.contains(principal),
+        }
+    }
+
     pub fn princs(&self) -> &HashSet<String> {
         &self.princs
     }
@@ -871,13 +879,7 @@ impl SubscriptionData {
             return false;
         }
 
-        match self.princs_filter().operation {
-            None => true,
-            Some(PrincsFilterOperation::Only) => self.princs_filter().princs().contains(principal),
-            Some(PrincsFilterOperation::Except) => {
-                !self.princs_filter().princs().contains(principal)
-            }
-        }
+        self.princs_filter().eval(principal)
     }
 
     pub fn revision(&self) -> Option<&String> {
