@@ -355,7 +355,8 @@ async fn handle_events(
         }
 
         debug!(
-            "Received Events from {}:{} ({}) for subscription {} ({})",
+            "Received {} events from {}:{} ({}) for subscription {} ({})",
+            events.len(),
             request_data.remote_addr().ip(),
             request_data.remote_addr().port(),
             request_data.principal(),
