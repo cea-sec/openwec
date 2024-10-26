@@ -1,6 +1,6 @@
 # Subscription
 
-A subscription enables a Windows Event Collector to retrieve a set of events from a set of machines using a dedicated configuration. 
+A subscription enables a Windows Event Collector to retrieve a set of events from a set of machines using a dedicated configuration.
 
 The set of events is defined by a list of XPath filter queries. For example, here is a query list composed of a single query which retrieves all event logs within channels `Application`, `Security`, `Setup` and `System`:
 ```xml
@@ -24,7 +24,7 @@ In addition, each subscription is identified by a GUID called `uuid`, which is n
 
 Each Windows machine configured to contact a Windows Event Collector server will send an `Enumerate` request to get a list of subscriptions. It will then create locally these subscriptions and fullfill them.
 
-## Parameters 
+## Parameters
 
 Subscriptions and their parameters are not defined in OpenWEC configuration file but in OpenWEC database. Therefore, you **must** use `openwec` cli to edit them. You should **never update subscription parameters directly in database**.
 
@@ -38,6 +38,7 @@ Subscriptions and their parameters are not defined in OpenWEC configuration file
 | `connection_retry_count` | No | 5 | Number of times the client will attempt to connect if the subscriber is unreachable. |
 | `connection_retry_interval` | No | 60 | Interval observed between each connection attempt if the subscriber is unreachable. |
 | `max_time` | No | 30 | The maximum time, in seconds, that the client should aggregate new events before sending them. |
+| `max_elements` | No | *Undefined* | The maximum number of events that the client should aggregate before sending a batch. Defaults to unset, meaning that only max_time and max_envelope_size will limit the aggregation. |
 | `max_envelope_size` | No | 512000 | The maximum number of bytes in the SOAP envelope used to deliver the events. |
 | `enabled` | No | `False` | Whether the subscription is enabled or not. Not that a new subscription is **disabled** by default, and **can not** be enabled unless you configure at least one output. As a safe guard, subscriptions without outputs are ignored by openwec server. |
 | `read_existing_events` | No | `False` | If `True`, the event source should replay all possible events that match the filter and any events that subsequently occur for that event source. |
@@ -123,7 +124,7 @@ To use configuration files, edit them and then run `openwec subscriptions load`.
 
 ### Revisions
 
-When using the `openwec subscriptions load` command, you can use the `--revision` flag to specify a revision string that represents the configuration version. For example, you can use the output of `git rev-parse --short HEAD` if your configuration files are versioned using `git`. 
+When using the `openwec subscriptions load` command, you can use the `--revision` flag to specify a revision string that represents the configuration version. For example, you can use the output of `git rev-parse --short HEAD` if your configuration files are versioned using `git`.
 
 When a client retrieves its subscriptions, it also receives the associated revision strings. Later, when pushing events or sending heartbeats, the revision string is included as metadata. The revision string received by OpenWEC within events is called `ClientRevision` because it represents the revision "used" by the client at that time. The revision string is not used to compute the subscription version that clients use to determine whether the subscription has been updated since their last `Refresh`. This is because some configuration updates may only affect "server" parameters (i.e. outputs), and we do not want all clients to refresh the subscription unnecessarily. However, if the configuration update affects "client" parameters (such as query), the subscription version is updated and clients will retrieve the new version of the subscription configuration with the new revision string on the next `Refresh`.
 
@@ -147,7 +148,7 @@ You can disable all cli commands that edit subscriptions using the OpenWEC setti
 
 List subscriptions in a "short" format. Each line represents a subscription, with its status (enabled or not), its name and its URI.
 
-#### Usage 
+#### Usage
 
 ```
 $ openwec subscriptions
@@ -156,7 +157,7 @@ $ openwec subscriptions
 [+] Subscription-toto (/toto)
 ```
 
-There are 3 subscriptions: 
+There are 3 subscriptions:
 - A subscription named `Old subscription`, disabled with no URI defined.
 - A subscription named `My-new-subscription`, enabled with no URI defined.
 - A subscription named `Subscription-toto`, enabled with a URI set to `/toto`.
@@ -167,7 +168,7 @@ Otherwise, if a Windows machine sends an Enumerate request using URI `/toto`, it
 ### `openwec subscriptions new` (deprecated)
 
 > [!WARNING]
-> Using commands to manage subscriptions and there outputs is **deprecated** and will be removed in future releases. Use subscription configuration files instead. 
+> Using commands to manage subscriptions and there outputs is **deprecated** and will be removed in future releases. Use subscription configuration files instead.
 
 This command enables you to create a new subscription.
 
@@ -191,7 +192,7 @@ You may add some using `openwec subscriptions output`, which is detailed in [Out
 ### `openwec subscriptions edit` (deprecated)
 
 > [!WARNING]
-> Using commands to manage subscriptions and there outputs is **deprecated** and will be removed in future releases. Use subscription configuration files instead. 
+> Using commands to manage subscriptions and there outputs is **deprecated** and will be removed in future releases. Use subscription configuration files instead.
 
 This command enables you to edit an already existing subscription.
 
@@ -238,7 +239,7 @@ Subscription my-super-subscription
 	ContentFormat: Raw
 	IgnoreChannelError: true
 	Principal filter: Not configured
-	Outputs: Not configured 
+	Outputs: Not configured
 	Enabled: false
 
 Event filter query:
@@ -256,7 +257,7 @@ Event filter query:
 ### `openwec subscriptions duplicate` (deprecated)
 
 > [!WARNING]
-> Using commands to manage subscriptions and there outputs is **deprecated** and will be removed in future releases. Use subscription configuration files instead. 
+> Using commands to manage subscriptions and there outputs is **deprecated** and will be removed in future releases. Use subscription configuration files instead.
 
 This command duplicates an existing subscription.
 
@@ -303,7 +304,7 @@ Event filter query:
 ### `openwec subscriptions export` (deprecated)
 
 > [!WARNING]
-> Using commands to manage subscriptions and there outputs is **deprecated** and will be removed in future releases. Use subscription configuration files instead. 
+> Using commands to manage subscriptions and there outputs is **deprecated** and will be removed in future releases. Use subscription configuration files instead.
 
 This command exports the currently configured subscriptions in a `json` format. You may export only one subscription using `--subscription <identifier>`.
 
@@ -322,7 +323,7 @@ $ openwec subscriptions export
 ### `openwec subscriptions import` (deprecated)
 
 > [!WARNING]
-> Using commands to manage subscriptions and there outputs is **deprecated** and will be removed in future releases. Use subscription configuration files instead. 
+> Using commands to manage subscriptions and there outputs is **deprecated** and will be removed in future releases. Use subscription configuration files instead.
 
 This command imports subscriptions from a file. Two formats are supported:
 * `openwec`: the format generated by `openwec subscriptions export`. **Importing subscriptions exported from another openwec version might not work.**
@@ -340,7 +341,7 @@ $ openwec subscriptions import -f windows windows-subscription.xml
 ### `openwec subscriptions delete` (deprecated)
 
 > [!WARNING]
-> Using commands to manage subscriptions and there outputs is **deprecated** and will be removed in future releases. Use subscription configuration files instead. 
+> Using commands to manage subscriptions and there outputs is **deprecated** and will be removed in future releases. Use subscription configuration files instead.
 
 This command deletes subscriptions, and all associated bookmarks and heartbeats. There is no way to undo this action (unless you backup your database, and **you should definitely do it**).
 
@@ -375,7 +376,7 @@ $ openwec subscriptions machines my-super-subscription
 ### `openwec subscriptions enable` (deprecated)
 
 > [!WARNING]
-> Using commands to manage subscriptions and there outputs is **deprecated** and will be removed in future releases. Use subscription configuration files instead. 
+> Using commands to manage subscriptions and there outputs is **deprecated** and will be removed in future releases. Use subscription configuration files instead.
 
 This command enables one or many subscriptions. You may also want to enable all configured subscriptions without listing them using `--all`.
 
@@ -394,7 +395,7 @@ $ openwec subscriptions enable my-super-subscription this-is-a-clone
 ### `openwec subscriptions disable` (deprecated)
 
 > [!WARNING]
-> Using commands to manage subscriptions and there outputs is **deprecated** and will be removed in future releases. Use subscription configuration files instead. 
+> Using commands to manage subscriptions and there outputs is **deprecated** and will be removed in future releases. Use subscription configuration files instead.
 
 This command disables one or many subscriptions. You may also want to disable all configured subscriptions without listing them using `--all`.
 

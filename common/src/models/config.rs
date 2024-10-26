@@ -216,6 +216,7 @@ struct SubscriptionOptions {
     pub connection_retry_count: Option<u16>,
     pub connection_retry_interval: Option<u32>,
     pub max_time: Option<u32>,
+    pub max_elements: Option<u32>,
     pub max_envelope_size: Option<u32>,
     pub enabled: Option<bool>,
     pub read_existing_events: Option<bool>,
@@ -244,6 +245,8 @@ impl SubscriptionOptions {
         if let Some(max_time) = self.max_time {
             data.set_max_time(max_time);
         }
+
+        data.set_max_elements(self.max_elements);
 
         if let Some(max_envelope_size) = self.max_envelope_size {
             data.set_max_envelope_size(max_envelope_size);
@@ -344,6 +347,7 @@ heartbeat_interval = 32
 connection_retry_count = 11
 connection_retry_interval = 12
 max_time = 13
+max_elements = 15
 max_envelope_size = 14
 read_existing_events = false
 content_format = "Raw" # or RenderedText
@@ -361,7 +365,7 @@ enabled = true
 
 [outputs.config]
 base = "/tmp/"
-split_on_addr_index = 2 
+split_on_addr_index = 2
 append_node_name = true
 filename = "courgette"
 
@@ -433,6 +437,7 @@ path = "/whatever/you/{ip}/want/{principal}/{ip:2}/{node}/end"
             .set_connection_retry_count(11)
             .set_connection_retry_interval(12)
             .set_max_time(13)
+            .set_max_elements(Some(15))
             .set_max_envelope_size(14)
             .set_read_existing_events(false)
             .set_content_format(crate::subscription::ContentFormat::Raw)
