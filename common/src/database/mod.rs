@@ -174,6 +174,7 @@ pub mod tests {
         assert_eq!(toto.revision(), None);
         assert_eq!(toto.data_locale(), None);
         assert_eq!(toto.locale(), None);
+        assert_eq!(toto.max_elements(), None);
 
         let toto2 = db.get_subscription_by_identifier("toto").await?.unwrap();
         assert_eq!(toto, &toto2);
@@ -211,7 +212,8 @@ pub mod tests {
             ])
             .set_revision(Some("1472".to_string()))
             .set_locale(Some("fr-FR".to_string()))
-            .set_data_locale(Some("en-US".to_string()));
+            .set_data_locale(Some("en-US".to_string()))
+            .set_max_elements(Some(10));
         db.store_subscription(&subscription2).await?;
 
         assert!(db.get_subscriptions().await?.len() == 2);
@@ -256,6 +258,7 @@ pub mod tests {
         assert_eq!(tata.revision(), Some("1472".to_string()).as_ref());
         assert_eq!(tata.locale(), Some("fr-FR".to_string()).as_ref());
         assert_eq!(tata.data_locale(), Some("en-US".to_string()).as_ref());
+        assert_eq!(tata.max_elements(), Some(10));
 
         let tata_save = tata.clone();
         tata.set_name("titi".to_string())
