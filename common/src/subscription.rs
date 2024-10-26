@@ -10,6 +10,7 @@ use log::{info, warn};
 use serde::{Deserialize, Serialize};
 use strum::{AsRefStr, EnumString, VariantNames};
 use uuid::Uuid;
+use glob::Pattern;
 
 use crate::utils::VersionHasher;
 
@@ -238,6 +239,11 @@ impl PrincsFilterOperation {
 pub struct PrincsFilter {
     operation: Option<PrincsFilterOperation>,
     princs: HashSet<String>,
+    princ_globs: Vec<Pattern>
+}
+
+fn has_wildcard(s: &str) -> bool {
+    s.chars().any(|c| c == '*' || c == '?')
 }
 
 impl PrincsFilter {
@@ -245,40 +251,79 @@ impl PrincsFilter {
         PrincsFilter {
             operation: None,
             princs: HashSet::new(),
+            princ_globs: Vec::new(),
         }
     }
 
-    pub fn new(operation: Option<PrincsFilterOperation>, princs: HashSet<String>) -> Self {
-        Self { operation, princs }
+    pub fn new(operation: Option<PrincsFilterOperation>, princs: HashSet<String>, princ_globs: Vec<Pattern>) -> Self {
+        Self { operation, princs, princ_globs }
     }
 
-    pub fn from(operation: Option<String>, princs: Option<String>) -> Result<Self> {
+    pub fn from(operation: Option<String>, princ_patterns: Option<String>) -> Result<Self> {
+        let operation = match operation {
+            Some(op) => PrincsFilterOperation::opt_from_str(&op)?,
+            None => None,
+        };
+
+        let Some(princ_patterns) = princ_patterns else {
+            return Ok(PrincsFilter {
+                operation,
+                princs: HashSet::new(),
+                princ_globs: Vec::new(),
+            });
+        };
+
+        let (princ_globs, princs): (Vec<_>, Vec<_>) = princ_patterns.split(',').partition(|&p| has_wildcard(p));
+
+        let princs = princs.iter().map(|p| p.to_string());
+        let princ_globs = princ_globs.iter().map(|p| Pattern::new(p)).collect::<Result<Vec<Pattern>, _>>()?;
+
         Ok(PrincsFilter {
-            operation: match operation {
-                Some(op) => PrincsFilterOperation::opt_from_str(&op)?,
-                None => None,
-            },
-            princs: match princs {
-                Some(p) => HashSet::from_iter(p.split(',').map(|s| s.to_string())),
-                None => HashSet::new(),
-            },
+            operation,
+            princs: HashSet::from_iter(princs),
+            princ_globs,
         })
     }
 
-    pub fn princs(&self) -> &HashSet<String> {
+    fn matches(&self, principal: &str) -> bool {
+        if self.princs.contains(principal) {
+            return true;
+        }
+
+        for p in &self.princ_globs {
+            if p.matches(principal) {
+                return true;
+            }
+        }
+
+        false
+    }
+
+    pub fn eval(&self, principal: &str) -> bool {
+        match self.operation {
+            None => true,
+            Some(PrincsFilterOperation::Only) => self.matches(principal),
+            Some(PrincsFilterOperation::Except) => !self.matches(principal),
+        }
+    }
+
+    pub fn princ_literals(&self) -> &HashSet<String> {
         &self.princs
     }
 
+    pub fn princ_globs(&self) -> &Vec<Pattern> {
+        &self.princ_globs
+    }
+
     pub fn princs_to_string(&self) -> String {
-        self.princs()
-            .iter()
-            .cloned()
+        self.princs.iter().cloned()
+            .chain(self.princ_globs.iter().map(|p| p.as_str().to_owned()))
             .collect::<Vec<String>>()
             .join(",")
     }
 
     pub fn princs_to_opt_string(&self) -> Option<String> {
-        if self.princs().is_empty() {
+        if self.princs.is_empty() && self.princ_globs.is_empty() {
             None
         } else {
             Some(self.princs_to_string())
@@ -289,6 +334,12 @@ impl PrincsFilter {
         if self.operation.is_none() {
             bail!("Could not add a principal to an unset filter")
         }
+
+        if has_wildcard(princ) {
+            self.princ_globs.push(Pattern::new(princ)?);
+            return Ok(())
+        }
+
         self.princs.insert(princ.to_owned());
         Ok(())
     }
@@ -297,17 +348,33 @@ impl PrincsFilter {
         if self.operation.is_none() {
             bail!("Could not delete a principal of an unset filter")
         }
+
+        if has_wildcard(princ) {
+            let Some(i) = self.princ_globs.iter().position(|p| p.as_str() == princ) else {
+                warn!("{} was not present in the principals set", princ);
+                return Ok(())
+            };
+
+            self.princ_globs.remove(i);
+            return Ok(())
+        }
+
         if !self.princs.remove(princ) {
             warn!("{} was not present in the principals set", princ)
         }
         Ok(())
     }
 
-    pub fn set_princs(&mut self, princs: HashSet<String>) -> Result<()> {
+    pub fn set_princs(&mut self, princ_patterns: HashSet<String>) -> Result<()> {
         if self.operation.is_none() {
             bail!("Could not set principals of an unset filter")
         }
+
+        let (princ_globs, princs): (HashSet<_>, HashSet<_>) = princ_patterns.iter().cloned().partition(|p| has_wildcard(p));
+        let princ_globs = princ_globs.iter().map(|p| Pattern::new(p)).collect::<Result<Vec<Pattern>, _>>()?;
+
         self.princs = princs;
+        self.princ_globs = princ_globs;
         Ok(())
     }
 
@@ -811,13 +878,7 @@ impl SubscriptionData {
             return false;
         }
 
-        match self.princs_filter().operation {
-            None => true,
-            Some(PrincsFilterOperation::Only) => self.princs_filter().princs().contains(principal),
-            Some(PrincsFilterOperation::Except) => {
-                !self.princs_filter().princs().contains(principal)
-            }
-        }
+        self.princs_filter().eval(principal)
     }
 
     pub fn revision(&self) -> Option<&String> {

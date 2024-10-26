@@ -231,7 +231,7 @@ pub mod tests {
             PrincsFilterOperation::Only
         );
         assert_eq!(
-            tata.princs_filter().princs(),
+            tata.princs_filter().princ_literals(),
             &HashSet::from(["couscous".to_string(), "boulette".to_string()])
         );
 
@@ -297,7 +297,7 @@ pub mod tests {
             PrincsFilterOperation::Only
         );
         assert_eq!(
-            tata2.princs_filter().princs(),
+            tata2.princs_filter().princ_literals(),
             &HashSet::from([
                 "couscous".to_string(),
                 "boulette".to_string(),
@@ -328,7 +328,7 @@ pub mod tests {
             PrincsFilterOperation::Except
         );
         assert_eq!(
-            tata2_clone.princs_filter().princs(),
+            tata2_clone.princs_filter().princ_literals(),
             &HashSet::from(["boulette".to_string(), "semoule".to_string()])
         );
 
@@ -347,7 +347,7 @@ pub mod tests {
             .await?
             .unwrap();
         assert_eq!(tata2_clone_clone.princs_filter().operation(), None);
-        assert_eq!(tata2_clone_clone.princs_filter().princs(), &HashSet::new());
+        assert_eq!(tata2_clone_clone.princs_filter().princ_literals(), &HashSet::new());
         assert_eq!(tata2_clone_clone.is_active_for("couscous"), true);
         assert_eq!(tata2_clone_clone.is_active_for("semoule"), true);
         assert_eq!(tata2_clone_clone.is_active_for("boulette"), true);

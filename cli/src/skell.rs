@@ -128,11 +128,12 @@ fn get_filter() -> String {
 # - "Except": everyone but the listed principals will be able to read the subscription
 #
 # By default, everyone can read the subscription.
+# Wildcard (*, ?) patterns are allowed.
 #
-# Example to only authorize "courgette@REALM" and "radis@REALM" to read the subscription.
+# Example to only authorize "courgette@REALM" and "radis*@REALM" to read the subscription.
 # [filter]
 # operation = "Only"
-# princs = ["courgette@REALM", "radis@REALM"]
+# princs = ["courgette@REALM", "radis*@REALM"]
 
 "#
     .to_string()

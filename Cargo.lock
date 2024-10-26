@@ -446,6 +446,7 @@ dependencies = [
  "deadpool-postgres",
  "deadpool-sqlite",
  "encoding_rs",
+ "glob",
  "log",
  "openssl",
  "postgres-openssl",
