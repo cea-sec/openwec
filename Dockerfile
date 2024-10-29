@@ -30,7 +30,7 @@ ARG APP=/usr/src/openwec
 ARG DATA=/var/lib/openwec/data
 ARG DB=/var/lib/openwec/db
 
-EXPOSE 5985
+EXPOSE 5985 5986
 ENV APP_USER=openwec
 
 ENV DEBIAN_FRONTEND=noninteractive
