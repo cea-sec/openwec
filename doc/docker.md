@@ -12,7 +12,7 @@ The `openwec` docker image is automatically built using Github Actions:
 
 Example:
 ```bash
-$ docker pull ghcr.io/cea-sec/openwec:main
+$ docker pull ghcr.io/cea-sec/openwec:latest
 ```
 
 ### Building the image by yourself 
@@ -143,5 +143,5 @@ $ docker run --rm -it \
     -v ./openwec.keytab:/etc/openwec.keytab:ro \
     -v ./conf/:/etc/openwec.d/:ro \
     -p 5985:5985 \
-    ghcr.io/cea-sec/openwec:main
+    ghcr.io/cea-sec/openwec:latest
 ```
