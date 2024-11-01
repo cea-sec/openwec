@@ -15,12 +15,12 @@ Example:
 $ docker pull ghcr.io/cea-sec/openwec:latest
 ```
 
-### Building the image by yourself 
+### Building the image by yourself
 
-A `Dockerfile` is present at the root of the repository. You can build it using:
+`Dockerfiles` are present in the `docker` directory of the repository. You can build it using:
 
 ```bash
-$ docker build -t openwec .
+$ docker build -t openwec -f docker/openwec.Dockerfile .
 ```
 
 ## Using `openwec` image
