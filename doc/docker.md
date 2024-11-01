@@ -1,12 +1,12 @@
-# Docker image
+# Container images
 
-The `openwec` docker image enables you to test and deploy openwec easily. It contains two precompiled binaries: `openwec` (cli) and `openwecd` (server).
+The `openwec` container image enables you to test and deploy openwec easily. It contains two precompiled binaries: `openwec` (cli) and `openwecd` (server).
 
 ## Getting `openwec` image
 
 ### From ghcr.io
 
-The `openwec` docker image is automatically built using Github Actions:
+The `openwec` container image is automatically built using Github Actions:
 - On each commit to the `main` branch, the image is built and pushed with the `main` tag.
 - When a version tag is pushed, the image is built and pushed with a tag corresponding to that version. The latest version tag can be retrieved using the `latest` tag.
 
