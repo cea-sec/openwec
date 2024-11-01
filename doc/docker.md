@@ -10,9 +10,12 @@ The `openwec` container image is automatically built using Github Actions:
 - On each commit to the `main` branch, the image is built and pushed with the `main` tag.
 - When a version tag is pushed, the image is built and pushed with a tag corresponding to that version. The latest version tag can be retrieved using the `latest` tag.
 
+The `openwec` container image comes in two flavors: the default, Debian-based image, and a more minimal Alpine-based option tagged with the `-alpine` suffix.
+
 Example:
 ```bash
 $ docker pull ghcr.io/cea-sec/openwec:latest
+$ docker pull ghcr.io/cea-sec/openwec:latest-alpine
 ```
 
 ### Building the image by yourself
@@ -21,6 +24,12 @@ $ docker pull ghcr.io/cea-sec/openwec:latest
 
 ```bash
 $ docker build -t openwec -f docker/openwec.Dockerfile .
+```
+
+To build the Alpine image:
+
+```bash
+$ docker build -t openwec -f docker/openwec-alpine.Dockerfile .
 ```
 
 ## Using `openwec` image
