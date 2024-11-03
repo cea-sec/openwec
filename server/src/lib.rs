@@ -8,6 +8,7 @@ mod heartbeat;
 mod kerberos;
 mod logging;
 mod logic;
+mod monitoring;
 mod multipart;
 mod output;
 mod proxy_protocol;
@@ -38,6 +39,11 @@ use hyper_util::rt::TokioIo;
 use kerberos::AuthenticationError;
 use libgssapi::error::MajorFlags;
 use log::{debug, error, info, trace, warn};
+use metrics::histogram;
+use monitoring::{
+    HTTP_REQUESTS_DURATION_SECONDS_HISTOGRAM, HTTP_REQUESTS_METHOD, HTTP_REQUESTS_STATUS,
+    HTTP_REQUESTS_URI,
+};
 use quick_xml::writer::Writer;
 use soap::Serializable;
 use socket2::{SockRef, TcpKeepalive};
@@ -379,14 +385,23 @@ fn log_response(
     principal: &str,
     conn_status: ConnectionStatus,
 ) {
-    let duration: f32 = start.elapsed().as_micros() as f32;
+    let duration = start.elapsed();
+
+    histogram!(HTTP_REQUESTS_DURATION_SECONDS_HISTOGRAM,
+        HTTP_REQUESTS_METHOD => method.to_owned(),
+        HTTP_REQUESTS_STATUS => status.to_string(),
+        HTTP_REQUESTS_URI => uri.to_owned())
+    .record(duration.as_secs_f64());
 
     // MDC is thread related, so it should be safe to use it in a non-async
     // function.
     log_mdc::insert("http_status", status.as_str());
     log_mdc::insert("http_method", method);
     log_mdc::insert("http_uri", uri);
-    log_mdc::insert("response_time", format!("{:.3}", duration / 1000.0));
+    log_mdc::insert(
+        "response_time",
+        format!("{:.3}", duration.as_micros() / 1000),
+    );
     log_mdc::insert("ip", addr.ip().to_string());
     log_mdc::insert("port", addr.port().to_string());
     log_mdc::insert("principal", principal);
@@ -1039,6 +1054,10 @@ pub async fn run(settings: Settings, verbosity: u8) {
     // Initialize loggers
     if let Err(e) = logging::init(&settings, verbosity) {
         panic!("Failed to setup logging: {:?}", e);
+    }
+
+    if let Some(monitoring_settings) = settings.monitoring() {
+        monitoring::init(monitoring_settings).expect("Failed to set metric exporter");
     }
 
     let rt_handle = Handle::current();

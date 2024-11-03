@@ -1,6 +1,9 @@
 use crate::{
     event::{EventData, EventMetadata},
     heartbeat::{store_heartbeat, WriteHeartbeatMessage},
+    monitoring::{
+        EVENTS_COUNTER, EVENTS_SUBSCRIPTION_NAME, EVENTS_SUBSCRIPTION_UUID, FAILED_EVENTS_COUNTER, MESSAGES_ACTION, MESSAGES_ACTION_ENUMERATE, MESSAGES_ACTION_EVENTS, MESSAGES_ACTION_HEARTBEAT, MESSAGES_COUNTER
+    },
     output::get_formatter,
     soap::{
         Body, Header, Message, OptionSetValue, Subscription as SoapSubscription, SubscriptionBody,
@@ -17,6 +20,7 @@ use common::{
 };
 use hyper::http::status::StatusCode;
 use log::{debug, error, warn};
+use metrics::counter;
 use std::{
     collections::{HashMap, HashSet},
     sync::Arc,
@@ -217,6 +221,9 @@ async fn handle_enumerate(
         });
     }
 
+    counter!(MESSAGES_COUNTER, MESSAGES_ACTION => MESSAGES_ACTION_ENUMERATE)
+        .increment(1);
+
     Ok(Response::ok(
         ACTION_ENUMERATE_RESPONSE,
         Some(Body::EnumerateResponse(res_subscriptions)),
@@ -283,6 +290,9 @@ async fn handle_heartbeat(
     )
     .await
     .context("Failed to store heartbeat")?;
+
+    counter!(MESSAGES_COUNTER, MESSAGES_ACTION => MESSAGES_ACTION_HEARTBEAT).increment(1);
+
     Ok(Response::ok(ACTION_ACK, None))
 }
 
@@ -354,6 +364,14 @@ async fn handle_events(
             return Ok(Response::err(StatusCode::FORBIDDEN));
         }
 
+        // Retrieve the public version sent by the client, not the one stored in memory
+        let public_version = if let Some(public_version) = message.header().version() {
+            public_version
+        } else {
+            warn!("Missing subscription version in message events");
+            return Ok(Response::err(StatusCode::BAD_REQUEST));
+        };
+
         debug!(
             "Received {} events from {}:{} ({}) for subscription {} ({})",
             events.len(),
@@ -364,13 +382,9 @@ async fn handle_events(
             subscription.uuid_string()
         );
 
-        // Retrieve the public version sent by the client, not the one stored in memory
-        let public_version = if let Some(public_version) = message.header().version() {
-            public_version
-        } else {
-            warn!("Missing subscription version in message events");
-            return Ok(Response::err(StatusCode::BAD_REQUEST));
-        };
+        counter!(MESSAGES_COUNTER, MESSAGES_ACTION => MESSAGES_ACTION_EVENTS)
+            .increment(1);
+        counter!(EVENTS_COUNTER, EVENTS_SUBSCRIPTION_NAME => subscription.data().name().to_owned(), EVENTS_SUBSCRIPTION_UUID => subscription.uuid_string()).increment(events.len().try_into()?);
 
         let metadata = Arc::new(EventMetadata::new(
             request_data.remote_addr(),
@@ -457,6 +471,7 @@ async fn handle_events(
         }
 
         if !succeed {
+            counter!(FAILED_EVENTS_COUNTER, EVENTS_SUBSCRIPTION_NAME => subscription.data().name().to_owned(), EVENTS_SUBSCRIPTION_UUID => subscription.uuid_string()).increment(events.len().try_into()?);
             return Ok(Response::err(StatusCode::SERVICE_UNAVAILABLE));
         }
 

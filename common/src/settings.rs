@@ -322,7 +322,7 @@ impl Cli {
 #[serde(deny_unknown_fields)]
 pub struct FilesOutput {
     // Time after which an unused file descriptor is closed
-    files_descriptor_close_timeout: Option<u64>
+    files_descriptor_close_timeout: Option<u64>,
 }
 
 impl FilesOutput {
@@ -351,7 +351,7 @@ pub struct Outputs {
     #[serde(default)]
     files: FilesOutput,
     #[serde(default)]
-    kafka: KafkaOutput
+    kafka: KafkaOutput,
 }
 
 impl Outputs {
@@ -368,6 +368,33 @@ impl Outputs {
     }
 }
 
+#[derive(Debug, Deserialize, Clone, Default)]
+#[serde(deny_unknown_fields)]
+pub struct Monitoring {
+    listen_address: String,
+    listen_port: u16,
+    http_requests_histogram_buckets: Option<Vec<f64>>,
+}
+
+impl Monitoring {
+    pub fn listen_address(&self) -> &str {
+        &self.listen_address
+    }
+
+    pub fn listen_port(&self) -> u16 {
+        self.listen_port
+    }
+
+    pub fn http_requests_histogram_buckets(&self) -> &[f64] {
+        match &self.http_requests_histogram_buckets {
+            Some(bucket) => bucket,
+            None => &[
+                0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0,
+            ],
+        }
+    }
+}
+
 #[derive(Debug, Deserialize, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct Settings {
@@ -381,6 +408,8 @@ pub struct Settings {
     cli: Cli,
     #[serde(default)]
     outputs: Outputs,
+    #[serde(default)]
+    monitoring: Option<Monitoring>,
 }
 
 impl std::str::FromStr for Settings {
@@ -421,6 +450,10 @@ impl Settings {
 
     pub fn outputs(&self) -> &Outputs {
         &self.outputs
+    }
+
+    pub fn monitoring(&self) -> Option<&Monitoring> {
+        self.monitoring.as_ref()
     }
 }
 
