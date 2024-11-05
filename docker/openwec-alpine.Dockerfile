@@ -1,5 +1,5 @@
-FROM rust:slim-bookworm as chef 
-RUN cargo install cargo-chef 
+FROM alpine:3.20 AS chef
+RUN apk add --no-cache rust cargo && cargo install cargo-chef
 WORKDIR /SRC
 
 FROM chef AS planner
@@ -8,13 +8,15 @@ RUN cargo chef prepare --recipe-path recipe.json
 
 FROM chef AS builder
 # Install system deps
-ENV DEBIAN_FRONTEND=noninteractive
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    clang \
-    libssl-dev \
-    libkrb5-dev  \
-    make \
-    pkgconf
+RUN apk upgrade --no-cache && apk add --no-cache \
+    build-base \
+    cmake \
+    clang-dev \
+    bash \
+    openssl-dev \
+    krb5-dev  \
+    pkgconf \
+    rust-bindgen
 
 COPY --from=planner /SRC/recipe.json recipe.json
 # Build dependencies - this is the caching Docker layer!
@@ -25,20 +27,20 @@ COPY . .
 RUN cargo build --release --locked
 
 
-FROM debian:bookworm-slim
+FROM alpine:3.20
 ARG APP=/usr/src/openwec
 ARG DATA=/var/lib/openwec/data
 ARG DB=/var/lib/openwec/db
 
-EXPOSE 5985
+EXPOSE 5985 5986
 ENV APP_USER=openwec
 
-ENV DEBIAN_FRONTEND=noninteractive
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    libgssapi-krb5-2 \
-    && rm -rf /var/lib/apt/lists/* \
-    && groupadd $APP_USER \
-    && useradd -g $APP_USER $APP_USER \
+RUN apk upgrade --no-cache && apk add --no-cache \
+    libgcc \
+    libssl3 libcrypto3 \
+    krb5-libs \
+    && addgroup $APP_USER \
+    && adduser -G $APP_USER -D $APP_USER \
     && mkdir -p ${APP} ${DATA} ${DB}
 
 COPY --from=builder /SRC/target/release/openwec ${APP}/openwec

@@ -1,26 +1,35 @@
-# Docker image
+# Container images
 
-The `openwec` docker image enables you to test and deploy openwec easily. It contains two precompiled binaries: `openwec` (cli) and `openwecd` (server).
+The `openwec` container image enables you to test and deploy openwec easily. It contains two precompiled binaries: `openwec` (cli) and `openwecd` (server).
 
 ## Getting `openwec` image
 
 ### From ghcr.io
 
-The `openwec` docker image is automatically built using Github Actions:
+The `openwec` container image is automatically built using Github Actions:
 - On each commit to the `main` branch, the image is built and pushed with the `main` tag.
 - When a version tag is pushed, the image is built and pushed with a tag corresponding to that version. The latest version tag can be retrieved using the `latest` tag.
 
+The `openwec` container image comes in two flavors: the default, Debian-based image, and a more minimal Alpine-based option tagged with the `-alpine` suffix.
+
 Example:
 ```bash
-$ docker pull ghcr.io/cea-sec/openwec:main
+$ docker pull ghcr.io/cea-sec/openwec:latest
+$ docker pull ghcr.io/cea-sec/openwec:latest-alpine
 ```
 
-### Building the image by yourself 
+### Building the image by yourself
 
-A `Dockerfile` is present at the root of the repository. You can build it using:
+`Dockerfiles` are present in the `docker` directory of the repository. You can build it using:
 
 ```bash
-$ docker build -t openwec .
+$ docker build -t openwec -f docker/openwec.Dockerfile .
+```
+
+To build the Alpine image:
+
+```bash
+$ docker build -t openwec -f docker/openwec-alpine.Dockerfile .
 ```
 
 ## Using `openwec` image
@@ -143,5 +152,5 @@ $ docker run --rm -it \
     -v ./openwec.keytab:/etc/openwec.keytab:ro \
     -v ./conf/:/etc/openwec.d/:ro \
     -p 5985:5985 \
-    ghcr.io/cea-sec/openwec:main
+    ghcr.io/cea-sec/openwec:latest
 ```
