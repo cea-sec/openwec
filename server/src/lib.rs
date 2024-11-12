@@ -385,13 +385,13 @@ fn log_response(
     principal: &str,
     conn_status: ConnectionStatus,
 ) {
-    let duration = start.elapsed();
+    let duration = start.elapsed().as_secs_f64();
 
     histogram!(HTTP_REQUESTS_DURATION_SECONDS_HISTOGRAM,
         HTTP_REQUESTS_METHOD => method.to_owned(),
         HTTP_REQUESTS_STATUS => status.to_string(),
         HTTP_REQUESTS_URI => uri.to_owned())
-    .record(duration.as_secs_f64());
+    .record(duration);
 
     // MDC is thread related, so it should be safe to use it in a non-async
     // function.
@@ -400,7 +400,7 @@ fn log_response(
     log_mdc::insert("http_uri", uri);
     log_mdc::insert(
         "response_time",
-        format!("{:.3}", duration.as_micros() / 1000),
+        format!("{:.3}", duration * 1000.0),
     );
     log_mdc::insert("ip", addr.ip().to_string());
     log_mdc::insert("port", addr.port().to_string());
