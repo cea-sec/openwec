@@ -2,7 +2,9 @@ use crate::{
     event::{EventData, EventMetadata},
     heartbeat::{store_heartbeat, WriteHeartbeatMessage},
     monitoring::{
-        EVENTS_COUNTER, EVENTS_SUBSCRIPTION_NAME, EVENTS_SUBSCRIPTION_UUID, FAILED_EVENTS_COUNTER, MESSAGES_ACTION, MESSAGES_ACTION_ENUMERATE, MESSAGES_ACTION_EVENTS, MESSAGES_ACTION_HEARTBEAT, MESSAGES_COUNTER
+        EVENTS_COUNTER, EVENTS_MACHINE, EVENTS_SUBSCRIPTION_NAME, EVENTS_SUBSCRIPTION_UUID,
+        FAILED_EVENTS_COUNTER, MESSAGES_ACTION, MESSAGES_ACTION_ENUMERATE, MESSAGES_ACTION_EVENTS,
+        MESSAGES_ACTION_HEARTBEAT, MESSAGES_COUNTER,
     },
     output::get_formatter,
     soap::{
@@ -15,7 +17,7 @@ use crate::{
 };
 use common::{
     database::Db,
-    settings::{Collector, Server},
+    settings::{Collector, Monitoring, Server},
     subscription::{SubscriptionOutputFormat, SubscriptionUuid},
 };
 use hyper::http::status::StatusCode;
@@ -221,8 +223,7 @@ async fn handle_enumerate(
         });
     }
 
-    counter!(MESSAGES_COUNTER, MESSAGES_ACTION => MESSAGES_ACTION_ENUMERATE)
-        .increment(1);
+    counter!(MESSAGES_COUNTER, MESSAGES_ACTION => MESSAGES_ACTION_ENUMERATE).increment(1);
 
     Ok(Response::ok(
         ACTION_ENUMERATE_RESPONSE,
@@ -326,6 +327,7 @@ fn get_formatted_events(
 
 async fn handle_events(
     server: &Server,
+    monitoring: &Option<Monitoring>,
     db: &Db,
     subscriptions: Subscriptions,
     heartbeat_tx: mpsc::Sender<WriteHeartbeatMessage>,
@@ -382,9 +384,23 @@ async fn handle_events(
             subscription.uuid_string()
         );
 
-        counter!(MESSAGES_COUNTER, MESSAGES_ACTION => MESSAGES_ACTION_EVENTS)
-            .increment(1);
-        counter!(EVENTS_COUNTER, EVENTS_SUBSCRIPTION_NAME => subscription.data().name().to_owned(), EVENTS_SUBSCRIPTION_UUID => subscription.uuid_string()).increment(events.len().try_into()?);
+        counter!(MESSAGES_COUNTER, MESSAGES_ACTION => MESSAGES_ACTION_EVENTS).increment(1);
+
+        match monitoring {
+            Some(monitoring_conf) if monitoring_conf.count_received_events_per_machine() => {
+                counter!(EVENTS_COUNTER,
+                    EVENTS_SUBSCRIPTION_NAME => subscription.data().name().to_owned(),
+                    EVENTS_SUBSCRIPTION_UUID => subscription.uuid_string(),
+                    EVENTS_MACHINE => request_data.principal().to_string())
+                .increment(events.len().try_into()?);
+            }
+            _ => {
+                counter!(EVENTS_COUNTER,
+                    EVENTS_SUBSCRIPTION_NAME => subscription.data().name().to_owned(),
+                    EVENTS_SUBSCRIPTION_UUID => subscription.uuid_string())
+                .increment(events.len().try_into()?);
+            }
+        }
 
         let metadata = Arc::new(EventMetadata::new(
             request_data.remote_addr(),
@@ -515,6 +531,7 @@ async fn handle_events(
 pub async fn handle_message(
     server: &Server,
     collector: &Collector,
+    monitoring: &Option<Monitoring>,
     db: Db,
     subscriptions: Subscriptions,
     heartbeat_tx: mpsc::Sender<WriteHeartbeatMessage>,
@@ -538,6 +555,7 @@ pub async fn handle_message(
     } else if action == ACTION_EVENTS {
         handle_events(
             server,
+            monitoring,
             &db,
             subscriptions,
             heartbeat_tx,

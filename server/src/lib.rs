@@ -20,7 +20,7 @@ mod tls;
 use anyhow::{anyhow, bail, Context, Result};
 use common::database::{db_from_settings, schema_is_up_to_date, Db};
 use common::encoding::decode_utf16le;
-use common::settings::{Authentication, Kerberos, Tls};
+use common::settings::{Authentication, Kerberos, Monitoring, Tls};
 use common::settings::{Collector, Server as ServerSettings, Settings};
 use core::pin::Pin;
 use futures::Future;
@@ -293,6 +293,7 @@ async fn authenticate(
 async fn handle_payload(
     server: &ServerSettings,
     collector: &Collector,
+    monitoring: &Option<Monitoring>,
     db: Db,
     subscriptions: Subscriptions,
     heartbeat_tx: mpsc::Sender<WriteHeartbeatMessage>,
@@ -313,6 +314,7 @@ async fn handle_payload(
             let response = logic::handle_message(
                 server,
                 collector,
+                monitoring,
                 db,
                 subscriptions,
                 heartbeat_tx,
@@ -398,10 +400,7 @@ fn log_response(
     log_mdc::insert("http_status", status.as_str());
     log_mdc::insert("http_method", method);
     log_mdc::insert("http_uri", uri);
-    log_mdc::insert(
-        "response_time",
-        format!("{:.3}", duration * 1000.0),
-    );
+    log_mdc::insert("response_time", format!("{:.3}", duration * 1000.0));
     log_mdc::insert("ip", addr.ip().to_string());
     log_mdc::insert("port", addr.port().to_string());
     log_mdc::insert("principal", principal);
@@ -422,6 +421,7 @@ fn build_error_response(status: StatusCode) -> Response<BoxBody<Bytes, Infallibl
 async fn handle(
     server: ServerSettings,
     collector: Collector,
+    monitoring: Option<Monitoring>,
     db: Db,
     subscriptions: Subscriptions,
     heartbeat_tx: mpsc::Sender<WriteHeartbeatMessage>,
@@ -536,6 +536,7 @@ async fn handle(
         let res = handle_payload(
             &server,
             &collector,
+            &monitoring,
             db,
             subscriptions,
             heartbeat_tx,
@@ -693,6 +694,7 @@ fn create_kerberos_server(
     collector_subscriptions: Subscriptions,
     collector_heartbeat_tx: mpsc::Sender<WriteHeartbeatMessage>,
     collector_server_settings: ServerSettings,
+    monitoring_settings: Option<Monitoring>,
     collector_shutdown_ct: CancellationToken,
     server_addr: SocketAddr,
 ) -> Pin<Box<dyn Future<Output = Result<()>> + Send>> {
@@ -745,6 +747,7 @@ fn create_kerberos_server(
             let svc_db = collector_db.clone();
             let svc_server_settings = collector_server_settings.clone();
             let svc_server_principal = server_principal.clone();
+            let svc_monitoring_settings = monitoring_settings.clone();
             let subscriptions = collector_subscriptions.clone();
             let collector_heartbeat_tx = collector_heartbeat_tx.clone();
 
@@ -784,6 +787,7 @@ fn create_kerberos_server(
                         handle(
                             svc_server_settings.clone(),
                             collector_settings.clone(),
+                            svc_monitoring_settings.clone(),
                             svc_db.clone(),
                             subscriptions.clone(),
                             collector_heartbeat_tx.clone(),
@@ -842,6 +846,7 @@ fn create_tls_server(
     collector_subscriptions: Subscriptions,
     collector_heartbeat_tx: mpsc::Sender<WriteHeartbeatMessage>,
     collector_server_settings: ServerSettings,
+    monitoring_settings: Option<Monitoring>,
     collector_shutdown_ct: CancellationToken,
     server_addr: SocketAddr,
 ) -> Pin<Box<dyn Future<Output = Result<()>> + Send>> {
@@ -890,6 +895,7 @@ fn create_tls_server(
             let collector_settings = collector_settings.clone();
             let svc_db = collector_db.clone();
             let svc_server_settings = collector_server_settings.clone();
+            let svc_monitoring_settings = monitoring_settings.clone();
             let subscriptions = collector_subscriptions.clone();
             let collector_heartbeat_tx = collector_heartbeat_tx.clone();
             let thumbprint = tls_config.thumbprint.clone();
@@ -960,6 +966,7 @@ fn create_tls_server(
                         handle(
                             svc_server_settings.clone(),
                             collector_settings.clone(),
+                            svc_monitoring_settings.clone(),
                             svc_db.clone(),
                             subscriptions.clone(),
                             collector_heartbeat_tx.clone(),
@@ -1152,6 +1159,7 @@ pub async fn run(settings: Settings, verbosity: u8) {
         let collector_heartbeat_tx = heartbeat_tx.clone();
         let collector_server_settings = settings.server().clone();
         let collector_shutdown_ct = shutdown_ct.clone();
+        let collector_monitoring_settings = settings.monitoring().cloned();
 
         // Construct our SocketAddr to listen on...
         let addr = SocketAddr::from((
@@ -1172,6 +1180,7 @@ pub async fn run(settings: Settings, verbosity: u8) {
                     collector_subscriptions,
                     collector_heartbeat_tx,
                     collector_server_settings,
+                    collector_monitoring_settings,
                     collector_shutdown_ct,
                     addr,
                 ));
@@ -1184,6 +1193,7 @@ pub async fn run(settings: Settings, verbosity: u8) {
                     collector_subscriptions,
                     collector_heartbeat_tx,
                     collector_server_settings,
+                    collector_monitoring_settings,
                     collector_shutdown_ct,
                     addr,
                 ));

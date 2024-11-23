@@ -374,6 +374,7 @@ pub struct Monitoring {
     listen_address: String,
     listen_port: u16,
     http_requests_histogram_buckets: Option<Vec<f64>>,
+    count_received_events_per_machine: Option<bool>,
 }
 
 impl Monitoring {
@@ -392,6 +393,10 @@ impl Monitoring {
                 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0,
             ],
         }
+    }
+
+    pub fn count_received_events_per_machine(&self) -> bool {
+        self.count_received_events_per_machine.unwrap_or(false)
     }
 }
 

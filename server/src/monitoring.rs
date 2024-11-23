@@ -9,17 +9,18 @@ use log::info;
 use metrics::{describe_counter, describe_histogram, Unit};
 use metrics_exporter_prometheus::{Matcher, PrometheusBuilder};
 
-pub const MESSAGES_COUNTER: &str = "openwec_message_total";
+pub const MESSAGES_COUNTER: &str = "openwec_messages_total";
 pub const MESSAGES_ACTION: &str = "action";
 pub const MESSAGES_ACTION_HEARTBEAT: &str = "heartbeat";
 pub const MESSAGES_ACTION_EVENTS: &str = "events";
 pub const MESSAGES_ACTION_ENUMERATE: &str = "enumerate";
 
-pub const EVENTS_COUNTER: &str = "openwec_event_received_total";
+pub const EVENTS_COUNTER: &str = "openwec_received_events_total";
 pub const EVENTS_SUBSCRIPTION_UUID: &str = "subscription_uuid";
 pub const EVENTS_SUBSCRIPTION_NAME: &str = "subscription_name";
+pub const EVENTS_MACHINE: &str = "machine";
 
-pub const FAILED_EVENTS_COUNTER: &str = "openwec_event_output_failure_total";
+pub const FAILED_EVENTS_COUNTER: &str = "openwec_event_output_failures_total";
 
 pub const HTTP_REQUESTS_DURATION_SECONDS_HISTOGRAM: &str = "http_request_duration_seconds";
 pub const HTTP_REQUESTS_METHOD: &str = "method";
