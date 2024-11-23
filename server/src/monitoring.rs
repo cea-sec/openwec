@@ -26,6 +26,14 @@ pub const HTTP_REQUESTS_DURATION_SECONDS_HISTOGRAM: &str = "http_request_duratio
 pub const HTTP_REQUESTS_METHOD: &str = "method";
 pub const HTTP_REQUESTS_URI: &str = "uri";
 pub const HTTP_REQUESTS_STATUS: &str = "status";
+pub const HTTP_REQUESTS_MACHINE: &str = "machine";
+
+pub const HTTP_REQUEST_BODY_NETWORK_SIZE_BYTES_COUNTER: &str =
+    "http_request_body_network_size_bytes_total";
+pub const HTTP_REQUEST_BODY_REAL_SIZE_BYTES_COUNTER: &str =
+    "http_request_body_real_size_bytes_total";
+
+pub const EVENT_SIZE_BYTES_COUNTER: &str = "openwec_event_size_bytes_total";
 
 pub fn init(settings: &Monitoring) -> Result<()> {
     let addr = SocketAddr::from((
@@ -64,6 +72,21 @@ pub fn init(settings: &Monitoring) -> Result<()> {
         HTTP_REQUESTS_DURATION_SECONDS_HISTOGRAM,
         Unit::Seconds,
         "HTTP requests duration histogram"
+    );
+    describe_counter!(
+        HTTP_REQUEST_BODY_NETWORK_SIZE_BYTES_COUNTER,
+        Unit::Bytes,
+        "The total size of all http requests body received by openwec"
+    );
+    describe_counter!(
+        HTTP_REQUEST_BODY_REAL_SIZE_BYTES_COUNTER,
+        Unit::Bytes,
+        "The total size of all http requests body received by openwec after decryption and decompression"
+    );
+    describe_counter!(
+        EVENT_SIZE_BYTES_COUNTER,
+        Unit::Bytes,
+        "The total size of all events received by openwec"
     );
 
     Ok(())

@@ -3,8 +3,9 @@ use crate::{
     heartbeat::{store_heartbeat, WriteHeartbeatMessage},
     monitoring::{
         EVENTS_COUNTER, EVENTS_MACHINE, EVENTS_SUBSCRIPTION_NAME, EVENTS_SUBSCRIPTION_UUID,
-        FAILED_EVENTS_COUNTER, MESSAGES_ACTION, MESSAGES_ACTION_ENUMERATE, MESSAGES_ACTION_EVENTS,
-        MESSAGES_ACTION_HEARTBEAT, MESSAGES_COUNTER,
+        EVENT_SIZE_BYTES_COUNTER, FAILED_EVENTS_COUNTER, MESSAGES_ACTION,
+        MESSAGES_ACTION_ENUMERATE, MESSAGES_ACTION_EVENTS, MESSAGES_ACTION_HEARTBEAT,
+        MESSAGES_COUNTER,
     },
     output::get_formatter,
     soap::{
@@ -386,21 +387,40 @@ async fn handle_events(
 
         counter!(MESSAGES_COUNTER, MESSAGES_ACTION => MESSAGES_ACTION_EVENTS).increment(1);
 
-        match monitoring {
+        let events_counter = match monitoring {
             Some(monitoring_conf) if monitoring_conf.count_received_events_per_machine() => {
                 counter!(EVENTS_COUNTER,
                     EVENTS_SUBSCRIPTION_NAME => subscription.data().name().to_owned(),
                     EVENTS_SUBSCRIPTION_UUID => subscription.uuid_string(),
                     EVENTS_MACHINE => request_data.principal().to_string())
-                .increment(events.len().try_into()?);
             }
             _ => {
                 counter!(EVENTS_COUNTER,
                     EVENTS_SUBSCRIPTION_NAME => subscription.data().name().to_owned(),
                     EVENTS_SUBSCRIPTION_UUID => subscription.uuid_string())
-                .increment(events.len().try_into()?);
             }
-        }
+        };
+        events_counter.increment(events.len().try_into()?);
+
+        let event_size_counter = match monitoring {
+            Some(monitoring_conf) if monitoring_conf.count_event_size_per_machine() => {
+                counter!(EVENT_SIZE_BYTES_COUNTER,
+                    EVENTS_SUBSCRIPTION_NAME => subscription.data().name().to_owned(),
+                    EVENTS_SUBSCRIPTION_UUID => subscription.uuid_string(),
+                    EVENTS_MACHINE => request_data.principal().to_string())
+            }
+            _ => {
+                counter!(EVENT_SIZE_BYTES_COUNTER,
+                    EVENTS_SUBSCRIPTION_NAME => subscription.data().name().to_owned(),
+                    EVENTS_SUBSCRIPTION_UUID => subscription.uuid_string())
+            }
+        };
+        event_size_counter.increment(
+            events
+                .iter()
+                .fold(0, |acc, event| acc + event.len())
+                .try_into()?,
+        );
 
         let metadata = Arc::new(EventMetadata::new(
             request_data.remote_addr(),

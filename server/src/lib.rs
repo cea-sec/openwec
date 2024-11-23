@@ -39,10 +39,11 @@ use hyper_util::rt::TokioIo;
 use kerberos::AuthenticationError;
 use libgssapi::error::MajorFlags;
 use log::{debug, error, info, trace, warn};
-use metrics::histogram;
+use metrics::{counter, histogram};
 use monitoring::{
-    HTTP_REQUESTS_DURATION_SECONDS_HISTOGRAM, HTTP_REQUESTS_METHOD, HTTP_REQUESTS_STATUS,
-    HTTP_REQUESTS_URI,
+    HTTP_REQUESTS_DURATION_SECONDS_HISTOGRAM, HTTP_REQUESTS_MACHINE, HTTP_REQUESTS_METHOD,
+    HTTP_REQUESTS_STATUS, HTTP_REQUESTS_URI, HTTP_REQUEST_BODY_NETWORK_SIZE_BYTES_COUNTER,
+    HTTP_REQUEST_BODY_REAL_SIZE_BYTES_COUNTER,
 };
 use quick_xml::writer::Writer;
 use soap::Serializable;
@@ -95,6 +96,8 @@ pub struct RequestData {
     principal: String,
     remote_addr: SocketAddr,
     category: RequestCategory,
+    uri: String,
+    method: String,
 }
 
 impl RequestData {
@@ -103,6 +106,8 @@ impl RequestData {
             principal: principal.to_owned(),
             remote_addr: remote_addr.to_owned(),
             category: RequestCategory::try_from(req)?,
+            method: req.method().to_string(),
+            uri: req.uri().to_string(),
         })
     }
 
@@ -119,6 +124,14 @@ impl RequestData {
     /// Get a reference to the request data's category.
     pub fn category(&self) -> &RequestCategory {
         &self.category
+    }
+
+    pub fn uri(&self) -> &str {
+        &self.uri
+    }
+
+    pub fn method(&self) -> &str {
+        &self.method
     }
 }
 
@@ -143,7 +156,9 @@ fn full<T: Into<Bytes>>(chunk: T) -> BoxBody<Bytes, Infallible> {
 
 async fn get_request_payload(
     collector: &Collector,
+    monitoring: &Option<Monitoring>,
     auth_ctx: &AuthenticationContext,
+    request_data: &RequestData,
     req: Request<Incoming>,
 ) -> Result<Option<String>> {
     let (parts, body) = req.into_parts();
@@ -174,6 +189,23 @@ async fn get_request_payload(
         return Ok(None);
     }
 
+    let http_request_body_network_size_bytes_counter = match monitoring {
+        Some(monitoring_conf)
+            if monitoring_conf.count_http_request_body_network_size_per_machine() =>
+        {
+            counter!(HTTP_REQUEST_BODY_NETWORK_SIZE_BYTES_COUNTER,
+                HTTP_REQUESTS_METHOD => request_data.method().to_string(),
+                HTTP_REQUESTS_URI => request_data.uri().to_string(),
+                HTTP_REQUESTS_MACHINE => request_data.principal().to_string())
+        }
+        _ => {
+            counter!(HTTP_REQUEST_BODY_NETWORK_SIZE_BYTES_COUNTER,
+                HTTP_REQUESTS_METHOD => request_data.method().to_string(),
+                HTTP_REQUESTS_URI => request_data.uri().to_string())
+        }
+    };
+    http_request_body_network_size_bytes_counter.increment(data.len().try_into()?);
+
     let message = match auth_ctx {
         AuthenticationContext::Tls(_, _) => tls::get_request_payload(parts, data).await?,
         AuthenticationContext::Kerberos(conn_state) => {
@@ -183,6 +215,23 @@ async fn get_request_payload(
 
     match message {
         Some(bytes) => {
+            let http_request_body_real_size_bytes_counter = match monitoring {
+                Some(monitoring_conf)
+                    if monitoring_conf.count_http_request_body_real_size_per_machine() =>
+                {
+                    counter!(HTTP_REQUEST_BODY_REAL_SIZE_BYTES_COUNTER,
+                        HTTP_REQUESTS_METHOD => request_data.method().to_string(),
+                        HTTP_REQUESTS_URI => request_data.uri().to_string(),
+                        HTTP_REQUESTS_MACHINE => request_data.principal().to_string())
+                }
+                _ => {
+                    counter!(HTTP_REQUEST_BODY_REAL_SIZE_BYTES_COUNTER,
+                        HTTP_REQUESTS_METHOD => request_data.method().to_string(),
+                        HTTP_REQUESTS_URI => request_data.uri().to_string())
+                }
+            };
+            http_request_body_real_size_bytes_counter.increment(bytes.len().try_into()?);
+
             // Spawn a blocking task to decode utf16
             tokio::task::spawn_blocking(|| Ok(Some(decode_utf16le(bytes)?))).await?
         }
@@ -489,23 +538,24 @@ async fn handle(
     };
 
     // Get request payload
-    let request_payload = match get_request_payload(&collector, &auth_ctx, req).await {
-        Ok(payload) => payload,
-        Err(e) => {
-            error!("Failed to retrieve request payload: {:?}", e);
-            let status = StatusCode::BAD_REQUEST;
-            log_response(
-                &addr,
-                &method,
-                &uri,
-                &start,
-                status,
-                &principal,
-                ConnectionStatus::Alive,
-            );
-            return Ok(build_error_response(status));
-        }
-    };
+    let request_payload =
+        match get_request_payload(&collector, &monitoring, &auth_ctx, &request_data, req).await {
+            Ok(payload) => payload,
+            Err(e) => {
+                error!("Failed to retrieve request payload: {:?}", e);
+                let status = StatusCode::BAD_REQUEST;
+                log_response(
+                    &addr,
+                    &method,
+                    &uri,
+                    &start,
+                    status,
+                    &principal,
+                    ConnectionStatus::Alive,
+                );
+                return Ok(build_error_response(status));
+            }
+        };
 
     trace!(
         "Received payload: {:?}",

@@ -375,6 +375,9 @@ pub struct Monitoring {
     listen_port: u16,
     http_requests_histogram_buckets: Option<Vec<f64>>,
     count_received_events_per_machine: Option<bool>,
+    count_event_size_per_machine: Option<bool>,
+    count_http_request_body_network_size_per_machine: Option<bool>,
+    count_http_request_body_real_size_per_machine: Option<bool>,
 }
 
 impl Monitoring {
@@ -397,6 +400,20 @@ impl Monitoring {
 
     pub fn count_received_events_per_machine(&self) -> bool {
         self.count_received_events_per_machine.unwrap_or(false)
+    }
+
+    pub fn count_event_size_per_machine(&self) -> bool {
+        self.count_event_size_per_machine.unwrap_or(false)
+    }
+
+    pub fn count_http_request_body_network_size_per_machine(&self) -> bool {
+        self.count_http_request_body_network_size_per_machine
+            .unwrap_or(false)
+    }
+
+    pub fn count_http_request_body_real_size_per_machine(&self) -> bool {
+        self.count_http_request_body_real_size_per_machine
+            .unwrap_or(false)
     }
 }
 
