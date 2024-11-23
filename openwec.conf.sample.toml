@@ -302,3 +302,41 @@
 # - If you configure Kafka options in an output, a dedicated Kafka client will be
 #     used for that output regardless of this setting.
 # options = {}
+
+##########################
+##  Monitoring settings ##
+##########################
+
+# OpenWEC can expose internal metrics on a Prometheus-compatible endpoint.
+# Monitoring is disabled by default.
+# You can enable it by uncommenting the [monitoring] section.
+
+# [monitoring]
+
+# [Required]
+# Listen address of the Prometheus-compatible endpoint
+# listen_address =
+
+# [Required]
+# Listen port of the Prometheus-compatible endpoint
+# listen_port =
+
+# [Optional]
+# If set, a "machine" label will be added to the "openwec_received_events_total" metric
+# Warning: this may cause a HUGE increase in metric cardinality
+# count_received_events_per_machine = false
+
+# [Optional]
+# If set, a "machine" label will be added to the "openwec_event_size_bytes_total" metric
+# Warning: this may cause a HUGE increase in metric cardinality
+# count_event_size_per_machine = false
+
+# [Optional]
+# If set, a "machine" label will be added to the "http_request_body_network_size_bytes_total" metric
+# Warning: this may cause a HUGE increase in metric cardinality
+# count_http_request_body_network_size_per_machine = false
+
+# [Optional]
+# If set, a "machine" label will be added to the "http_request_body_real_size_bytes_total" metric
+# Warning: this may cause a HUGE increase in metric cardinality
+# count_http_request_body_real_size_per_machine = false
