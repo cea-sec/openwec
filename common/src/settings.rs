@@ -539,9 +539,12 @@ mod tests {
         assert!(s.logging().verbosity().is_none());
         assert!(s.logging().access_logs().is_none());
         assert_eq!(s.logging().server_logs(), LoggingType::Stderr);
+
         assert_eq!(s.server().tcp_keepalive_time(), 3600);
         assert_eq!(s.server().tcp_keepalive_intvl().unwrap(), 1);
         assert_eq!(s.server().tcp_keepalive_probes().unwrap(), 10);
+
+        assert!(s.monitoring().is_none());
     }
 
     const CONFIG_TLS_POSTGRES: &str = r#"
@@ -568,6 +571,10 @@ mod tests {
         server_certificate = "/etc/server_certificate.pem"
         server_private_key = "/etc/server_private_key.pem"
         ca_certificate = "/etc/ca_certificate.pem"
+
+        [monitoring]
+        listen_address = "127.0.0.1"
+        listen_port = 9090
     "#;
 
     #[test]
@@ -610,13 +617,40 @@ mod tests {
         assert_eq!(s.logging().server_logs(), LoggingType::Stdout);
         assert_eq!(s.logging().server_logs_pattern().unwrap(), "toto");
         assert_eq!(s.logging().access_logs_pattern(), "tutu");
+
         assert_eq!(s.server().tcp_keepalive_time(), 7200);
         assert!(s.server().tcp_keepalive_intvl().is_none());
         assert!(s.server().tcp_keepalive_probes().is_none());
+
         assert_eq!(s.cli().read_only_subscriptions(), false);
+
         assert_eq!(s.outputs().garbage_collect_interval(), 600);
         assert_eq!(s.outputs().files().files_descriptor_close_timeout(), 600);
         assert!(s.outputs().kafka().options().is_empty());
+
+        assert!(s.monitoring().is_some());
+        assert_eq!(s.monitoring().unwrap().listen_address(), "127.0.0.1");
+        assert_eq!(s.monitoring().unwrap().listen_port(), 9090);
+        assert_eq!(
+            s.monitoring().unwrap().count_event_size_per_machine(),
+            false
+        );
+        assert_eq!(
+            s.monitoring()
+                .unwrap()
+                .count_http_request_body_network_size_per_machine(),
+            false
+        );
+        assert_eq!(
+            s.monitoring()
+                .unwrap()
+                .count_http_request_body_real_size_per_machine(),
+            false
+        );
+        assert_eq!(
+            s.monitoring().unwrap().count_received_events_per_machine(),
+            false
+        );
     }
 
     const CONFIG_TLS_POSTGRES_WITH_CLI: &str = r#"
@@ -645,12 +679,41 @@ mod tests {
 
         [cli]
         read_only_subscriptions = true
+
+        [monitoring]
+        listen_address = "127.0.0.1"
+        listen_port = 9090
+        count_event_size_per_machine = true
+        count_http_request_body_network_size_per_machine = true
+        count_http_request_body_real_size_per_machine = true
+        count_received_events_per_machine = true
     "#;
 
     #[test]
     fn test_settings_tls_postgres_with_cli() {
         let s = Settings::from_str(CONFIG_TLS_POSTGRES_WITH_CLI).unwrap();
         assert_eq!(s.cli().read_only_subscriptions(), true);
+
+        assert!(s.monitoring().is_some());
+        assert_eq!(s.monitoring().unwrap().listen_address(), "127.0.0.1");
+        assert_eq!(s.monitoring().unwrap().listen_port(), 9090);
+        assert_eq!(s.monitoring().unwrap().count_event_size_per_machine(), true);
+        assert_eq!(
+            s.monitoring()
+                .unwrap()
+                .count_http_request_body_network_size_per_machine(),
+            true
+        );
+        assert_eq!(
+            s.monitoring()
+                .unwrap()
+                .count_http_request_body_real_size_per_machine(),
+            true
+        );
+        assert_eq!(
+            s.monitoring().unwrap().count_received_events_per_machine(),
+            true
+        );
     }
 
     const CONFIG_TLS_POSTGRES_WITH_OUTPUTS: &str = r#"
