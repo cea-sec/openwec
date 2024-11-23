@@ -322,6 +322,10 @@
 # listen_port =
 
 # [Optional]
+# Request duration buckets (in seconds) used by the "http_request_duration_seconds" histogram
+# http_request_duration_buckets = [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0]
+
+# [Optional]
 # If set, a "machine" label will be added to the "openwec_received_events_total" metric
 # Warning: this may cause a HUGE increase in metric cardinality
 # count_received_events_per_machine = false

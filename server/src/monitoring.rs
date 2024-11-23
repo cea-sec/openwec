@@ -22,11 +22,11 @@ pub const EVENTS_MACHINE: &str = "machine";
 
 pub const FAILED_EVENTS_COUNTER: &str = "openwec_event_output_failures_total";
 
-pub const HTTP_REQUESTS_DURATION_SECONDS_HISTOGRAM: &str = "http_request_duration_seconds";
-pub const HTTP_REQUESTS_METHOD: &str = "method";
-pub const HTTP_REQUESTS_URI: &str = "uri";
-pub const HTTP_REQUESTS_STATUS: &str = "status";
-pub const HTTP_REQUESTS_MACHINE: &str = "machine";
+pub const HTTP_REQUEST_DURATION_SECONDS_HISTOGRAM: &str = "http_request_duration_seconds";
+pub const HTTP_REQUEST_METHOD: &str = "method";
+pub const HTTP_REQUEST_URI: &str = "uri";
+pub const HTTP_REQUEST_STATUS: &str = "status";
+pub const HTTP_REQUEST_MACHINE: &str = "machine";
 
 pub const HTTP_REQUEST_BODY_NETWORK_SIZE_BYTES_COUNTER: &str =
     "http_request_body_network_size_bytes_total";
@@ -45,8 +45,8 @@ pub fn init(settings: &Monitoring) -> Result<()> {
     let builder = PrometheusBuilder::new()
         .with_http_listener(addr)
         .set_buckets_for_metric(
-            Matcher::Full(HTTP_REQUESTS_DURATION_SECONDS_HISTOGRAM.to_string()),
-            settings.http_requests_histogram_buckets(),
+            Matcher::Full(HTTP_REQUEST_DURATION_SECONDS_HISTOGRAM.to_string()),
+            settings.http_request_duration_buckets(),
         )?;
 
     info!("Starting monitoring server on {}", addr);
@@ -69,7 +69,7 @@ pub fn init(settings: &Monitoring) -> Result<()> {
         "Number of events that could not be written to outputs by openwec"
     );
     describe_histogram!(
-        HTTP_REQUESTS_DURATION_SECONDS_HISTOGRAM,
+        HTTP_REQUEST_DURATION_SECONDS_HISTOGRAM,
         Unit::Seconds,
         "HTTP requests duration histogram"
     );

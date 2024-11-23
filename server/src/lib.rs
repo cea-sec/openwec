@@ -41,9 +41,9 @@ use libgssapi::error::MajorFlags;
 use log::{debug, error, info, trace, warn};
 use metrics::{counter, histogram};
 use monitoring::{
-    HTTP_REQUESTS_DURATION_SECONDS_HISTOGRAM, HTTP_REQUESTS_MACHINE, HTTP_REQUESTS_METHOD,
-    HTTP_REQUESTS_STATUS, HTTP_REQUESTS_URI, HTTP_REQUEST_BODY_NETWORK_SIZE_BYTES_COUNTER,
-    HTTP_REQUEST_BODY_REAL_SIZE_BYTES_COUNTER,
+    HTTP_REQUEST_BODY_NETWORK_SIZE_BYTES_COUNTER, HTTP_REQUEST_BODY_REAL_SIZE_BYTES_COUNTER,
+    HTTP_REQUEST_DURATION_SECONDS_HISTOGRAM, HTTP_REQUEST_MACHINE, HTTP_REQUEST_METHOD,
+    HTTP_REQUEST_STATUS, HTTP_REQUEST_URI,
 };
 use quick_xml::writer::Writer;
 use soap::Serializable;
@@ -194,14 +194,14 @@ async fn get_request_payload(
             if monitoring_conf.count_http_request_body_network_size_per_machine() =>
         {
             counter!(HTTP_REQUEST_BODY_NETWORK_SIZE_BYTES_COUNTER,
-                HTTP_REQUESTS_METHOD => request_data.method().to_string(),
-                HTTP_REQUESTS_URI => request_data.uri().to_string(),
-                HTTP_REQUESTS_MACHINE => request_data.principal().to_string())
+                HTTP_REQUEST_METHOD => request_data.method().to_string(),
+                HTTP_REQUEST_URI => request_data.uri().to_string(),
+                HTTP_REQUEST_MACHINE => request_data.principal().to_string())
         }
         _ => {
             counter!(HTTP_REQUEST_BODY_NETWORK_SIZE_BYTES_COUNTER,
-                HTTP_REQUESTS_METHOD => request_data.method().to_string(),
-                HTTP_REQUESTS_URI => request_data.uri().to_string())
+                HTTP_REQUEST_METHOD => request_data.method().to_string(),
+                HTTP_REQUEST_URI => request_data.uri().to_string())
         }
     };
     http_request_body_network_size_bytes_counter.increment(data.len().try_into()?);
@@ -220,14 +220,14 @@ async fn get_request_payload(
                     if monitoring_conf.count_http_request_body_real_size_per_machine() =>
                 {
                     counter!(HTTP_REQUEST_BODY_REAL_SIZE_BYTES_COUNTER,
-                        HTTP_REQUESTS_METHOD => request_data.method().to_string(),
-                        HTTP_REQUESTS_URI => request_data.uri().to_string(),
-                        HTTP_REQUESTS_MACHINE => request_data.principal().to_string())
+                        HTTP_REQUEST_METHOD => request_data.method().to_string(),
+                        HTTP_REQUEST_URI => request_data.uri().to_string(),
+                        HTTP_REQUEST_MACHINE => request_data.principal().to_string())
                 }
                 _ => {
                     counter!(HTTP_REQUEST_BODY_REAL_SIZE_BYTES_COUNTER,
-                        HTTP_REQUESTS_METHOD => request_data.method().to_string(),
-                        HTTP_REQUESTS_URI => request_data.uri().to_string())
+                        HTTP_REQUEST_METHOD => request_data.method().to_string(),
+                        HTTP_REQUEST_URI => request_data.uri().to_string())
                 }
             };
             http_request_body_real_size_bytes_counter.increment(bytes.len().try_into()?);
@@ -438,10 +438,10 @@ fn log_response(
 ) {
     let duration = start.elapsed().as_secs_f64();
 
-    histogram!(HTTP_REQUESTS_DURATION_SECONDS_HISTOGRAM,
-        HTTP_REQUESTS_METHOD => method.to_owned(),
-        HTTP_REQUESTS_STATUS => status.to_string(),
-        HTTP_REQUESTS_URI => uri.to_owned())
+    histogram!(HTTP_REQUEST_DURATION_SECONDS_HISTOGRAM,
+        HTTP_REQUEST_METHOD => method.to_owned(),
+        HTTP_REQUEST_STATUS => status.to_string(),
+        HTTP_REQUEST_URI => uri.to_owned())
     .record(duration);
 
     // MDC is thread related, so it should be safe to use it in a non-async
