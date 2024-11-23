@@ -48,6 +48,7 @@ Metrics collection and publication can be enabled in the OpenWEC settings (see `
 | `http_request_body_real_size_bytes_total` | `Counter` | `method`, `uri`, `machine` (optional*) | The total size of all http requests body received by openwec after decryption and decompression |
 | `http_request_body_network_size_bytes_total` | `Counter` | `method`, `uri`, `machine` (optional*) | The total size of all http requests body received by openwec |
 | `openwec_messages_total` | `Counter` | `action` (one of `"enumerate"`, `"heartbeat"`, `"events"`) | Number of messages received by openwec |
+| `openwec_event_output_failures_total` | `Counter` | `subscription_uuid`, `subscription_name` | Number of events that could not be written to outputs by openwec |
 | `http_request_duration_seconds` | `Histogram` | `method`, `status`, `uri` | HTTP requests duration histogram |
 
 > [!WARNING]  
