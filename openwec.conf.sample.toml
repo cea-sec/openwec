@@ -78,7 +78,7 @@
 
 # [Optional]
 # Server logs destination, can be :
-# - stdin
+# - stdout
 # - stderr
 # - <path>: logs will be stored in the given file
 # Default value is stderr
@@ -92,7 +92,7 @@
 
 # [Optional]
 # Access logs destination, can be :
-# - stdin
+# - stdout
 # - stderr
 # - <path>: logs will be stored in the given file
 # - None: disable access logs
