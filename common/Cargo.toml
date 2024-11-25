@@ -54,3 +54,18 @@ assets = [
 conf-files = ["/etc/openwec.conf.toml"]
 maintainer-scripts = "../build-pkg/debian/"
 systemd-units = { unit-name = "openwecd", enable = false }
+
+# generate-rpm
+[package.metadata.generate-rpm]
+name = "openwec"
+license = "GPL-3.0"
+pre_install_script = "../build-pkg/almalinux/preinstall"
+assets = [
+    { source = "target/release/openwec", dest = "/usr/bin/openwec", mode = "0755" },
+    { source = "target/release/openwecd", dest = "/usr/bin/", mode = "0755" },
+    { source = "../build-pkg/almalinux/openwecd.service", dest = "/usr/lib/systemd/system/openwecd.service", mode = "0644" },
+    { source = "../openwec.conf.sample.toml", dest = "/etc/openwec.conf.toml", mode = "0644", config = "noreplace" },
+    { source = "../openwec.conf.sample.toml", dest = "/usr/share/doc/openwec/", mode = "0644", doc = true },
+    { source = "../README.md", dest = "/usr/share/doc/openwec/", mode = "0644", doc = true },
+    { source = "../doc/*", dest = "/usr/share/doc/openwec/doc/", mode = "0644", doc = true },
+]

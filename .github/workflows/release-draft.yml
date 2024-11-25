@@ -43,6 +43,21 @@ jobs:
       with:
         name: openwec-deb-bullseye-package
         path: ./target/debian/*.deb
+    - name: Make almalinux 9 package
+      run: |
+          cargo clean && \
+          cd build-pkg && \
+          docker build -t openwec-builder:almalinux-9 -f Dockerfile-almalinux-9 . && \
+          docker run -t -u $(id -u):$(id -g) -v $(pwd)/../:/SRC  \
+            --env CARGO_HOME=/SRC/target/.cargo openwec-builder:almalinux-9 \
+            sh -c "cargo build --release --locked && \
+                   strip -s target/release/openwec{d,} && \
+                   cargo generate-rpm --package common --metadata-overwrite=./common/Cargo.toml --set-metadata=\"release='1.el9'\""
+    - name: Upload almalinux 9 package
+      uses: actions/upload-artifact@v4
+      with:
+        name: openwec-alma-9-package
+        path: ./target/generate-rpm/*.rpm
   # Need to select "Read and write permissions" under Actions / General / Workflow Permissions
   release:
     name: Github release draft
@@ -60,11 +75,16 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: openwec-deb-bullseye-package
+      - name: Download almalinux 9 package
+        uses: actions/download-artifact@v4
+        with:
+          name: openwec-alma-9-package
       - name: Get artifacts names
         id: artifacts_names
         run: |
           echo "U_PKG_DEB_BOOKWORM=$(ls openwec*_deb12.deb)" >> "$GITHUB_OUTPUT" && \
-          echo "U_PKG_DEB_BULLSEYE=$(ls openwec*_deb11.deb)" >> "$GITHUB_OUTPUT"
+          echo "U_PKG_DEB_BULLSEYE=$(ls openwec*_deb11.deb)" >> "$GITHUB_OUTPUT" && \
+          echo "U_PKG_ALMA_9=$(ls openwec*el9*.rpm)" >> "$GITHUB_OUTPUT"
       - name: Create draft release
         uses: softprops/action-gh-release@v2
         with:
@@ -72,3 +92,4 @@ jobs:
           files: |
             ${{ steps.artifacts_names.outputs.U_PKG_DEB_BOOKWORM }}
             ${{ steps.artifacts_names.outputs.U_PKG_DEB_BULLSEYE }}
+            ${{ steps.artifacts_names.outputs.U_PKG_ALMA_9 }}

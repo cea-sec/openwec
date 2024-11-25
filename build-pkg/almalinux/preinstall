@@ -1,0 +1,15 @@
+#!/bin/sh
+set -e
+
+OPENWEC_USER="openwec"
+OPENWEC_HOME="/var/empty/openwec"
+OPENWEC_SHELL="/sbin/nologin"
+
+create_user() {
+    if id ${OPENWEC_USER} > /dev/null 2>&1; then return; fi
+    /usr/sbin/adduser --system --create-home --home-dir "${OPENWEC_HOME}" --shell "${OPENWEC_SHELL}" --comment "OpenWEC user" "${OPENWEC_USER}"
+}
+
+create_user
+
+exit 0
