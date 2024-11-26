@@ -374,8 +374,8 @@ pub struct Monitoring {
     listen_address: String,
     listen_port: u16,
     http_request_duration_buckets: Option<Vec<f64>>,
-    count_received_events_per_machine: Option<bool>,
-    count_event_size_per_machine: Option<bool>,
+    count_input_events_per_machine: Option<bool>,
+    count_input_event_bytes_per_machine: Option<bool>,
     count_http_request_body_network_size_per_machine: Option<bool>,
     count_http_request_body_real_size_per_machine: Option<bool>,
 }
@@ -398,12 +398,12 @@ impl Monitoring {
         }
     }
 
-    pub fn count_received_events_per_machine(&self) -> bool {
-        self.count_received_events_per_machine.unwrap_or(false)
+    pub fn count_input_events_per_machine(&self) -> bool {
+        self.count_input_events_per_machine.unwrap_or(false)
     }
 
-    pub fn count_event_size_per_machine(&self) -> bool {
-        self.count_event_size_per_machine.unwrap_or(false)
+    pub fn count_input_event_bytes_per_machine(&self) -> bool {
+        self.count_input_event_bytes_per_machine.unwrap_or(false)
     }
 
     pub fn count_http_request_body_network_size_per_machine(&self) -> bool {
@@ -632,7 +632,9 @@ mod tests {
         assert_eq!(s.monitoring().unwrap().listen_address(), "127.0.0.1");
         assert_eq!(s.monitoring().unwrap().listen_port(), 9090);
         assert_eq!(
-            s.monitoring().unwrap().count_event_size_per_machine(),
+            s.monitoring()
+                .unwrap()
+                .count_input_event_bytes_per_machine(),
             false
         );
         assert_eq!(
@@ -648,7 +650,7 @@ mod tests {
             false
         );
         assert_eq!(
-            s.monitoring().unwrap().count_received_events_per_machine(),
+            s.monitoring().unwrap().count_input_events_per_machine(),
             false
         );
         assert_eq!(
@@ -688,10 +690,10 @@ mod tests {
         listen_address = "127.0.0.1"
         listen_port = 9090
         http_request_duration_buckets = [0.0005, 0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0]
-        count_event_size_per_machine = true
+        count_input_event_bytes_per_machine = true
         count_http_request_body_network_size_per_machine = true
         count_http_request_body_real_size_per_machine = true
-        count_received_events_per_machine = true
+        count_input_events_per_machine = true
     "#;
 
     #[test]
@@ -702,7 +704,12 @@ mod tests {
         assert!(s.monitoring().is_some());
         assert_eq!(s.monitoring().unwrap().listen_address(), "127.0.0.1");
         assert_eq!(s.monitoring().unwrap().listen_port(), 9090);
-        assert_eq!(s.monitoring().unwrap().count_event_size_per_machine(), true);
+        assert_eq!(
+            s.monitoring()
+                .unwrap()
+                .count_input_event_bytes_per_machine(),
+            true
+        );
         assert_eq!(
             s.monitoring()
                 .unwrap()
@@ -716,7 +723,7 @@ mod tests {
             true
         );
         assert_eq!(
-            s.monitoring().unwrap().count_received_events_per_machine(),
+            s.monitoring().unwrap().count_input_events_per_machine(),
             true
         );
         assert_eq!(

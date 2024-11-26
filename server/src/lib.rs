@@ -41,9 +41,9 @@ use libgssapi::error::MajorFlags;
 use log::{debug, error, info, trace, warn};
 use metrics::{counter, histogram};
 use monitoring::{
-    HTTP_REQUEST_BODY_NETWORK_SIZE_BYTES_COUNTER, HTTP_REQUEST_BODY_REAL_SIZE_BYTES_COUNTER,
-    HTTP_REQUEST_DURATION_SECONDS_HISTOGRAM, HTTP_REQUEST_MACHINE, HTTP_REQUEST_METHOD,
-    HTTP_REQUEST_STATUS, HTTP_REQUEST_URI,
+    HTTP_REQUESTS_COUNTER, HTTP_REQUEST_BODY_NETWORK_SIZE_BYTES_COUNTER,
+    HTTP_REQUEST_BODY_REAL_SIZE_BYTES_COUNTER, HTTP_REQUEST_DURATION_SECONDS_HISTOGRAM,
+    HTTP_REQUEST_STATUS_CODE, HTTP_REQUEST_URI, MACHINE,
 };
 use quick_xml::writer::Writer;
 use soap::Serializable;
@@ -194,13 +194,11 @@ async fn get_request_payload(
             if monitoring_conf.count_http_request_body_network_size_per_machine() =>
         {
             counter!(HTTP_REQUEST_BODY_NETWORK_SIZE_BYTES_COUNTER,
-                HTTP_REQUEST_METHOD => request_data.method().to_string(),
                 HTTP_REQUEST_URI => request_data.uri().to_string(),
-                HTTP_REQUEST_MACHINE => request_data.principal().to_string())
+                MACHINE => request_data.principal().to_string())
         }
         _ => {
             counter!(HTTP_REQUEST_BODY_NETWORK_SIZE_BYTES_COUNTER,
-                HTTP_REQUEST_METHOD => request_data.method().to_string(),
                 HTTP_REQUEST_URI => request_data.uri().to_string())
         }
     };
@@ -220,13 +218,11 @@ async fn get_request_payload(
                     if monitoring_conf.count_http_request_body_real_size_per_machine() =>
                 {
                     counter!(HTTP_REQUEST_BODY_REAL_SIZE_BYTES_COUNTER,
-                        HTTP_REQUEST_METHOD => request_data.method().to_string(),
                         HTTP_REQUEST_URI => request_data.uri().to_string(),
-                        HTTP_REQUEST_MACHINE => request_data.principal().to_string())
+                        MACHINE => request_data.principal().to_string())
                 }
                 _ => {
                     counter!(HTTP_REQUEST_BODY_REAL_SIZE_BYTES_COUNTER,
-                        HTTP_REQUEST_METHOD => request_data.method().to_string(),
                         HTTP_REQUEST_URI => request_data.uri().to_string())
                 }
             };
@@ -439,10 +435,13 @@ fn log_response(
     let duration = start.elapsed().as_secs_f64();
 
     histogram!(HTTP_REQUEST_DURATION_SECONDS_HISTOGRAM,
-        HTTP_REQUEST_METHOD => method.to_owned(),
-        HTTP_REQUEST_STATUS => status.to_string(),
         HTTP_REQUEST_URI => uri.to_owned())
     .record(duration);
+
+    counter!(HTTP_REQUESTS_COUNTER,
+        HTTP_REQUEST_STATUS_CODE => status.as_str().to_owned(),
+        HTTP_REQUEST_URI => uri.to_owned())
+    .increment(1);
 
     // MDC is thread related, so it should be safe to use it in a non-async
     // function.

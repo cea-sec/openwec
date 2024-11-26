@@ -4,6 +4,7 @@ use log::{debug, info, trace, warn};
 use roxmltree::{Document, Error, Node};
 use serde::Serialize;
 use std::{collections::HashMap, fmt::Display, net::SocketAddr, sync::Arc};
+use strum::IntoStaticStr;
 
 use crate::subscription::Subscription;
 
@@ -47,7 +48,7 @@ pub enum DataType {
     Unknown,
 }
 
-#[derive(Debug, Clone, Default, Eq, PartialEq)]
+#[derive(Debug, Clone, Default, Eq, PartialEq, IntoStaticStr)]
 pub enum ErrorType {
     /// Initial XML parsing failed but Raw content could be recovered
     RawContentRecovered(String),
@@ -65,9 +66,9 @@ impl Display for ErrorType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ErrorType::RawContentRecovered(message) => write!(f, "{}", message),
-            ErrorType::FailedToRecoverRawContent(message ) => write!(f, "{}", message),
-            ErrorType::Unrecoverable(message ) => write!(f, "{}", message),
-            ErrorType::FailedToFeedEvent (message ) => write!(f, "{}", message),
+            ErrorType::FailedToRecoverRawContent(message) => write!(f, "{}", message),
+            ErrorType::Unrecoverable(message) => write!(f, "{}", message),
+            ErrorType::FailedToFeedEvent(message) => write!(f, "{}", message),
             ErrorType::Unknown => write!(f, "Unknown error"),
         }
     }
@@ -192,7 +193,7 @@ impl Event {
 
     pub fn from_str(content: &str) -> Self {
         let mut event = Event::default();
-    
+
         let doc_parse_attempt = Document::parse(content);
         match doc_parse_attempt {
             Ok(doc) => {
@@ -257,7 +258,9 @@ fn parse_debug_data(debug_data_node: &Node) -> Result<DataType> {
         } else if node.tag_name().name() == "LevelName" {
             debug_data.level_name = node.text().map(str::to_string);
         } else if node.tag_name().name() == "Component" {
-            node.text().unwrap_or_default().clone_into(&mut debug_data.component);
+            node.text()
+                .unwrap_or_default()
+                .clone_into(&mut debug_data.component);
         } else if node.tag_name().name() == "SubComponent" {
             debug_data.sub_component = node.text().map(str::to_string);
         } else if node.tag_name().name() == "FileLine" {
@@ -265,7 +268,9 @@ fn parse_debug_data(debug_data_node: &Node) -> Result<DataType> {
         } else if node.tag_name().name() == "Function" {
             debug_data.function = node.text().map(str::to_string);
         } else if node.tag_name().name() == "Message" {
-            node.text().unwrap_or_default().clone_into(&mut debug_data.message);
+            node.text()
+                .unwrap_or_default()
+                .clone_into(&mut debug_data.message);
         }
     }
     Ok(DataType::DebugData(debug_data))
@@ -277,9 +282,13 @@ fn parse_processing_error_data(processing_error_data_node: &Node) -> Result<Data
         if node.tag_name().name() == "ErrorCode" {
             processing_error_data.error_code = node.text().unwrap_or_default().parse()?;
         } else if node.tag_name().name() == "DataItemName" {
-            node.text().unwrap_or_default().clone_into(&mut processing_error_data.data_item_name);
+            node.text()
+                .unwrap_or_default()
+                .clone_into(&mut processing_error_data.data_item_name);
         } else if node.tag_name().name() == "EventPayload" {
-            node.text().unwrap_or_default().clone_into(&mut processing_error_data.event_payload);
+            node.text()
+                .unwrap_or_default()
+                .clone_into(&mut processing_error_data.event_payload);
         }
     }
     Ok(DataType::ProcessingErrorData(processing_error_data))
@@ -526,7 +535,7 @@ impl EventMetadata {
 
     #[cfg(test)]
     pub fn set_time_received(&mut self, time_received: DateTime<Utc>) {
-        self.time_received = time_received; 
+        self.time_received = time_received;
     }
 
     /// Get a reference to the event metadata's addr.
@@ -583,16 +592,13 @@ impl EventData {
         } else {
             None
         };
-        Self {
-            raw,
-            event
-        } 
+        Self { raw, event }
     }
 
     pub fn raw(&self) -> Arc<String> {
         self.raw.clone()
     }
-    
+
     pub fn event(&self) -> Option<&Event> {
         self.event.as_ref()
     }
@@ -919,9 +925,7 @@ mod tests {
 
     #[test]
     fn test_4689_parsing() {
-        let event = Event::from_str(
-            EVENT_4689,
-        );
+        let event = Event::from_str(EVENT_4689);
         assert!(event.additional.error.is_none())
     }
 
@@ -931,16 +935,17 @@ mod tests {
     fn test_serialize_malformed_raw_content_recovered() {
         // Try to serialize a malformed event, and use the recovering strategy to
         // recover its Raw content
-        let event = Event::from_str(
-            RAW_CONTENT_RECOVERED,
-        );
+        let event = Event::from_str(RAW_CONTENT_RECOVERED);
 
         let error = event.additional.error.unwrap();
         assert_eq!(error.error_type, ErrorType::RawContentRecovered("Failed to parse event XML (the root node was opened but never closed) but Raw content could be recovered.".to_string()));
         assert_eq!(error.original_content, RAW_CONTENT_RECOVERED);
 
         let system = event.system.unwrap();
-        assert_eq!(system.provider.name.unwrap(), "Microsoft-Windows-Security-Auditing".to_string());
+        assert_eq!(
+            system.provider.name.unwrap(),
+            "Microsoft-Windows-Security-Auditing".to_string()
+        );
         assert_eq!(system.event_id, 4798);
         assert_eq!(system.execution.unwrap().thread_id, 16952);
 
@@ -948,10 +953,16 @@ mod tests {
 
         match event.data {
             DataType::EventData(data) => {
-                assert_eq!(data.named_data.get("TargetDomainName").unwrap(), "xxxxx_xps");
-                assert_eq!(data.named_data.get("TargetSid").unwrap(), "S-1-5-21-1604529354-1295832394-4197355770-1001");
-            },
-            _ => panic!("Wrong event data type")
+                assert_eq!(
+                    data.named_data.get("TargetDomainName").unwrap(),
+                    "xxxxx_xps"
+                );
+                assert_eq!(
+                    data.named_data.get("TargetSid").unwrap(),
+                    "S-1-5-21-1604529354-1295832394-4197355770-1001"
+                );
+            }
+            _ => panic!("Wrong event data type"),
         };
     }
 
@@ -960,20 +971,23 @@ mod tests {
     #[test]
     fn test_serialize_malformed_unrecoverable_1() {
         // Try to serialize an event for which there is no recovering strategy
-        let event = Event::from_str(
-            UNRECOVERABLE_1,
-        );
+        let event = Event::from_str(UNRECOVERABLE_1);
         assert!(event.additional.error.is_some());
         assert!(event.system.is_none());
         assert!(event.rendering_info.is_none());
 
         match event.data {
             DataType::Unknown => (),
-            _ => panic!("Wrong event data type")
+            _ => panic!("Wrong event data type"),
         };
 
         let error = event.additional.error.unwrap();
-        assert_eq!(error.error_type, ErrorType::Unrecoverable("Failed to parse event XML: the root node was opened but never closed".to_string()));
+        assert_eq!(
+            error.error_type,
+            ErrorType::Unrecoverable(
+                "Failed to parse event XML: the root node was opened but never closed".to_string()
+            )
+        );
         assert_eq!(error.original_content, UNRECOVERABLE_1);
     }
 
@@ -983,20 +997,23 @@ mod tests {
     fn test_serialize_malformed_unrecoverable_2() {
         // Try to serialize a malformed event for which no recovery
         // is possible.
-        let event = Event::from_str(
-            UNRECOVERABLE_2,
-        );
+        let event = Event::from_str(UNRECOVERABLE_2);
         assert!(event.additional.error.is_some());
         assert!(event.system.is_none());
         assert!(event.rendering_info.is_none());
 
         match event.data {
             DataType::Unknown => (),
-            _ => panic!("Wrong event data type")
+            _ => panic!("Wrong event data type"),
         };
 
         let error = event.additional.error.unwrap();
-        assert_eq!(error.error_type, ErrorType::Unrecoverable("Failed to parse event XML: unexpected end of stream".to_string()));
+        assert_eq!(
+            error.error_type,
+            ErrorType::Unrecoverable(
+                "Failed to parse event XML: unexpected end of stream".to_string()
+            )
+        );
         assert_eq!(error.original_content, UNRECOVERABLE_2);
     }
 
@@ -1006,16 +1023,14 @@ mod tests {
     fn test_serialize_failed_to_recover() {
         // Try to serialize a malformed event for which the recovering strategy can
         // not succeed
-        let event = Event::from_str(
-            FAILED_TO_RECOVER_RAW_CONTENT,
-        );
+        let event = Event::from_str(FAILED_TO_RECOVER_RAW_CONTENT);
         assert!(event.additional.error.is_some());
         assert!(event.system.is_none());
         assert!(event.rendering_info.is_none());
 
         match event.data {
             DataType::Unknown => (),
-            _ => panic!("Wrong event data type")
+            _ => panic!("Wrong event data type"),
         };
 
         let error = event.additional.error.unwrap();
@@ -1029,20 +1044,23 @@ mod tests {
     fn test_serialize_malformed_failed_to_feed_event() {
         // Try to serialize a malformed event for which the recovering strategy can
         // not succeed because <System> is invalid.
-        let event = Event::from_str(
-            FAILED_TO_FEED_EVENT,
-        );
+        let event = Event::from_str(FAILED_TO_FEED_EVENT);
         assert!(event.additional.error.is_some());
         assert!(event.system.is_none());
         assert!(event.rendering_info.is_none());
 
         match event.data {
             DataType::Unknown => (),
-            _ => panic!("Wrong event data type")
+            _ => panic!("Wrong event data type"),
         };
 
         let error = event.additional.error.unwrap();
-        assert_eq!(error.error_type, ErrorType::FailedToFeedEvent("Could not feed event from document: Parsing failure in System".to_string()));
+        assert_eq!(
+            error.error_type,
+            ErrorType::FailedToFeedEvent(
+                "Could not feed event from document: Parsing failure in System".to_string()
+            )
+        );
         assert_eq!(error.original_content, FAILED_TO_FEED_EVENT);
     }
-} 
+}

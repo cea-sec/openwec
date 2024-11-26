@@ -8,7 +8,7 @@ use std::{
 use anyhow::{anyhow, bail, Result};
 use log::{info, warn};
 use serde::{Deserialize, Serialize};
-use strum::{AsRefStr, EnumString, VariantNames};
+use strum::{AsRefStr, EnumString, IntoStaticStr, VariantNames};
 use uuid::Uuid;
 
 use crate::utils::VersionHasher;
@@ -96,12 +96,8 @@ pub struct FilesConfiguration {
 }
 
 impl FilesConfiguration {
-    pub fn new(
-        path: String,
-    ) -> Self {
-        Self {
-            path
-        }
+    pub fn new(path: String) -> Self {
+        Self { path }
     }
 
     pub fn path(&self) -> &str {
@@ -182,7 +178,17 @@ impl Display for SubscriptionOutput {
     }
 }
 #[derive(
-    Debug, Clone, Eq, PartialEq, Serialize, Deserialize, Hash, VariantNames, AsRefStr, EnumString,
+    Debug,
+    Clone,
+    Eq,
+    PartialEq,
+    Serialize,
+    Deserialize,
+    Hash,
+    VariantNames,
+    AsRefStr,
+    EnumString,
+    IntoStaticStr,
 )]
 #[strum(serialize_all = "snake_case", ascii_case_insensitive)]
 pub enum SubscriptionOutputFormat {
@@ -683,8 +689,8 @@ impl SubscriptionData {
         self
     }
 
-     /// Set the subscription's max elements.
-     pub fn set_max_elements(&mut self, max_elements: Option<u32>) -> &mut Self {
+    /// Set the subscription's max elements.
+    pub fn set_max_elements(&mut self, max_elements: Option<u32>) -> &mut Self {
         self.parameters.max_elements = max_elements;
         self.update_internal_version();
         self

@@ -43,13 +43,16 @@ Metrics collection and publication can be enabled in the OpenWEC settings (see `
 
 | **Metric** | **Type** | **Labels** | **Description** |
 |---|---|---|---|
-| `openwec_received_events_total` | `Counter` | `subscription_uuid`, `subscription_name`, `machine` (optional*) | Number of events received by openwec |
-| `openwec_event_size_bytes_total` | `Counter` | `subscription_uuid`, `subscription_name`, `machine` (optional*) | The total size of all events received by openwec |
-| `http_request_body_real_size_bytes_total` | `Counter` | `method`, `uri`, `machine` (optional*) | The total size of all http requests body received by openwec after decryption and decompression |
-| `http_request_body_network_size_bytes_total` | `Counter` | `method`, `uri`, `machine` (optional*) | The total size of all http requests body received by openwec |
-| `openwec_messages_total` | `Counter` | `action` (one of `"enumerate"`, `"heartbeat"`, `"events"`) | Number of messages received by openwec |
-| `openwec_event_output_failures_total` | `Counter` | `subscription_uuid`, `subscription_name` | Number of events that could not be written to outputs by openwec |
-| `http_request_duration_seconds` | `Histogram` | `method`, `status`, `uri` | HTTP requests duration histogram |
+| `openwec_input_events_total` | `Counter` | `subscription_uuid`, `subscription_name`, `machine` (optional*) | The total number of events received by openwec |
+| `openwec_input_event_bytes_total` | `Counter` | `subscription_uuid`, `subscription_name`, `machine` (optional*) | The total size of all events received by openwec |
+| `openwec_input_messages_total` | `Counter` | `action` (one of `"enumerate"`, `"heartbeat"`, `"events"`) | The total number of messages received by openwec |
+| `openwec_input_event_parsing_failures_total` | `Counter` | `subscription_uuid`, `subscription_name`, `type` | The total number of event parsing failures |
+| `openwec_http_requests_total` | `Counter` | `uri`, `code` | The total number of HTTP requests handled by openwec |
+| `openwec_http_request_duration_seconds` | `Histogram` | `uri` | Histogram of response duration for HTTP requests |
+| `openwec_http_request_body_network_size_bytes_total` | `Counter` | `uri`, `machine` (optional*) | The total size of all http requests body received by openwec |
+| `openwec_http_request_body_real_size_bytes_total` | `Counter` | `uri`, `machine` (optional*) | The total size of all http requests body received by openwec after decryption and decompression |
+| `openwec_output_driver_failures_total` | `Counter` | `subscription_uuid`, `subscription_name`, `driver` | The total number of output driver failures |
+| `openwec_output_format_failures_total` | `Counter` | `subscription_uuid`, `subscription_name`, `format` | The total number of output format failures |
 
 > [!WARNING]  
 > Enabling the `machine` labels may cause a **huge** increase in metric cardinality!

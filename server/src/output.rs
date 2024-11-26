@@ -138,6 +138,10 @@ impl Output {
         )
     }
 
+    pub fn driver(&self) -> String {
+        format!("{:?}", self.subscription_output_driver)
+    }
+
     pub async fn write(
         &self,
         metadata: Arc<EventMetadata>,

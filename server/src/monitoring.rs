@@ -9,31 +9,42 @@ use log::info;
 use metrics::{describe_counter, describe_histogram, Unit};
 use metrics_exporter_prometheus::{Matcher, PrometheusBuilder};
 
-pub const MESSAGES_COUNTER: &str = "openwec_messages_total";
+// input metrics
+
+pub const INPUT_MESSAGES_COUNTER: &str = "openwec_input_messages_total";
 pub const MESSAGES_ACTION: &str = "action";
 pub const MESSAGES_ACTION_HEARTBEAT: &str = "heartbeat";
 pub const MESSAGES_ACTION_EVENTS: &str = "events";
 pub const MESSAGES_ACTION_ENUMERATE: &str = "enumerate";
 
-pub const EVENTS_COUNTER: &str = "openwec_received_events_total";
-pub const EVENTS_SUBSCRIPTION_UUID: &str = "subscription_uuid";
-pub const EVENTS_SUBSCRIPTION_NAME: &str = "subscription_name";
-pub const EVENTS_MACHINE: &str = "machine";
+pub const INPUT_EVENTS_COUNTER: &str = "openwec_input_events_total";
+pub const SUBSCRIPTION_UUID: &str = "subscription_uuid";
+pub const SUBSCRIPTION_NAME: &str = "subscription_name";
+pub const MACHINE: &str = "machine";
 
-pub const FAILED_EVENTS_COUNTER: &str = "openwec_event_output_failures_total";
+pub const INPUT_EVENT_BYTES_COUNTER: &str = "openwec_input_event_bytes_total";
+pub const INPUT_EVENT_PARSING_FAILURES: &str = "openwec_input_event_parsing_failures_total";
+pub const INPUT_EVENT_PARSING_FAILURE_ERROR_TYPE: &str = "type";
 
-pub const HTTP_REQUEST_DURATION_SECONDS_HISTOGRAM: &str = "http_request_duration_seconds";
-pub const HTTP_REQUEST_METHOD: &str = "method";
+// http metrics
+
+pub const HTTP_REQUESTS_COUNTER: &str = "openwec_http_requests_total";
+
+pub const HTTP_REQUEST_DURATION_SECONDS_HISTOGRAM: &str = "openwec_http_request_duration_seconds";
 pub const HTTP_REQUEST_URI: &str = "uri";
-pub const HTTP_REQUEST_STATUS: &str = "status";
-pub const HTTP_REQUEST_MACHINE: &str = "machine";
+pub const HTTP_REQUEST_STATUS_CODE: &str = "code";
 
 pub const HTTP_REQUEST_BODY_NETWORK_SIZE_BYTES_COUNTER: &str =
-    "http_request_body_network_size_bytes_total";
+    "openwec_http_request_body_network_size_bytes_total";
 pub const HTTP_REQUEST_BODY_REAL_SIZE_BYTES_COUNTER: &str =
-    "http_request_body_real_size_bytes_total";
+    "openwec_http_request_body_real_size_bytes_total";
 
-pub const EVENT_SIZE_BYTES_COUNTER: &str = "openwec_event_size_bytes_total";
+// output metrics
+
+pub const OUTPUT_DRIVER_FAILURES: &str = "openwec_output_driver_failures_total";
+pub const OUTPUT_DRIVER: &str = "driver";
+pub const OUTPUT_FORMAT_FAILURES: &str = "openwec_output_format_failures_total";
+pub const OUTPUT_FORMAT: &str = "format";
 
 pub fn init(settings: &Monitoring) -> Result<()> {
     let addr = SocketAddr::from((
@@ -53,25 +64,38 @@ pub fn init(settings: &Monitoring) -> Result<()> {
 
     builder.install()?;
 
+    // input
     describe_counter!(
-        MESSAGES_COUNTER,
+        INPUT_EVENTS_COUNTER,
         Unit::Count,
-        "Number of messages received by openwec"
+        "The total number of events received by openwec"
     );
     describe_counter!(
-        EVENTS_COUNTER,
-        Unit::Count,
-        "Number of events received by openwec"
+        INPUT_EVENT_BYTES_COUNTER,
+        Unit::Bytes,
+        "The total size of all events received by openwec"
     );
     describe_counter!(
-        FAILED_EVENTS_COUNTER,
+        INPUT_MESSAGES_COUNTER,
         Unit::Count,
-        "Number of events that could not be written to outputs by openwec"
+        "The total number of messages received by openwec"
+    );
+    describe_counter!(
+        INPUT_EVENT_PARSING_FAILURES,
+        Unit::Count,
+        "The total number of event parsing failures"
+    );
+
+    // http
+    describe_counter!(
+        HTTP_REQUESTS_COUNTER,
+        Unit::Count,
+        "The total number of HTTP requests handled by openwec"
     );
     describe_histogram!(
         HTTP_REQUEST_DURATION_SECONDS_HISTOGRAM,
         Unit::Seconds,
-        "HTTP requests duration histogram"
+        "Histogram of response duration for HTTP requests"
     );
     describe_counter!(
         HTTP_REQUEST_BODY_NETWORK_SIZE_BYTES_COUNTER,
@@ -83,10 +107,17 @@ pub fn init(settings: &Monitoring) -> Result<()> {
         Unit::Bytes,
         "The total size of all http requests body received by openwec after decryption and decompression"
     );
+
+    // output
     describe_counter!(
-        EVENT_SIZE_BYTES_COUNTER,
-        Unit::Bytes,
-        "The total size of all events received by openwec"
+        OUTPUT_DRIVER_FAILURES,
+        Unit::Count,
+        "The total number of output driver failures"
+    );
+    describe_counter!(
+        OUTPUT_FORMAT_FAILURES,
+        Unit::Count,
+        "The total number of output format failures"
     );
 
     Ok(())

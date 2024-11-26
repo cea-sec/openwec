@@ -2,10 +2,11 @@ use crate::{
     event::{EventData, EventMetadata},
     heartbeat::{store_heartbeat, WriteHeartbeatMessage},
     monitoring::{
-        EVENTS_COUNTER, EVENTS_MACHINE, EVENTS_SUBSCRIPTION_NAME, EVENTS_SUBSCRIPTION_UUID,
-        EVENT_SIZE_BYTES_COUNTER, FAILED_EVENTS_COUNTER, MESSAGES_ACTION,
+        INPUT_EVENTS_COUNTER, INPUT_EVENT_BYTES_COUNTER, INPUT_EVENT_PARSING_FAILURES,
+        INPUT_EVENT_PARSING_FAILURE_ERROR_TYPE, INPUT_MESSAGES_COUNTER, MACHINE, MESSAGES_ACTION,
         MESSAGES_ACTION_ENUMERATE, MESSAGES_ACTION_EVENTS, MESSAGES_ACTION_HEARTBEAT,
-        MESSAGES_COUNTER,
+        OUTPUT_DRIVER, OUTPUT_DRIVER_FAILURES, OUTPUT_FORMAT, OUTPUT_FORMAT_FAILURES,
+        SUBSCRIPTION_NAME, SUBSCRIPTION_UUID,
     },
     output::get_formatter,
     soap::{
@@ -32,6 +33,12 @@ use tokio::{sync::mpsc, task::JoinSet};
 use uuid::Uuid;
 
 use anyhow::{anyhow, bail, Context, Result};
+
+#[derive(Debug)]
+struct OutputDriverError {
+    pub driver: String,
+    pub error: anyhow::Error,
+}
 
 pub enum Response {
     Ok(String, Option<Body>),
@@ -224,7 +231,7 @@ async fn handle_enumerate(
         });
     }
 
-    counter!(MESSAGES_COUNTER, MESSAGES_ACTION => MESSAGES_ACTION_ENUMERATE).increment(1);
+    counter!(INPUT_MESSAGES_COUNTER, MESSAGES_ACTION => MESSAGES_ACTION_ENUMERATE).increment(1);
 
     Ok(Response::ok(
         ACTION_ENUMERATE_RESPONSE,
@@ -293,7 +300,7 @@ async fn handle_heartbeat(
     .await
     .context("Failed to store heartbeat")?;
 
-    counter!(MESSAGES_COUNTER, MESSAGES_ACTION => MESSAGES_ACTION_HEARTBEAT).increment(1);
+    counter!(INPUT_MESSAGES_COUNTER, MESSAGES_ACTION => MESSAGES_ACTION_HEARTBEAT).increment(1);
 
     Ok(Response::ok(ACTION_ACK, None))
 }
@@ -308,7 +315,36 @@ fn get_formatted_events(
     for raw in events.iter() {
         // EventData parses the raw event into an Event struct
         // (once for all formatters).
-        events_data.push(EventData::new(raw.clone(), need_to_parse_event))
+        let event_data = EventData::new(raw.clone(), need_to_parse_event);
+
+        if need_to_parse_event {
+            // Count failures
+            match event_data.event() {
+                Some(event) => {
+                    if let Some(error) = &event.additional.error {
+                        let error_type_str: &'static str = error.error_type.clone().into();
+                        counter!(INPUT_EVENT_PARSING_FAILURES,
+                            SUBSCRIPTION_NAME => metadata.subscription_name().to_owned(),
+                            SUBSCRIPTION_UUID => metadata.subscription_uuid().to_owned(),
+                            INPUT_EVENT_PARSING_FAILURE_ERROR_TYPE => error_type_str)
+                        .increment(1);
+                        warn!("Failed to parse an event: {:?}", error)
+                    }
+                }
+                None => {
+                    counter!(INPUT_EVENT_PARSING_FAILURES,
+                        SUBSCRIPTION_NAME => metadata.subscription_name().to_owned(),
+                        SUBSCRIPTION_UUID => metadata.subscription_uuid().to_owned(),
+                        INPUT_EVENT_PARSING_FAILURE_ERROR_TYPE => "Unknown")
+                    .increment(1);
+                    warn!(
+                        "Event should have been parsed but it was not: {}",
+                        event_data.raw()
+                    )
+                }
+            }
+        }
+        events_data.push(event_data)
     }
 
     let mut formatted_events: HashMap<SubscriptionOutputFormat, Arc<Vec<Arc<String>>>> =
@@ -319,6 +355,14 @@ fn get_formatted_events(
         for event_data in events_data.iter() {
             if let Some(str) = formatter.format(metadata, event_data) {
                 content.push(str.clone())
+            } else {
+                let format_str: &'static str = format.into();
+                counter!(OUTPUT_FORMAT_FAILURES,
+                    SUBSCRIPTION_NAME => metadata.subscription_name().to_owned(),
+                    SUBSCRIPTION_UUID => metadata.subscription_uuid().to_owned(),
+                    OUTPUT_FORMAT => format_str)
+                .increment(1);
+                warn!("Failed to format an event using {}", format_str);
             }
         }
         formatted_events.insert(format.clone(), Arc::new(content));
@@ -385,34 +429,34 @@ async fn handle_events(
             subscription.uuid_string()
         );
 
-        counter!(MESSAGES_COUNTER, MESSAGES_ACTION => MESSAGES_ACTION_EVENTS).increment(1);
+        counter!(INPUT_MESSAGES_COUNTER, MESSAGES_ACTION => MESSAGES_ACTION_EVENTS).increment(1);
 
         let events_counter = match monitoring {
-            Some(monitoring_conf) if monitoring_conf.count_received_events_per_machine() => {
-                counter!(EVENTS_COUNTER,
-                    EVENTS_SUBSCRIPTION_NAME => subscription.data().name().to_owned(),
-                    EVENTS_SUBSCRIPTION_UUID => subscription.uuid_string(),
-                    EVENTS_MACHINE => request_data.principal().to_string())
+            Some(monitoring_conf) if monitoring_conf.count_input_events_per_machine() => {
+                counter!(INPUT_EVENTS_COUNTER,
+                    SUBSCRIPTION_NAME => subscription.data().name().to_owned(),
+                    SUBSCRIPTION_UUID => subscription.uuid_string(),
+                    MACHINE => request_data.principal().to_string())
             }
             _ => {
-                counter!(EVENTS_COUNTER,
-                    EVENTS_SUBSCRIPTION_NAME => subscription.data().name().to_owned(),
-                    EVENTS_SUBSCRIPTION_UUID => subscription.uuid_string())
+                counter!(INPUT_EVENTS_COUNTER,
+                    SUBSCRIPTION_NAME => subscription.data().name().to_owned(),
+                    SUBSCRIPTION_UUID => subscription.uuid_string())
             }
         };
         events_counter.increment(events.len().try_into()?);
 
         let event_size_counter = match monitoring {
-            Some(monitoring_conf) if monitoring_conf.count_event_size_per_machine() => {
-                counter!(EVENT_SIZE_BYTES_COUNTER,
-                    EVENTS_SUBSCRIPTION_NAME => subscription.data().name().to_owned(),
-                    EVENTS_SUBSCRIPTION_UUID => subscription.uuid_string(),
-                    EVENTS_MACHINE => request_data.principal().to_string())
+            Some(monitoring_conf) if monitoring_conf.count_input_event_bytes_per_machine() => {
+                counter!(INPUT_EVENT_BYTES_COUNTER,
+                    SUBSCRIPTION_NAME => subscription.data().name().to_owned(),
+                    SUBSCRIPTION_UUID => subscription.uuid_string(),
+                    MACHINE => request_data.principal().to_string())
             }
             _ => {
-                counter!(EVENT_SIZE_BYTES_COUNTER,
-                    EVENTS_SUBSCRIPTION_NAME => subscription.data().name().to_owned(),
-                    EVENTS_SUBSCRIPTION_UUID => subscription.uuid_string())
+                counter!(INPUT_EVENT_BYTES_COUNTER,
+                    SUBSCRIPTION_NAME => subscription.data().name().to_owned(),
+                    SUBSCRIPTION_UUID => subscription.uuid_string())
             }
         };
         event_size_counter.increment(
@@ -487,6 +531,10 @@ async fn handle_events(
                             output_cloned.describe()
                         )
                     })
+                    .map_err(|e| OutputDriverError {
+                        driver: output_cloned.driver(),
+                        error: e,
+                    })
             });
         }
 
@@ -497,17 +545,26 @@ async fn handle_events(
                 Ok(Ok(())) => (),
                 Ok(Err(err)) => {
                     succeed = false;
-                    warn!("Failed to process output and send event: {:?}", err);
+                    warn!("Failed to process output and send event: {:?}", err.error);
+                    counter!(OUTPUT_DRIVER_FAILURES,
+                        SUBSCRIPTION_NAME => subscription.data().name().to_owned(),
+                        SUBSCRIPTION_UUID => subscription.uuid_string(),
+                        OUTPUT_DRIVER => err.driver.clone())
+                    .increment(1);
                 }
                 Err(err) => {
                     succeed = false;
-                    warn!("Something bad happened with a process task: {:?}", err)
+                    warn!("Something bad happened with a process task: {:?}", err);
+                    counter!(OUTPUT_DRIVER_FAILURES,
+                        SUBSCRIPTION_NAME => subscription.data().name().to_owned(),
+                        SUBSCRIPTION_UUID => subscription.uuid_string(),
+                        OUTPUT_DRIVER => "Unknown")
+                    .increment(1);
                 }
             }
         }
 
         if !succeed {
-            counter!(FAILED_EVENTS_COUNTER, EVENTS_SUBSCRIPTION_NAME => subscription.data().name().to_owned(), EVENTS_SUBSCRIPTION_UUID => subscription.uuid_string()).increment(events.len().try_into()?);
             return Ok(Response::err(StatusCode::SERVICE_UNAVAILABLE));
         }
 
