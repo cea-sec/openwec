@@ -1,13 +1,17 @@
 use std::{
     net::{IpAddr, SocketAddr},
     str::FromStr,
+    time::{Duration, SystemTime},
 };
 
 use anyhow::Result;
-use common::settings::Monitoring;
-use log::info;
-use metrics::{describe_counter, describe_histogram, Unit};
+use common::{database::Db, settings::Monitoring, subscription::SubscriptionMachineState};
+use log::{debug, info};
+use metrics::{describe_counter, describe_gauge, describe_histogram, gauge, Unit};
 use metrics_exporter_prometheus::{Matcher, PrometheusBuilder};
+use tokio::time;
+
+use crate::subscription::Subscriptions;
 
 // input metrics
 
@@ -46,7 +50,26 @@ pub const OUTPUT_DRIVER: &str = "driver";
 pub const OUTPUT_FORMAT_FAILURES: &str = "openwec_output_format_failures_total";
 pub const OUTPUT_FORMAT: &str = "format";
 
-pub fn init(settings: &Monitoring) -> Result<()> {
+// machines metrics
+
+pub const MACHINES_GAUGE: &str = "openwec_machines";
+pub const MACHINES_STATE: &str = "state";
+
+pub fn init(db: &Db, subscriptions: Subscriptions, settings: &Monitoring) -> Result<()> {
+    let refresh_interval = settings.machines_refresh_interval();
+    let refresh_task_db = db.clone();
+    let refresh_task_subscriptions = subscriptions.clone();
+
+    // Launch a task responsible for refreshing machines gauge
+    tokio::spawn(async move {
+        refresh_machines_task(
+            refresh_task_db,
+            refresh_task_subscriptions,
+            refresh_interval,
+        )
+        .await
+    });
+
     let addr = SocketAddr::from((
         IpAddr::from_str(settings.listen_address())
             .expect("Failed to parse monitoring.listen_address"),
@@ -120,5 +143,75 @@ pub fn init(settings: &Monitoring) -> Result<()> {
         "The total number of output format failures"
     );
 
+    // machines
+    describe_gauge!(
+        MACHINES_GAUGE,
+        Unit::Count,
+        "The number of machines known by openwec"
+    );
+
     Ok(())
+}
+
+async fn refresh_machines_task(
+    db: Db,
+    subscriptions: Subscriptions,
+    refresh_interval: u64,
+) -> Result<()> {
+    info!("Starting refresh machines task for monitoring");
+    let mut refresh = time::interval(Duration::from_secs(refresh_interval));
+    // We don't want the first tick to complete immediatly
+    refresh.reset_after(Duration::from_secs(refresh_interval));
+    loop {
+        tokio::select! {
+            _ = refresh.tick() => {
+                debug!("Refreshing machines stats for monitoring");
+
+                // We can't await with the lock on "subscriptions"
+                // So we first copy all data we need from "subscriptions"
+                let subscriptions_data = {
+                    let subscriptions_unlocked = subscriptions.read().unwrap();
+                    let mut subscriptions_data = Vec::with_capacity(subscriptions_unlocked.len());
+                    for (_, subscription) in subscriptions.read().unwrap().iter() {
+                        subscriptions_data.push((subscription.uuid_string(), subscription.data().name().to_string(), subscription.data().heartbeat_interval()));
+                    }
+                    subscriptions_data
+                };
+
+                for (subscription_uuid, subscription_name, heartbeat_interval) in subscriptions_data {
+                    let now: i64 = SystemTime::now()
+                        .duration_since(SystemTime::UNIX_EPOCH)?
+                        .as_secs()
+                        .try_into()?;
+
+                    let stats = db
+                        .get_stats(&subscription_uuid, now - (heartbeat_interval as i64))
+                        .await?;
+
+                    debug!("Update {} values with active={}, alive={}, dead={}", MACHINES_GAUGE, stats.active_machines_count(), stats.alive_machines_count(), stats.dead_machines_count());
+
+                    let alive_str: &'static str = SubscriptionMachineState::Alive.into();
+                    gauge!(MACHINES_GAUGE,
+                        SUBSCRIPTION_NAME => subscription_name.clone(),
+                        SUBSCRIPTION_UUID => subscription_uuid.clone(),
+                        MACHINES_STATE => alive_str)
+                        .set(stats.alive_machines_count() as f64);
+
+                    let active_str: &'static str = SubscriptionMachineState::Active.into();
+                    gauge!(MACHINES_GAUGE,
+                        SUBSCRIPTION_NAME => subscription_name.clone(),
+                        SUBSCRIPTION_UUID => subscription_uuid.clone(),
+                        MACHINES_STATE => active_str)
+                        .set(stats.active_machines_count() as f64);
+
+                    let dead_str: &'static str = SubscriptionMachineState::Dead.into();
+                    gauge!(MACHINES_GAUGE,
+                        SUBSCRIPTION_NAME => subscription_name.clone(),
+                        SUBSCRIPTION_UUID => subscription_uuid.clone(),
+                        MACHINES_STATE => dead_str)
+                        .set(stats.dead_machines_count() as f64);
+                }
+            }
+        }
+    }
 }

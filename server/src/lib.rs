@@ -1112,10 +1112,6 @@ pub async fn run(settings: Settings, verbosity: u8) {
         panic!("Failed to setup logging: {:?}", e);
     }
 
-    if let Some(monitoring_settings) = settings.monitoring() {
-        monitoring::init(monitoring_settings).expect("Failed to set metric exporter");
-    }
-
     let rt_handle = Handle::current();
 
     // Start monitoring thread
@@ -1136,6 +1132,10 @@ pub async fn run(settings: Settings, verbosity: u8) {
     };
 
     let subscriptions = Arc::new(RwLock::new(HashMap::new()));
+
+    if let Some(monitoring_settings) = settings.monitoring() {
+        monitoring::init(&db, subscriptions.clone(), monitoring_settings).expect("Failed to initialize metrics exporter");
+    }
 
     let reload_interval = settings.server().db_sync_interval();
     let outputs_settings = settings.outputs().clone();

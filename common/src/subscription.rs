@@ -913,6 +913,7 @@ impl SubscriptionStatsCounters {
     }
 }
 
+#[derive(IntoStaticStr)]
 pub enum SubscriptionMachineState {
     Alive,
     Active,

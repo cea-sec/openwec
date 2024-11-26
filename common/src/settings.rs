@@ -378,6 +378,7 @@ pub struct Monitoring {
     count_input_event_bytes_per_machine: Option<bool>,
     count_http_request_body_network_size_per_machine: Option<bool>,
     count_http_request_body_real_size_per_machine: Option<bool>,
+    machines_refresh_interval: Option<u64>,
 }
 
 impl Monitoring {
@@ -414,6 +415,10 @@ impl Monitoring {
     pub fn count_http_request_body_real_size_per_machine(&self) -> bool {
         self.count_http_request_body_real_size_per_machine
             .unwrap_or(false)
+    }
+    
+    pub fn machines_refresh_interval(&self) -> u64 {
+        self.machines_refresh_interval.unwrap_or(30)
     }
 }
 
@@ -657,6 +662,9 @@ mod tests {
             s.monitoring().unwrap().http_request_duration_buckets(),
             &[0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0,]
         );
+        assert_eq!(
+            s.monitoring().unwrap().machines_refresh_interval(), 30
+        );
     }
 
     const CONFIG_TLS_POSTGRES_WITH_CLI: &str = r#"
@@ -694,6 +702,7 @@ mod tests {
         count_http_request_body_network_size_per_machine = true
         count_http_request_body_real_size_per_machine = true
         count_input_events_per_machine = true
+        machines_refresh_interval = 10
     "#;
 
     #[test]
@@ -729,6 +738,10 @@ mod tests {
         assert_eq!(
             s.monitoring().unwrap().http_request_duration_buckets(),
             &[0.0005, 0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0]
+        );
+        assert_eq!(
+            s.monitoring().unwrap().machines_refresh_interval(),
+            10
         );
     }
 

@@ -41,6 +41,9 @@ Metrics collection and publication can be enabled in the OpenWEC settings (see `
 
 ### Available metrics
 
+> [!CAUTION]  
+> Enabling the `machine` labels may cause a **huge** increase in metric cardinality! This is disabled by default.
+
 | **Metric** | **Type** | **Labels** | **Description** |
 |---|---|---|---|
 | `openwec_input_events_total` | `Counter` | `subscription_uuid`, `subscription_name`, `machine` (optional*) | The total number of events received by openwec |
@@ -53,6 +56,4 @@ Metrics collection and publication can be enabled in the OpenWEC settings (see `
 | `openwec_http_request_body_real_size_bytes_total` | `Counter` | `uri`, `machine` (optional*) | The total size of all http requests body received by openwec after decryption and decompression |
 | `openwec_output_driver_failures_total` | `Counter` | `subscription_uuid`, `subscription_name`, `driver` | The total number of output driver failures |
 | `openwec_output_format_failures_total` | `Counter` | `subscription_uuid`, `subscription_name`, `format` | The total number of output format failures |
-
-> [!WARNING]  
-> Enabling the `machine` labels may cause a **huge** increase in metric cardinality!
+| `openwec_machines` | `Gauge` | `subscription_uuid`, `subscription_name`, `state` | The number of machines known by openwec |
