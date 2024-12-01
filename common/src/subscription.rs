@@ -266,26 +266,26 @@ impl SubscriptionOutputFormat {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub enum PrincsFilterOperation {
+pub enum ClientFilterOperation {
     Only,
     Except,
 }
 
-impl Display for PrincsFilterOperation {
+impl Display for ClientFilterOperation {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         match self {
-            PrincsFilterOperation::Only => write!(f, "Only"),
-            PrincsFilterOperation::Except => write!(f, "Except"),
+            ClientFilterOperation::Only => write!(f, "Only"),
+            ClientFilterOperation::Except => write!(f, "Except"),
         }
     }
 }
 
-impl PrincsFilterOperation {
-    pub fn opt_from_str(op: &str) -> Result<Option<PrincsFilterOperation>> {
+impl ClientFilterOperation {
+    pub fn opt_from_str(op: &str) -> Result<Option<ClientFilterOperation>> {
         if op.eq_ignore_ascii_case("only") {
-            Ok(Some(PrincsFilterOperation::Only))
+            Ok(Some(ClientFilterOperation::Only))
         } else if op.eq_ignore_ascii_case("except") {
-            Ok(Some(PrincsFilterOperation::Except))
+            Ok(Some(ClientFilterOperation::Except))
         } else if op.eq_ignore_ascii_case("none") {
             Ok(None)
         } else {
@@ -295,27 +295,27 @@ impl PrincsFilterOperation {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub struct PrincsFilter {
-    operation: Option<PrincsFilterOperation>,
+pub struct ClientFilter {
+    operation: Option<ClientFilterOperation>,
     princs: HashSet<String>,
 }
 
-impl PrincsFilter {
+impl ClientFilter {
     pub fn empty() -> Self {
-        PrincsFilter {
+        ClientFilter {
             operation: None,
             princs: HashSet::new(),
         }
     }
 
-    pub fn new(operation: Option<PrincsFilterOperation>, princs: HashSet<String>) -> Self {
+    pub fn new(operation: Option<ClientFilterOperation>, princs: HashSet<String>) -> Self {
         Self { operation, princs }
     }
 
     pub fn from(operation: Option<String>, princs: Option<String>) -> Result<Self> {
-        Ok(PrincsFilter {
+        Ok(ClientFilter {
             operation: match operation {
-                Some(op) => PrincsFilterOperation::opt_from_str(&op)?,
+                Some(op) => ClientFilterOperation::opt_from_str(&op)?,
                 None => None,
             },
             princs: match princs {
@@ -328,8 +328,8 @@ impl PrincsFilter {
     pub fn eval(&self, principal: &str) -> bool {
         match self.operation {
             None => true,
-            Some(PrincsFilterOperation::Only) => self.princs.contains(principal),
-            Some(PrincsFilterOperation::Except) => !self.princs.contains(principal),
+            Some(ClientFilterOperation::Only) => self.princs.contains(principal),
+            Some(ClientFilterOperation::Except) => !self.princs.contains(principal),
         }
     }
 
@@ -379,11 +379,11 @@ impl PrincsFilter {
         Ok(())
     }
 
-    pub fn operation(&self) -> Option<&PrincsFilterOperation> {
+    pub fn operation(&self) -> Option<&ClientFilterOperation> {
         self.operation.as_ref()
     }
 
-    pub fn set_operation(&mut self, operation: Option<PrincsFilterOperation>) {
+    pub fn set_operation(&mut self, operation: Option<ClientFilterOperation>) {
         if operation.is_none() {
             self.princs.clear();
         }
@@ -490,7 +490,7 @@ pub struct SubscriptionData {
     // Enable or disable the subscription
     enabled: bool,
     // Configure which principal can see the subscription
-    princs_filter: PrincsFilter,
+    client_filter: ClientFilter,
     // Public parameters of the subscriptions. This structure is used
     // to compute the public subscription version sent to clients.
     parameters: SubscriptionParameters,
@@ -568,7 +568,7 @@ impl Display for SubscriptionData {
                 None => "Not configured",
             }
         )?;
-        match self.princs_filter().operation() {
+        match self.client_filter().operation() {
             None => {
                 writeln!(f, "\tPrincipal filter: Not configured")?;
             }
@@ -577,7 +577,7 @@ impl Display for SubscriptionData {
                     f,
                     "\tPrincipal filter: {} the following principals: {}",
                     operation,
-                    self.princs_filter().princs_to_string(),
+                    self.client_filter().princs_to_string(),
                 )?;
             }
         }
@@ -602,7 +602,7 @@ impl SubscriptionData {
             revision: None,
             uri: None,
             enabled: DEFAULT_ENABLED,
-            princs_filter: PrincsFilter::empty(),
+            client_filter: ClientFilter::empty(),
             outputs: Vec::new(),
             parameters: SubscriptionParameters {
                 name: name.to_string(),
@@ -864,12 +864,12 @@ impl SubscriptionData {
         self.enabled() && self.outputs().iter().any(|output| output.enabled())
     }
 
-    pub fn princs_filter(&self) -> &PrincsFilter {
-        &self.princs_filter
+    pub fn client_filter(&self) -> &ClientFilter {
+        &self.client_filter
     }
 
-    pub fn set_princs_filter(&mut self, princs_filter: PrincsFilter) -> &mut Self {
-        self.princs_filter = princs_filter;
+    pub fn set_client_filter(&mut self, client_filter: ClientFilter) -> &mut Self {
+        self.client_filter = client_filter;
         self.update_internal_version();
         self
     }
@@ -879,7 +879,7 @@ impl SubscriptionData {
             return false;
         }
 
-        self.princs_filter().eval(principal)
+        self.client_filter().eval(principal)
     }
 
     pub fn revision(&self) -> Option<&String> {

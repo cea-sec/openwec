@@ -31,7 +31,7 @@ use crate::bookmark::BookmarkData;
 use crate::heartbeat::{HeartbeatKey, HeartbeatsCache};
 use crate::settings::PostgresSslMode;
 use crate::subscription::{
-    ContentFormat, InternalVersion, PrincsFilter, SubscriptionMachine, SubscriptionMachineState,
+    ContentFormat, InternalVersion, ClientFilter, SubscriptionMachine, SubscriptionMachineState,
     SubscriptionStatsCounters, SubscriptionUuid,
 };
 use crate::{
@@ -213,7 +213,7 @@ fn row_to_subscription(row: &Row) -> Result<SubscriptionData> {
     let max_time: i32 = row.try_get("max_time")?;
     let max_elements: Option<i32> = row.try_get("max_elements")?;
 
-    let princs_filter = PrincsFilter::from(
+    let client_filter = ClientFilter::from(
         row.try_get("princs_filter_op")?,
         row.try_get("princs_filter_value")?,
     )?;
@@ -238,7 +238,7 @@ fn row_to_subscription(row: &Row) -> Result<SubscriptionData> {
         .set_ignore_channel_error(row.try_get("ignore_channel_error")?)
         .set_locale(row.try_get("locale")?)
         .set_data_locale(row.try_get("data_locale")?)
-        .set_princs_filter(princs_filter)
+        .set_client_filter(client_filter)
         .set_outputs(outputs);
 
     // This needs to be done at the end because version is updated each time
@@ -675,10 +675,10 @@ impl Database for PostgresDatabase {
                     &subscription.content_format().to_string(),
                     &subscription.ignore_channel_error(),
                     &subscription
-                        .princs_filter()
+                        .client_filter()
                         .operation()
                         .map(|x| x.to_string()),
-                    &subscription.princs_filter().princs_to_opt_string(),
+                    &subscription.client_filter().princs_to_opt_string(),
                     &serde_json::to_string(subscription.outputs())?.as_str(),
                     &subscription.locale(),
                     &subscription.data_locale()

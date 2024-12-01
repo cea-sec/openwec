@@ -3,7 +3,7 @@ use common::{
     encoding::decode_utf16le,
     settings::Settings,
     subscription::{
-        ContentFormat, FilesConfiguration, KafkaConfiguration, PrincsFilterOperation,
+        ContentFormat, FilesConfiguration, KafkaConfiguration, ClientFilterOperation,
         RedisConfiguration, SubscriptionData, SubscriptionMachineState, SubscriptionOutput,
         SubscriptionOutputDriver, SubscriptionOutputFormat, TcpConfiguration,
         UnixDatagramConfiguration,
@@ -595,14 +595,14 @@ async fn delete(db: &Db, matches: &ArgMatches) -> Result<()> {
 }
 
 async fn edit_filter(subscription: &mut SubscriptionData, matches: &ArgMatches) -> Result<()> {
-    let mut filter = subscription.princs_filter().clone();
+    let mut filter = subscription.client_filter().clone();
     match matches.subcommand() {
         Some(("set", matches)) => {
             let op_str = matches
                 .get_one::<String>("operation")
                 .ok_or_else(|| anyhow!("Missing operation argument"))?;
 
-            let op_opt = PrincsFilterOperation::opt_from_str(op_str)?;
+            let op_opt = ClientFilterOperation::opt_from_str(op_str)?;
             filter.set_operation(op_opt.clone());
 
             if let Some(op) = op_opt {
@@ -612,7 +612,7 @@ async fn edit_filter(subscription: &mut SubscriptionData, matches: &ArgMatches) 
                         princs.insert(identifier.clone());
                     }
                 }
-                if op == PrincsFilterOperation::Only && princs.is_empty() {
+                if op == ClientFilterOperation::Only && princs.is_empty() {
                     warn!("'{}' filter has been set without principals making this subscription apply to nothing.", op)
                 }
                 filter.set_princs(princs)?;
@@ -653,7 +653,7 @@ async fn edit_filter(subscription: &mut SubscriptionData, matches: &ArgMatches) 
             bail!("Nothing to do");
         }
     }
-    subscription.set_princs_filter(filter);
+    subscription.set_client_filter(filter);
 
     Ok(())
 }

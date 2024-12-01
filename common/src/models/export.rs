@@ -204,11 +204,11 @@ mod v1 {
         Except,
     }
 
-    impl From<PrincsFilterOperation> for crate::subscription::PrincsFilterOperation {
+    impl From<PrincsFilterOperation> for crate::subscription::ClientFilterOperation {
         fn from(value: PrincsFilterOperation) -> Self {
             match value {
-                PrincsFilterOperation::Except => crate::subscription::PrincsFilterOperation::Except,
-                PrincsFilterOperation::Only => crate::subscription::PrincsFilterOperation::Only,
+                PrincsFilterOperation::Except => crate::subscription::ClientFilterOperation::Except,
+                PrincsFilterOperation::Only => crate::subscription::ClientFilterOperation::Only,
             }
         }
     }
@@ -219,9 +219,9 @@ mod v1 {
         pub princs: HashSet<String>,
     }
 
-    impl From<PrincsFilter> for crate::subscription::PrincsFilter {
+    impl From<PrincsFilter> for crate::subscription::ClientFilter {
         fn from(value: PrincsFilter) -> Self {
-            crate::subscription::PrincsFilter::new(value.operation.map(|x| x.into()), value.princs)
+            crate::subscription::ClientFilter::new(value.operation.map(|x| x.into()), value.princs)
         }
     }
 
@@ -280,7 +280,7 @@ mod v1 {
                 .set_read_existing_events(value.read_existing_events)
                 .set_content_format(value.content_format.into())
                 .set_ignore_channel_error(value.ignore_channel_error)
-                .set_princs_filter(value.filter.into())
+                .set_client_filter(value.filter.into())
                 .set_locale(value.locale)
                 .set_data_locale(value.data_locale)
                 .set_outputs(outputs?)
@@ -567,20 +567,20 @@ pub mod v2 {
         Except,
     }
 
-    impl From<PrincsFilterOperation> for crate::subscription::PrincsFilterOperation {
+    impl From<PrincsFilterOperation> for crate::subscription::ClientFilterOperation {
         fn from(value: PrincsFilterOperation) -> Self {
             match value {
-                PrincsFilterOperation::Except => crate::subscription::PrincsFilterOperation::Except,
-                PrincsFilterOperation::Only => crate::subscription::PrincsFilterOperation::Only,
+                PrincsFilterOperation::Except => crate::subscription::ClientFilterOperation::Except,
+                PrincsFilterOperation::Only => crate::subscription::ClientFilterOperation::Only,
             }
         }
     }
 
-    impl From<crate::subscription::PrincsFilterOperation> for PrincsFilterOperation {
-        fn from(value: crate::subscription::PrincsFilterOperation) -> Self {
+    impl From<crate::subscription::ClientFilterOperation> for PrincsFilterOperation {
+        fn from(value: crate::subscription::ClientFilterOperation) -> Self {
             match value {
-                crate::subscription::PrincsFilterOperation::Except => PrincsFilterOperation::Except,
-                crate::subscription::PrincsFilterOperation::Only => PrincsFilterOperation::Only,
+                crate::subscription::ClientFilterOperation::Except => PrincsFilterOperation::Except,
+                crate::subscription::ClientFilterOperation::Only => PrincsFilterOperation::Only,
             }
         }
     }
@@ -591,14 +591,14 @@ pub mod v2 {
         pub princs: HashSet<String>,
     }
 
-    impl From<PrincsFilter> for crate::subscription::PrincsFilter {
+    impl From<PrincsFilter> for crate::subscription::ClientFilter {
         fn from(value: PrincsFilter) -> Self {
-            crate::subscription::PrincsFilter::new(value.operation.map(|x| x.into()), value.princs)
+            crate::subscription::ClientFilter::new(value.operation.map(|x| x.into()), value.princs)
         }
     }
 
-    impl From<crate::subscription::PrincsFilter> for PrincsFilter {
-        fn from(value: crate::subscription::PrincsFilter) -> Self {
+    impl From<crate::subscription::ClientFilter> for PrincsFilter {
+        fn from(value: crate::subscription::ClientFilter) -> Self {
             Self {
                 operation: value.operation().map(|x| x.clone().into()),
                 princs: value.princs().clone(),
@@ -672,7 +672,7 @@ pub mod v2 {
                 .set_read_existing_events(value.read_existing_events)
                 .set_content_format(value.content_format.into())
                 .set_ignore_channel_error(value.ignore_channel_error)
-                .set_princs_filter(value.filter.into())
+                .set_client_filter(value.filter.into())
                 .set_locale(value.locale)
                 .set_data_locale(value.data_locale)
                 .set_outputs(outputs?)
@@ -703,7 +703,7 @@ pub mod v2 {
                 ignore_channel_error: value.ignore_channel_error(),
                 locale: value.locale().cloned(),
                 data_locale: value.data_locale().cloned(),
-                filter: value.princs_filter().clone().into(),
+                filter: value.client_filter().clone().into(),
                 outputs: value.outputs().iter().map(|o| o.clone().into()).collect(),
             }
         }
@@ -763,8 +763,8 @@ mod tests {
             .set_max_elements(Some(100))
             .set_read_existing_events(false)
             .set_uri(Some("toto".to_string()))
-            .set_princs_filter(crate::subscription::PrincsFilter::new(
-                Some(crate::subscription::PrincsFilterOperation::Except),
+            .set_client_filter(crate::subscription::ClientFilter::new(
+                Some(crate::subscription::ClientFilterOperation::Except),
                 princs,
             ))
             .set_outputs(vec![crate::subscription::SubscriptionOutput::new(

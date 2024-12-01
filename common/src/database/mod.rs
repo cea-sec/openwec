@@ -124,7 +124,7 @@ pub mod tests {
     use crate::{
         heartbeat::{HeartbeatKey, HeartbeatValue},
         subscription::{
-            ContentFormat, FilesConfiguration, PrincsFilter, PrincsFilterOperation,
+            ContentFormat, FilesConfiguration, ClientFilter, ClientFilterOperation,
             SubscriptionOutput, SubscriptionOutputDriver, SubscriptionOutputFormat,
             DEFAULT_CONTENT_FORMAT, DEFAULT_IGNORE_CHANNEL_ERROR, DEFAULT_READ_EXISTING_EVENTS,
         },
@@ -168,7 +168,7 @@ pub mod tests {
         assert_eq!(toto.read_existing_events(), DEFAULT_READ_EXISTING_EVENTS);
         assert_eq!(toto.content_format(), &DEFAULT_CONTENT_FORMAT);
         assert_eq!(toto.ignore_channel_error(), DEFAULT_IGNORE_CHANNEL_ERROR);
-        assert_eq!(toto.princs_filter().operation(), None);
+        assert_eq!(toto.client_filter().operation(), None);
         assert_eq!(toto.is_active(), false);
         assert_eq!(toto.is_active_for("couscous"), false);
         assert_eq!(toto.revision(), None);
@@ -194,7 +194,7 @@ pub mod tests {
             .set_read_existing_events(true)
             .set_content_format(ContentFormat::RenderedText)
             .set_ignore_channel_error(false)
-            .set_princs_filter(PrincsFilter::from(
+            .set_client_filter(ClientFilter::from(
                 Some("Only".to_string()),
                 Some("couscous,boulette".to_string()),
             )?)
@@ -227,11 +227,11 @@ pub mod tests {
         assert_eq!(tata.content_format(), &ContentFormat::RenderedText);
         assert_eq!(tata.ignore_channel_error(), false);
         assert_eq!(
-            *tata.princs_filter().operation().unwrap(),
-            PrincsFilterOperation::Only
+            *tata.client_filter().operation().unwrap(),
+            ClientFilterOperation::Only
         );
         assert_eq!(
-            tata.princs_filter().princs(),
+            tata.client_filter().princs(),
             &HashSet::from(["couscous".to_string(), "boulette".to_string()])
         );
 
@@ -272,9 +272,9 @@ pub mod tests {
             .set_ignore_channel_error(true)
             .set_revision(Some("1890".to_string()))
             .set_data_locale(Some("fr-FR".to_string()));
-        let mut new_princs_filter = tata.princs_filter().clone();
-        new_princs_filter.add_princ("semoule")?;
-        tata.set_princs_filter(new_princs_filter);
+        let mut new_client_filter = tata.client_filter().clone();
+        new_client_filter.add_princ("semoule")?;
+        tata.set_client_filter(new_client_filter);
 
         db.store_subscription(&tata).await?;
 
@@ -293,11 +293,11 @@ pub mod tests {
         assert_eq!(tata2.content_format(), &ContentFormat::Raw);
         assert_eq!(tata2.ignore_channel_error(), true);
         assert_eq!(
-            *tata2.princs_filter().operation().unwrap(),
-            PrincsFilterOperation::Only
+            *tata2.client_filter().operation().unwrap(),
+            ClientFilterOperation::Only
         );
         assert_eq!(
-            tata2.princs_filter().princs(),
+            tata2.client_filter().princs(),
             &HashSet::from([
                 "couscous".to_string(),
                 "boulette".to_string(),
@@ -312,10 +312,10 @@ pub mod tests {
 
         assert!(tata2.public_version()? != tata_save.public_version()?);
 
-        let mut new_princs_filter = tata2.princs_filter().clone();
-        new_princs_filter.delete_princ("couscous")?;
-        new_princs_filter.set_operation(Some(PrincsFilterOperation::Except));
-        tata2.set_princs_filter(new_princs_filter);
+        let mut new_client_filter = tata2.client_filter().clone();
+        new_client_filter.delete_princ("couscous")?;
+        new_client_filter.set_operation(Some(ClientFilterOperation::Except));
+        tata2.set_client_filter(new_client_filter);
 
         db.store_subscription(&tata2).await?;
 
@@ -324,11 +324,11 @@ pub mod tests {
             .await?
             .unwrap();
         assert_eq!(
-            *tata2_clone.princs_filter().operation().unwrap(),
-            PrincsFilterOperation::Except
+            *tata2_clone.client_filter().operation().unwrap(),
+            ClientFilterOperation::Except
         );
         assert_eq!(
-            tata2_clone.princs_filter().princs(),
+            tata2_clone.client_filter().princs(),
             &HashSet::from(["boulette".to_string(), "semoule".to_string()])
         );
 
@@ -336,9 +336,9 @@ pub mod tests {
         assert_eq!(tata2_clone.is_active_for("semoule"), false);
         assert_eq!(tata2_clone.is_active_for("boulette"), false);
 
-        let mut new_princs_filter = tata2_clone.princs_filter().clone();
-        new_princs_filter.set_operation(None);
-        tata2_clone.set_princs_filter(new_princs_filter);
+        let mut new_client_filter = tata2_clone.client_filter().clone();
+        new_client_filter.set_operation(None);
+        tata2_clone.set_client_filter(new_client_filter);
 
         db.store_subscription(&tata2_clone).await?;
 
@@ -346,8 +346,8 @@ pub mod tests {
             .get_subscription_by_identifier(&tata.uuid_string())
             .await?
             .unwrap();
-        assert_eq!(tata2_clone_clone.princs_filter().operation(), None);
-        assert_eq!(tata2_clone_clone.princs_filter().princs(), &HashSet::new());
+        assert_eq!(tata2_clone_clone.client_filter().operation(), None);
+        assert_eq!(tata2_clone_clone.client_filter().princs(), &HashSet::new());
         assert_eq!(tata2_clone_clone.is_active_for("couscous"), true);
         assert_eq!(tata2_clone_clone.is_active_for("semoule"), true);
         assert_eq!(tata2_clone_clone.is_active_for("boulette"), true);

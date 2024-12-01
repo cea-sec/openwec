@@ -41,7 +41,7 @@ use crate::bookmark::BookmarkData;
 use crate::database::Database;
 use crate::heartbeat::{HeartbeatData, HeartbeatsCache};
 use crate::subscription::{
-    ContentFormat, InternalVersion, PrincsFilter, SubscriptionData, SubscriptionMachine, SubscriptionMachineState, SubscriptionStatsCounters, SubscriptionUuid
+    ContentFormat, InternalVersion, ClientFilter, SubscriptionData, SubscriptionMachine, SubscriptionMachineState, SubscriptionStatsCounters, SubscriptionUuid
 };
 
 use super::schema::{Migration, MigrationBase, Version};
@@ -165,7 +165,7 @@ fn row_to_subscription(row: &Row) -> Result<SubscriptionData> {
     let query: String = row.get("query")?;
 
     let content_format = ContentFormat::from_str(row.get::<&str, String>("content_format")?.as_ref())?;
-    let princs_filter = PrincsFilter::from(row.get("princs_filter_op")?, row.get("princs_filter_value")?)?;
+    let client_filter = ClientFilter::from(row.get("princs_filter_op")?, row.get("princs_filter_value")?)?;
 
     let mut subscription= SubscriptionData::new(&name, &query);
     subscription.set_uuid(SubscriptionUuid(Uuid::parse_str(&uuid)?))
@@ -183,7 +183,7 @@ fn row_to_subscription(row: &Row) -> Result<SubscriptionData> {
         .set_ignore_channel_error(row.get("ignore_channel_error")?)
         .set_locale(row.get("locale")?)
         .set_data_locale(row.get("data_locale")?)
-        .set_princs_filter(princs_filter)
+        .set_client_filter(client_filter)
         .set_outputs(outputs);
 
     // This needs to be done at the end because version is updated each time
@@ -600,8 +600,8 @@ impl Database for SQLiteDatabase {
                         ":read_existing_events": subscription.read_existing_events(),
                         ":content_format": subscription.content_format().to_string(),
                         ":ignore_channel_error": subscription.ignore_channel_error(),
-                        ":princs_filter_op": subscription.princs_filter().operation().map(|x| x.to_string()),
-                        ":princs_filter_value": subscription.princs_filter().princs_to_opt_string(),
+                        ":princs_filter_op": subscription.client_filter().operation().map(|x| x.to_string()),
+                        ":princs_filter_value": subscription.client_filter().princs_to_opt_string(),
                         ":outputs": serde_json::to_string(subscription.outputs())?,
                         ":locale": subscription.locale(),
                         ":data_locale": subscription.data_locale(),

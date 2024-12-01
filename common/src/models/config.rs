@@ -200,33 +200,33 @@ impl From<SubscriptionOutputFormat> for crate::subscription::SubscriptionOutputF
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Deserialize)]
-enum PrincsFilterOperation {
+enum ClientFilterOperation {
     Only,
     Except,
 }
 
-impl From<PrincsFilterOperation> for crate::subscription::PrincsFilterOperation {
-    fn from(value: PrincsFilterOperation) -> Self {
+impl From<ClientFilterOperation> for crate::subscription::ClientFilterOperation {
+    fn from(value: ClientFilterOperation) -> Self {
         match value {
-            PrincsFilterOperation::Except => crate::subscription::PrincsFilterOperation::Except,
-            PrincsFilterOperation::Only => crate::subscription::PrincsFilterOperation::Only,
+            ClientFilterOperation::Except => crate::subscription::ClientFilterOperation::Except,
+            ClientFilterOperation::Only => crate::subscription::ClientFilterOperation::Only,
         }
     }
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct PrincsFilter {
-    pub operation: Option<PrincsFilterOperation>,
+struct ClientFilter {
+    pub operation: Option<ClientFilterOperation>,
     #[serde(alias = "cert_subjects")]
     pub princs: HashSet<String>,
 }
 
-impl TryFrom<PrincsFilter> for crate::subscription::PrincsFilter {
+impl TryFrom<ClientFilter> for crate::subscription::ClientFilter {
     type Error = anyhow::Error;
 
-    fn try_from(value: PrincsFilter) -> std::prelude::v1::Result<Self, Self::Error> {
-        let mut filter = crate::subscription::PrincsFilter::empty();
+    fn try_from(value: ClientFilter) -> std::prelude::v1::Result<Self, Self::Error> {
+        let mut filter = crate::subscription::ClientFilter::empty();
         let operation = value.operation.map(|op| op.into());
         filter.set_operation(operation);
         filter.set_princs(value.princs)?;
@@ -321,7 +321,7 @@ struct Subscription {
     pub version: Uuid,
     pub name: String,
     pub query: String,
-    pub filter: Option<PrincsFilter>,
+    pub filter: Option<ClientFilter>,
     pub outputs: Vec<SubscriptionOutput>,
     pub options: Option<SubscriptionOptions>,
 }
@@ -336,7 +336,7 @@ impl TryFrom<Subscription> for crate::subscription::SubscriptionData {
         data.set_name(subscription.name.clone());
         data.set_query(subscription.query.clone());
         if let Some(filter) = subscription.filter {
-            data.set_princs_filter(filter.try_into()?);
+            data.set_client_filter(filter.try_into()?);
         }
 
         if subscription.outputs.is_empty() {
@@ -636,14 +636,14 @@ path = "/whatever/you/{ip}/want/{principal}/{ip:2}/{node}/end"
 
         expected.set_outputs(outputs);
 
-        let mut filter = crate::subscription::PrincsFilter::empty();
-        filter.set_operation(Some(crate::subscription::PrincsFilterOperation::Only));
+        let mut filter = crate::subscription::ClientFilter::empty();
+        filter.set_operation(Some(crate::subscription::ClientFilterOperation::Only));
         let mut princs = HashSet::new();
         princs.insert("toto@windomain.local".to_string());
         princs.insert("tutu@windomain.local".to_string());
         filter.set_princs(princs)?;
 
-        expected.set_princs_filter(filter);
+        expected.set_client_filter(filter);
 
         // The only difference between both subscriptions should be the
         // internal version, so we set both the same value

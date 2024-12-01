@@ -119,7 +119,7 @@ async fn handle_enumerate(
                 "Skip subscription \"{}\" ({}) which principals filter {:?} rejects {}",
                 subscription_data.name(),
                 subscription_data.uuid(),
-                subscription_data.princs_filter(),
+                subscription_data.client_filter(),
                 request_data.principal()
             );
             continue;
