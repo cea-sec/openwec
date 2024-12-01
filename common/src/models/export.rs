@@ -549,7 +549,7 @@ pub mod v2 {
         fn from(value: crate::subscription::ClientFilter) -> Self {
             Self {
                 operation: value.operation().map(|x| x.clone().into()),
-                princs: value.princs().clone(),
+                princs: value.targets().clone(),
             }
         }
     }
@@ -688,9 +688,9 @@ mod tests {
     fn test_export_import() -> Result<()> {
         let mut subscription =
             crate::subscription::SubscriptionData::new("my-subscription", "my-query");
-        let mut princs = HashSet::new();
-        princs.insert("courgette@WINDOMAIN.LOCAL".to_string());
-        princs.insert("boulette@WINDOMAIN.LOCAL".to_string());
+        let mut targets = HashSet::new();
+        targets.insert("courgette@WINDOMAIN.LOCAL".to_string());
+        targets.insert("boulette@WINDOMAIN.LOCAL".to_string());
 
         subscription
             .set_content_format(crate::subscription::ContentFormat::RenderedText)
@@ -706,7 +706,7 @@ mod tests {
             .set_uri(Some("toto".to_string()))
             .set_client_filter(crate::subscription::ClientFilter::new(
                 Some(crate::subscription::ClientFilterOperation::Except),
-                princs,
+                targets,
             ))
             .set_outputs(vec![crate::subscription::SubscriptionOutput::new(
                 crate::subscription::SubscriptionOutputFormat::Json,

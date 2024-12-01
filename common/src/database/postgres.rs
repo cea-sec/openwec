@@ -678,7 +678,7 @@ impl Database for PostgresDatabase {
                         .client_filter()
                         .operation()
                         .map(|x| x.to_string()),
-                    &subscription.client_filter().princs_to_opt_string(),
+                    &subscription.client_filter().targets_to_opt_string(),
                     &serde_json::to_string(subscription.outputs())?.as_str(),
                     &subscription.locale(),
                     &subscription.data_locale()

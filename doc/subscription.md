@@ -238,7 +238,7 @@ Subscription my-super-subscription
 	ReadExistingEvents: false
 	ContentFormat: Raw
 	IgnoreChannelError: true
-	Principal filter: Not configured
+	Client filter: Not configured
 	Outputs: Not configured
 	Enabled: false
 
@@ -285,7 +285,7 @@ Subscription this-is-a-clone
 	ReadExistingEvents: false
 	ContentFormat: Raw
 	IgnoreChannelError: true
-	Principal filter: Not configured
+	Client filter: Not configured
 	Outputs: None
 	Enabled: false
 

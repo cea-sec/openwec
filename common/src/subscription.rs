@@ -229,7 +229,7 @@ impl ClientFilterOperation {
         } else if op.eq_ignore_ascii_case("none") {
             Ok(None)
         } else {
-            bail!("Could not parse principal filter operation")
+            bail!("Could not parse client filter operation")
         }
     }
 }
@@ -237,85 +237,85 @@ impl ClientFilterOperation {
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct ClientFilter {
     operation: Option<ClientFilterOperation>,
-    princs: HashSet<String>,
+    targets: HashSet<String>,
 }
 
 impl ClientFilter {
     pub fn empty() -> Self {
         ClientFilter {
             operation: None,
-            princs: HashSet::new(),
+            targets: HashSet::new(),
         }
     }
 
-    pub fn new(operation: Option<ClientFilterOperation>, princs: HashSet<String>) -> Self {
-        Self { operation, princs }
+    pub fn new(operation: Option<ClientFilterOperation>, targets: HashSet<String>) -> Self {
+        Self { operation, targets }
     }
 
-    pub fn from(operation: Option<String>, princs: Option<String>) -> Result<Self> {
+    pub fn from(operation: Option<String>, targets: Option<String>) -> Result<Self> {
         Ok(ClientFilter {
             operation: match operation {
                 Some(op) => ClientFilterOperation::opt_from_str(&op)?,
                 None => None,
             },
-            princs: match princs {
+            targets: match targets {
                 Some(p) => HashSet::from_iter(p.split(',').map(|s| s.to_string())),
                 None => HashSet::new(),
             },
         })
     }
 
-    pub fn eval(&self, principal: &str) -> bool {
+    pub fn eval(&self, target: &str) -> bool {
         match self.operation {
             None => true,
-            Some(ClientFilterOperation::Only) => self.princs.contains(principal),
-            Some(ClientFilterOperation::Except) => !self.princs.contains(principal),
+            Some(ClientFilterOperation::Only) => self.targets.contains(target),
+            Some(ClientFilterOperation::Except) => !self.targets.contains(target),
         }
     }
 
-    pub fn princs(&self) -> &HashSet<String> {
-        &self.princs
+    pub fn targets(&self) -> &HashSet<String> {
+        &self.targets
     }
 
-    pub fn princs_to_string(&self) -> String {
-        self.princs()
+    pub fn targets_to_string(&self) -> String {
+        self.targets()
             .iter()
             .cloned()
             .collect::<Vec<String>>()
             .join(",")
     }
 
-    pub fn princs_to_opt_string(&self) -> Option<String> {
-        if self.princs().is_empty() {
+    pub fn targets_to_opt_string(&self) -> Option<String> {
+        if self.targets().is_empty() {
             None
         } else {
-            Some(self.princs_to_string())
+            Some(self.targets_to_string())
         }
     }
 
-    pub fn add_princ(&mut self, princ: &str) -> Result<()> {
+    pub fn add_target(&mut self, target: &str) -> Result<()> {
         if self.operation.is_none() {
-            bail!("Could not add a principal to an unset filter")
+            bail!("Could not add a client to an unset filter")
         }
-        self.princs.insert(princ.to_owned());
+        self.targets.insert(target.to_owned());
         Ok(())
     }
 
-    pub fn delete_princ(&mut self, princ: &str) -> Result<()> {
+    pub fn delete_target(&mut self, target: &str) -> Result<()> {
         if self.operation.is_none() {
-            bail!("Could not delete a principal of an unset filter")
+            bail!("Could not delete a client of an unset filter")
         }
-        if !self.princs.remove(princ) {
-            warn!("{} was not present in the principals set", princ)
+        if !self.targets.remove(target) {
+            warn!("{} was not present in the targets set", target)
         }
         Ok(())
     }
 
-    pub fn set_princs(&mut self, princs: HashSet<String>) -> Result<()> {
+    pub fn set_targets(&mut self, targets: HashSet<String>) -> Result<()> {
         if self.operation.is_none() {
-            bail!("Could not set principals of an unset filter")
+            bail!("Could not set targets of an unset filter")
         }
-        self.princs = princs;
+        self.targets = targets;
         Ok(())
     }
 
@@ -325,7 +325,7 @@ impl ClientFilter {
 
     pub fn set_operation(&mut self, operation: Option<ClientFilterOperation>) {
         if operation.is_none() {
-            self.princs.clear();
+            self.targets.clear();
         }
         self.operation = operation;
     }
@@ -429,7 +429,7 @@ pub struct SubscriptionData {
     uri: Option<String>,
     // Enable or disable the subscription
     enabled: bool,
-    // Configure which principal can see the subscription
+    // Configure which client can see the subscription
     client_filter: ClientFilter,
     // Public parameters of the subscriptions. This structure is used
     // to compute the public subscription version sent to clients.
@@ -510,14 +510,14 @@ impl Display for SubscriptionData {
         )?;
         match self.client_filter().operation() {
             None => {
-                writeln!(f, "\tPrincipal filter: Not configured")?;
+                writeln!(f, "\tClient filter: Not configured")?;
             }
             Some(operation) => {
                 writeln!(
                     f,
-                    "\tPrincipal filter: {} the following principals: {}",
+                    "\tClient filter: {} the following targets: {}",
                     operation,
-                    self.client_filter().princs_to_string(),
+                    self.client_filter().targets_to_string(),
                 )?;
             }
         }
@@ -814,12 +814,12 @@ impl SubscriptionData {
         self
     }
 
-    pub fn is_active_for(&self, principal: &str) -> bool {
+    pub fn is_active_for(&self, client: &str) -> bool {
         if !self.is_active() {
             return false;
         }
 
-        self.client_filter().eval(principal)
+        self.client_filter().eval(client)
     }
 
     pub fn revision(&self) -> Option<&String> {

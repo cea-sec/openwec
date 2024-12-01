@@ -601,7 +601,7 @@ impl Database for SQLiteDatabase {
                         ":content_format": subscription.content_format().to_string(),
                         ":ignore_channel_error": subscription.ignore_channel_error(),
                         ":princs_filter_op": subscription.client_filter().operation().map(|x| x.to_string()),
-                        ":princs_filter_value": subscription.client_filter().princs_to_opt_string(),
+                        ":princs_filter_value": subscription.client_filter().targets_to_opt_string(),
                         ":outputs": serde_json::to_string(subscription.outputs())?,
                         ":locale": subscription.locale(),
                         ":data_locale": subscription.data_locale(),

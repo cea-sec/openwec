@@ -178,8 +178,8 @@ impl From<ClientFilterOperation> for crate::subscription::ClientFilterOperation 
 #[serde(deny_unknown_fields)]
 struct ClientFilter {
     pub operation: Option<ClientFilterOperation>,
-    #[serde(alias = "cert_subjects")]
-    pub princs: HashSet<String>,
+    #[serde(alias = "cert_subjects", alias = "princs")]
+    pub targets: HashSet<String>,
 }
 
 impl TryFrom<ClientFilter> for crate::subscription::ClientFilter {
@@ -189,7 +189,7 @@ impl TryFrom<ClientFilter> for crate::subscription::ClientFilter {
         let mut filter = crate::subscription::ClientFilter::empty();
         let operation = value.operation.map(|op| op.into());
         filter.set_operation(operation);
-        filter.set_princs(value.princs)?;
+        filter.set_targets(value.targets)?;
         Ok(filter)
     }
 }
@@ -509,10 +509,10 @@ path = "/whatever/you/{ip}/want/{principal}/{ip:2}/{node}/end"
 
         let mut filter = crate::subscription::ClientFilter::empty();
         filter.set_operation(Some(crate::subscription::ClientFilterOperation::Only));
-        let mut princs = HashSet::new();
-        princs.insert("toto@windomain.local".to_string());
-        princs.insert("tutu@windomain.local".to_string());
-        filter.set_princs(princs)?;
+        let mut targets = HashSet::new();
+        targets.insert("toto@windomain.local".to_string());
+        targets.insert("tutu@windomain.local".to_string());
+        filter.set_targets(targets)?;
 
         expected.set_client_filter(filter);
 
