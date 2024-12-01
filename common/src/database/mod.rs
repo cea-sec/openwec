@@ -231,7 +231,7 @@ pub mod tests {
             ClientFilterOperation::Only
         );
         assert_eq!(
-            tata.client_filter().princs(),
+            tata.client_filter().targets(),
             &HashSet::from(["couscous".to_string(), "boulette".to_string()])
         );
 
@@ -273,7 +273,7 @@ pub mod tests {
             .set_revision(Some("1890".to_string()))
             .set_data_locale(Some("fr-FR".to_string()));
         let mut new_client_filter = tata.client_filter().clone();
-        new_client_filter.add_princ("semoule")?;
+        new_client_filter.add_target("semoule")?;
         tata.set_client_filter(new_client_filter);
 
         db.store_subscription(&tata).await?;
@@ -297,7 +297,7 @@ pub mod tests {
             ClientFilterOperation::Only
         );
         assert_eq!(
-            tata2.client_filter().princs(),
+            tata2.client_filter().targets(),
             &HashSet::from([
                 "couscous".to_string(),
                 "boulette".to_string(),
@@ -313,7 +313,7 @@ pub mod tests {
         assert!(tata2.public_version()? != tata_save.public_version()?);
 
         let mut new_client_filter = tata2.client_filter().clone();
-        new_client_filter.delete_princ("couscous")?;
+        new_client_filter.delete_target("couscous")?;
         new_client_filter.set_operation(Some(ClientFilterOperation::Except));
         tata2.set_client_filter(new_client_filter);
 
@@ -328,7 +328,7 @@ pub mod tests {
             ClientFilterOperation::Except
         );
         assert_eq!(
-            tata2_clone.client_filter().princs(),
+            tata2_clone.client_filter().targets(),
             &HashSet::from(["boulette".to_string(), "semoule".to_string()])
         );
 
@@ -347,7 +347,7 @@ pub mod tests {
             .await?
             .unwrap();
         assert_eq!(tata2_clone_clone.client_filter().operation(), None);
-        assert_eq!(tata2_clone_clone.client_filter().princs(), &HashSet::new());
+        assert_eq!(tata2_clone_clone.client_filter().targets(), &HashSet::new());
         assert_eq!(tata2_clone_clone.is_active_for("couscous"), true);
         assert_eq!(tata2_clone_clone.is_active_for("semoule"), true);
         assert_eq!(tata2_clone_clone.is_active_for("boulette"), true);

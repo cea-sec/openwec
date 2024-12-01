@@ -615,19 +615,19 @@ async fn edit_filter(subscription: &mut SubscriptionData, matches: &ArgMatches) 
                 if op == ClientFilterOperation::Only && princs.is_empty() {
                     warn!("'{}' filter has been set without principals making this subscription apply to nothing.", op)
                 }
-                filter.set_princs(princs)?;
+                filter.set_targets(princs)?;
             }
         }
         Some(("princs", matches)) => match matches.subcommand() {
             Some(("add", matches)) => {
-                filter.add_princ(
+                filter.add_target(
                     matches
                         .get_one::<String>("principal")
                         .ok_or_else(|| anyhow!("Missing principal"))?,
                 )?;
             }
             Some(("delete", matches)) => {
-                filter.delete_princ(
+                filter.delete_target(
                     matches
                         .get_one::<String>("principal")
                         .ok_or_else(|| anyhow!("Missing principal"))?,
@@ -639,7 +639,7 @@ async fn edit_filter(subscription: &mut SubscriptionData, matches: &ArgMatches) 
                     for identifier in identifiers {
                         princs.insert(identifier.clone());
                     }
-                    filter.set_princs(princs)?;
+                    filter.set_targets(princs)?;
                 }
                 None => {
                     bail!("No principals to set")

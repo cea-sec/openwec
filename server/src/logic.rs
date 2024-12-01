@@ -116,7 +116,7 @@ async fn handle_enumerate(
         // Skip subscriptions that filter out this principal
         if !subscription_data.is_active_for(request_data.principal()) {
             debug!(
-                "Skip subscription \"{}\" ({}) which principals filter {:?} rejects {}",
+                "Skip subscription \"{}\" ({}) which client filter {:?} rejects {}",
                 subscription_data.name(),
                 subscription_data.uuid(),
                 subscription_data.client_filter(),
@@ -271,7 +271,7 @@ async fn handle_heartbeat(
 
     if !subscription.data().is_active_for(request_data.principal()) {
         debug!(
-            "Received Heartbeat from {}:{} ({}) for subscription {} ({}) but the principal is not allowed to use the subscription.",
+            "Received Heartbeat from {}:{} ({}) for subscription {} ({}) but the client is not allowed to use the subscription.",
             request_data.remote_addr().ip(),
             request_data.remote_addr().port(),
             request_data.principal(),
@@ -401,7 +401,7 @@ async fn handle_events(
 
         if !subscription.data().is_active_for(request_data.principal()) {
             debug!(
-                "Received Events from {}:{} ({}) for subscription {} ({}) but the principal is not allowed to use this subscription.",
+                "Received Events from {}:{} ({}) for subscription {} ({}) but the client is not allowed to use this subscription.",
                 request_data.remote_addr().ip(),
                 request_data.remote_addr().port(),
                 request_data.principal(),
