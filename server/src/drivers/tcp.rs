@@ -1,19 +1,25 @@
-use std::sync::Arc;
+use std::{pin::Pin, sync::Arc};
 
 use crate::{
     event::EventMetadata,
     output::OutputDriver,
+    tls::{load_certs, load_priv_key},
 };
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
 use common::subscription::TcpConfiguration;
 use log::{debug, info, warn};
 use tokio::{
+    io::AsyncWrite,
     net::TcpStream,
     sync::{mpsc, oneshot},
 };
 
 use tokio::io::AsyncWriteExt;
+use tokio_rustls::{
+    rustls::{pki_types::ServerName, ClientConfig, RootCertStore},
+    TlsConnector,
+};
 use tokio_util::sync::CancellationToken;
 
 #[derive(Debug)]
@@ -31,24 +37,62 @@ fn send_response(sender: oneshot::Sender<Result<()>>, msg: Result<()>) {
     }
 }
 
+pub async fn connect(
+    config: &TcpConfiguration,
+) -> Result<Pin<Box<dyn AsyncWrite + std::marker::Send>>> {
+    if config.tls_enabled() {
+        let mut certificate_authorities = Vec::new();
+        for certificate_authority_file in config.tls_certificate_authorities() {
+            certificate_authorities.extend(load_certs(certificate_authority_file)?);
+        }
+        let mut root_cert_store = RootCertStore::empty();
+        root_cert_store.add_parsable_certificates(certificate_authorities.clone());
+
+        let tls_config_builder = ClientConfig::builder().with_root_certificates(root_cert_store);
+
+        let tls_config = if let Some(tls_certificate_file) = config.tls_certificate() {
+            let tls_certificate = load_certs(tls_certificate_file)?;
+            let tls_key_file = config.tls_key().ok_or_else(|| anyhow!("Missing tls_key"))?;
+            let tls_private_key = load_priv_key(tls_key_file)?;
+            tls_config_builder.with_client_auth_cert(tls_certificate, tls_private_key)?
+        } else {
+            tls_config_builder.with_no_client_auth()
+        };
+        let connector = TlsConnector::from(Arc::new(tls_config));
+        let dnsname = ServerName::try_from(config.host().to_owned())?;
+
+        let stream = TcpStream::connect((config.host(), config.port()))
+            .await
+            .context("Failed to establish TCP connection")?;
+        Ok(Box::pin(connector.connect(dnsname, stream).await?))
+    } else {
+        Ok(Box::pin(
+            TcpStream::connect((config.host(), config.port()))
+                .await
+                .context("Failed to establish TCP connection")?,
+        ))
+    }
+}
+
 pub async fn run(
     config: TcpConfiguration,
     mut task_rx: mpsc::Receiver<WriteTCPMessage>,
     cancellation_token: CancellationToken,
 ) {
-    let mut stream_opt: Option<TcpStream> = None;
+    let mut stream_opt: Option<Pin<Box<dyn AsyncWrite + std::marker::Send>>> = None;
+
     loop {
         tokio::select! {
             Some(message) = task_rx.recv() => {
                 // Establish TCP connection if not already done
                 if stream_opt.is_none() {
-                    match TcpStream::connect((config.addr(), config.port())).await {
+                    match connect(&config).await {
                         Ok(stream) => {
                             stream_opt = Some(stream);
                         },
                         Err(e) => {
-                            warn!("Failed to connect to {}:{}: {}", config.addr(), config.port(), e);
-                            send_response(message.resp, Err(anyhow!(format!("Failed to connect to {}:{}: {}", config.addr(), config.port(), e))));
+                            warn!("Failed to connect to {}:{}: {}", config.host(), config.port(), e);
+                            send_response(message.resp, Err(anyhow!(format!("Failed to connect to {}:{}: {}", config.host(), config.port(), e))));
                             continue;
                         }
                     };
@@ -58,7 +102,7 @@ pub async fn run(
                     Some(stream) => stream,
                     None => {
                         warn!("TCP stream is unset !");
-                        send_response(message.resp, Err(anyhow!(format!("TCP stream of {}:{} is unset!", config.addr(), config.port()))));
+                        send_response(message.resp, Err(anyhow!(format!("TCP stream of {}:{} is unset!", config.host(), config.port()))));
                         continue;
                     }
                 };
@@ -66,7 +110,7 @@ pub async fn run(
                 // Write data to stream
                 if let Err(e) = stream.write_all(message.content.as_bytes()).await {
                     stream_opt = None;
-                    send_response(message.resp, Err(anyhow!(format!("Failed to write in TCP connection ({}:{}): {}", config.addr(), config.port(), e))));
+                    send_response(message.resp, Err(anyhow!(format!("Failed to write in TCP connection ({}:{}): {}", config.host(), config.port(), e))));
                     continue;
                 }
 
@@ -77,11 +121,7 @@ pub async fn run(
             }
         };
     }
-    info!(
-        "Exiting TCP output task ({}:{})",
-        config.addr(),
-        config.port()
-    );
+    info!("Exiting TCP output task ({:?})", config);
 }
 
 pub struct OutputTcp {

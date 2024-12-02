@@ -26,8 +26,12 @@ pub fn serialize(subscriptions: &[crate::subscription::SubscriptionData]) -> Res
 pub fn parse(content: &str) -> Result<Vec<crate::subscription::SubscriptionData>> {
     let import: ImportExport = serde_json::from_str(content).context("Failed to parse file")?;
     let subscriptions = match import {
-        ImportExport::V1(subscriptions) => subscriptions.into(),
-        ImportExport::V2(subscriptions) => subscriptions.into(),
+        ImportExport::V1(subscriptions) => subscriptions
+            .try_into()
+            .context("Invalid subscription data")?,
+        ImportExport::V2(subscriptions) => subscriptions
+            .try_into()
+            .context("Invalid subscription data")?,
     };
     Ok(subscriptions)
 }
@@ -70,9 +74,18 @@ mod v1 {
         pub port: u16,
     }
 
-    impl From<TcpConfiguration> for crate::subscription::TcpConfiguration {
-        fn from(value: TcpConfiguration) -> Self {
-            crate::subscription::TcpConfiguration::new(value.addr, value.port)
+    impl TryFrom<TcpConfiguration> for crate::subscription::TcpConfiguration {
+        type Error = anyhow::Error;
+
+        fn try_from(value: TcpConfiguration) -> Result<Self, Self::Error> {
+            crate::subscription::TcpConfiguration::new(
+                value.addr,
+                value.port,
+                false,
+                Vec::new(),
+                None,
+                None,
+            )
         }
     }
 
@@ -86,7 +99,13 @@ mod v1 {
 
     impl From<FilesConfiguration> for crate::subscription::FilesConfiguration {
         fn from(value: FilesConfiguration) -> Self {
-            let path = transform_files_config_to_path(&Some(value.base), &value.split_on_addr_index, &Some(value.append_node_name), &Some(value.filename)).expect("Failed to convert old Files driver configuration");
+            let path = transform_files_config_to_path(
+                &Some(value.base),
+                &value.split_on_addr_index,
+                &Some(value.append_node_name),
+                &Some(value.filename),
+            )
+            .expect("Failed to convert old Files driver configuration");
             crate::subscription::FilesConfiguration::new(path)
         }
     }
@@ -111,9 +130,11 @@ mod v1 {
         UnixDatagram(UnixDatagramConfiguration),
     }
 
-    impl From<SubscriptionOutputDriver> for crate::subscription::SubscriptionOutputDriver {
-        fn from(value: SubscriptionOutputDriver) -> Self {
-            match value {
+    impl TryFrom<SubscriptionOutputDriver> for crate::subscription::SubscriptionOutputDriver {
+        type Error = anyhow::Error;
+
+        fn try_from(value: SubscriptionOutputDriver) -> Result<Self, Self::Error> {
+            Ok(match value {
                 SubscriptionOutputDriver::Files(config) => {
                     crate::subscription::SubscriptionOutputDriver::Files(config.into())
                 }
@@ -121,7 +142,7 @@ mod v1 {
                     crate::subscription::SubscriptionOutputDriver::Kafka(config.into())
                 }
                 SubscriptionOutputDriver::Tcp(config) => {
-                    crate::subscription::SubscriptionOutputDriver::Tcp(config.into())
+                    crate::subscription::SubscriptionOutputDriver::Tcp(config.try_into()?)
                 }
                 SubscriptionOutputDriver::Redis(config) => {
                     crate::subscription::SubscriptionOutputDriver::Redis(config.into())
@@ -129,7 +150,7 @@ mod v1 {
                 SubscriptionOutputDriver::UnixDatagram(config) => {
                     crate::subscription::SubscriptionOutputDriver::UnixDatagram(config.into())
                 }
-            }
+            })
         }
     }
 
@@ -165,13 +186,15 @@ mod v1 {
         pub enabled: bool,
     }
 
-    impl From<SubscriptionOutput> for crate::subscription::SubscriptionOutput {
-        fn from(value: SubscriptionOutput) -> Self {
-            crate::subscription::SubscriptionOutput::new(
+    impl TryFrom<SubscriptionOutput> for crate::subscription::SubscriptionOutput {
+        type Error = anyhow::Error;
+
+        fn try_from(value: SubscriptionOutput) -> Result<Self, Self::Error> {
+            Ok(crate::subscription::SubscriptionOutput::new(
                 value.format.into(),
-                value.driver.into(),
+                value.driver.try_into()?,
                 value.enabled,
-            )
+            ))
         }
     }
 
@@ -239,9 +262,13 @@ mod v1 {
         pub outputs: Vec<SubscriptionOutput>,
     }
 
-    impl From<SubscriptionData> for crate::subscription::SubscriptionData {
-        fn from(value: SubscriptionData) -> Self {
+    impl TryFrom<SubscriptionData> for crate::subscription::SubscriptionData {
+        type Error = anyhow::Error;
+
+        fn try_from(value: SubscriptionData) -> Result<Self, Self::Error> {
             let mut data = crate::subscription::SubscriptionData::new(&value.name, &value.query);
+            let outputs: Result<Vec<crate::subscription::SubscriptionOutput>, _> =
+                value.outputs.iter().map(|s| s.clone().try_into()).collect();
             data.set_uuid(crate::subscription::SubscriptionUuid(value.uuid))
                 .set_uri(value.uri)
                 .set_heartbeat_interval(value.heartbeat_interval)
@@ -256,10 +283,10 @@ mod v1 {
                 .set_princs_filter(value.filter.into())
                 .set_locale(value.locale)
                 .set_data_locale(value.data_locale)
-                .set_outputs(value.outputs.iter().map(|s| s.clone().into()).collect())
+                .set_outputs(outputs?)
                 .set_revision(value.revision);
             // Note: internal version is not exported nor set
-            data
+            Ok(data)
         }
     }
 
@@ -268,13 +295,16 @@ mod v1 {
         pub subscriptions: Vec<SubscriptionData>,
     }
 
-    impl From<Subscriptions> for Vec<crate::subscription::SubscriptionData> {
-        fn from(value: Subscriptions) -> Self {
-            value
+    impl TryFrom<Subscriptions> for Vec<crate::subscription::SubscriptionData> {
+        type Error = anyhow::Error;
+
+        fn try_from(value: Subscriptions) -> Result<Self, Self::Error> {
+            let subscriptions: Result<Vec<crate::subscription::SubscriptionData>, _> = value
                 .subscriptions
                 .iter()
-                .map(|s| s.clone().into())
-                .collect()
+                .map(|s| s.clone().try_into())
+                .collect();
+            subscriptions
         }
     }
 }
@@ -332,26 +362,44 @@ pub mod v2 {
     pub(super) struct TcpConfiguration {
         pub addr: String,
         pub port: u16,
+        pub tls_enabled: Option<bool>,
+        #[serde(default)]
+        pub tls_certificate_authorities: Vec<String>,
+        pub tls_certificate: Option<String>,
+        pub tls_key: Option<String>,
     }
 
-    impl From<TcpConfiguration> for crate::subscription::TcpConfiguration {
-        fn from(value: TcpConfiguration) -> Self {
-            crate::subscription::TcpConfiguration::new(value.addr, value.port)
+    impl TryFrom<TcpConfiguration> for crate::subscription::TcpConfiguration {
+        type Error = anyhow::Error;
+
+        fn try_from(value: TcpConfiguration) -> Result<Self, Self::Error> {
+            crate::subscription::TcpConfiguration::new(
+                value.addr,
+                value.port,
+                value.tls_enabled.unwrap_or(false),
+                value.tls_certificate_authorities,
+                value.tls_certificate,
+                value.tls_key,
+            )
         }
     }
 
     impl From<crate::subscription::TcpConfiguration> for TcpConfiguration {
         fn from(value: crate::subscription::TcpConfiguration) -> Self {
             Self {
-                addr: value.addr().to_string(),
+                addr: value.host().to_string(),
                 port: value.port(),
+                tls_enabled: Some(value.tls_enabled()),
+                tls_certificate_authorities: value.tls_certificate_authorities().to_owned(),
+                tls_certificate: value.tls_certificate().cloned(),
+                tls_key: value.tls_key().cloned(),
             }
         }
     }
 
     #[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize)]
     pub(super) struct FilesConfiguration {
-        pub path: String
+        pub path: String,
     }
 
     impl From<FilesConfiguration> for crate::subscription::FilesConfiguration {
@@ -363,7 +411,7 @@ pub mod v2 {
     impl From<crate::subscription::FilesConfiguration> for FilesConfiguration {
         fn from(value: crate::subscription::FilesConfiguration) -> Self {
             Self {
-                path: value.path().to_owned()
+                path: value.path().to_owned(),
             }
         }
     }
@@ -396,9 +444,11 @@ pub mod v2 {
         UnixDatagram(UnixDatagramConfiguration),
     }
 
-    impl From<SubscriptionOutputDriver> for crate::subscription::SubscriptionOutputDriver {
-        fn from(value: SubscriptionOutputDriver) -> Self {
-            match value {
+    impl TryFrom<SubscriptionOutputDriver> for crate::subscription::SubscriptionOutputDriver {
+        type Error = anyhow::Error;
+
+        fn try_from(value: SubscriptionOutputDriver) -> Result<Self, Self::Error> {
+            Ok(match value {
                 SubscriptionOutputDriver::Files(config) => {
                     crate::subscription::SubscriptionOutputDriver::Files(config.into())
                 }
@@ -406,7 +456,7 @@ pub mod v2 {
                     crate::subscription::SubscriptionOutputDriver::Kafka(config.into())
                 }
                 SubscriptionOutputDriver::Tcp(config) => {
-                    crate::subscription::SubscriptionOutputDriver::Tcp(config.into())
+                    crate::subscription::SubscriptionOutputDriver::Tcp(config.try_into()?)
                 }
                 SubscriptionOutputDriver::Redis(config) => {
                     crate::subscription::SubscriptionOutputDriver::Redis(config.into())
@@ -414,7 +464,7 @@ pub mod v2 {
                 SubscriptionOutputDriver::UnixDatagram(config) => {
                     crate::subscription::SubscriptionOutputDriver::UnixDatagram(config.into())
                 }
-            }
+            })
         }
     }
 
@@ -489,13 +539,15 @@ pub mod v2 {
         pub enabled: bool,
     }
 
-    impl From<SubscriptionOutput> for crate::subscription::SubscriptionOutput {
-        fn from(value: SubscriptionOutput) -> Self {
-            crate::subscription::SubscriptionOutput::new(
+    impl TryFrom<SubscriptionOutput> for crate::subscription::SubscriptionOutput {
+        type Error = anyhow::Error;
+
+        fn try_from(value: SubscriptionOutput) -> Result<Self, Self::Error> {
+            Ok(crate::subscription::SubscriptionOutput::new(
                 value.format.into(),
-                value.driver.into(),
+                value.driver.try_into()?,
                 value.enabled,
-            )
+            ))
         }
     }
 
@@ -601,9 +653,13 @@ pub mod v2 {
         pub outputs: Vec<SubscriptionOutput>,
     }
 
-    impl From<SubscriptionData> for crate::subscription::SubscriptionData {
-        fn from(value: SubscriptionData) -> Self {
+    impl TryFrom<SubscriptionData> for crate::subscription::SubscriptionData {
+        type Error = anyhow::Error;
+
+        fn try_from(value: SubscriptionData) -> Result<Self, Self::Error> {
             let mut data = crate::subscription::SubscriptionData::new(&value.name, &value.query);
+            let outputs: Result<Vec<crate::subscription::SubscriptionOutput>, _> =
+                value.outputs.iter().map(|s| s.clone().try_into()).collect();
             data.set_uuid(crate::subscription::SubscriptionUuid(value.uuid))
                 .set_uri(value.uri)
                 .set_heartbeat_interval(value.heartbeat_interval)
@@ -619,10 +675,10 @@ pub mod v2 {
                 .set_princs_filter(value.filter.into())
                 .set_locale(value.locale)
                 .set_data_locale(value.data_locale)
-                .set_outputs(value.outputs.iter().map(|s| s.clone().into()).collect())
+                .set_outputs(outputs?)
                 .set_revision(value.revision);
             // Note: internal version is not exported nor set
-            data
+            Ok(data)
         }
     }
 
@@ -658,13 +714,16 @@ pub mod v2 {
         pub subscriptions: Vec<SubscriptionData>,
     }
 
-    impl From<Subscriptions> for Vec<crate::subscription::SubscriptionData> {
-        fn from(value: Subscriptions) -> Self {
-            value
+    impl TryFrom<Subscriptions> for Vec<crate::subscription::SubscriptionData> {
+        type Error = anyhow::Error;
+
+        fn try_from(value: Subscriptions) -> Result<Self, Self::Error> {
+            let subscriptions: Result<Vec<crate::subscription::SubscriptionData>, _> = value
                 .subscriptions
                 .iter()
-                .map(|s| s.clone().into())
-                .collect()
+                .map(|s| s.clone().try_into())
+                .collect();
+            subscriptions
         }
     }
 
@@ -711,7 +770,14 @@ mod tests {
             .set_outputs(vec![crate::subscription::SubscriptionOutput::new(
                 crate::subscription::SubscriptionOutputFormat::Json,
                 crate::subscription::SubscriptionOutputDriver::Tcp(
-                    crate::subscription::TcpConfiguration::new("127.0.0.1".to_string(), 5000),
+                    crate::subscription::TcpConfiguration::new(
+                        "127.0.0.1".to_string(),
+                        5000,
+                        false,
+                        vec![],
+                        None,
+                        None,
+                    )?,
                 ),
                 true,
             )])
