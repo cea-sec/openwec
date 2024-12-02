@@ -16,7 +16,7 @@ use x509_parser::prelude::{FromDer, X509Certificate};
 use crate::sldc;
 
 /// Load certificates contained inside a PEM file
-fn load_certs(filename: &str) -> Result<Vec<CertificateDer<'static>>> {
+pub fn load_certs(filename: &str) -> Result<Vec<CertificateDer<'static>>> {
     let certfile = fs::File::open(filename)?;
     let mut reader = BufReader::new(certfile);
 
@@ -33,7 +33,7 @@ fn load_certs(filename: &str) -> Result<Vec<CertificateDer<'static>>> {
 }
 
 /// Load private key contained inside a file
-fn load_priv_key(filename: &str) -> Result<PrivateKeyDer<'static>> {
+pub fn load_priv_key(filename: &str) -> Result<PrivateKeyDer<'static>> {
     let keyfile = fs::File::open(filename).context("Cannot open private key file")?;
     let mut reader = BufReader::new(keyfile);
 
