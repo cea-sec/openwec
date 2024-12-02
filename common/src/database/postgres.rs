@@ -213,10 +213,12 @@ fn row_to_subscription(row: &Row) -> Result<SubscriptionData> {
     let max_time: i32 = row.try_get("max_time")?;
     let max_elements: Option<i32> = row.try_get("max_elements")?;
 
-    let client_filter = ClientFilter::from(
-        row.try_get("princs_filter_op")?,
-        row.try_get("princs_filter_value")?,
-    )?;
+    let client_filter_op: Option<String> = row.try_get("princs_filter_op")?;
+
+    let client_filter = match client_filter_op {
+        Some(op) => Some(ClientFilter::from(op, row.try_get("princs_filter_value")?)?),
+        None => None
+    };
 
     let mut subscription = SubscriptionData::new(row.try_get("name")?, row.try_get("query")?);
     subscription
@@ -625,6 +627,9 @@ impl Database for PostgresDatabase {
         };
 
         let max_envelope_size: i32 = subscription.max_envelope_size().try_into()?;
+        let client_filter_op: Option<String> = subscription.client_filter().map(|f| f.operation().to_string());
+        let client_filter_value = subscription.client_filter().and_then(|f| f.targets_to_opt_string());
+
         let count = self
             .pool
             .get()
@@ -674,11 +679,8 @@ impl Database for PostgresDatabase {
                     &subscription.read_existing_events(),
                     &subscription.content_format().to_string(),
                     &subscription.ignore_channel_error(),
-                    &subscription
-                        .client_filter()
-                        .operation()
-                        .map(|x| x.to_string()),
-                    &subscription.client_filter().targets_to_opt_string(),
+                    &client_filter_op,
+                    &client_filter_value,
                     &serde_json::to_string(subscription.outputs())?.as_str(),
                     &subscription.locale(),
                     &subscription.data_locale()

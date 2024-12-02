@@ -165,7 +165,13 @@ fn row_to_subscription(row: &Row) -> Result<SubscriptionData> {
     let query: String = row.get("query")?;
 
     let content_format = ContentFormat::from_str(row.get::<&str, String>("content_format")?.as_ref())?;
-    let client_filter = ClientFilter::from(row.get("princs_filter_op")?, row.get("princs_filter_value")?)?;
+
+    let client_filter_op: Option<String> = row.get("princs_filter_op")?;
+
+    let client_filter = match client_filter_op {
+        Some(op) => Some(ClientFilter::from(op, row.get("princs_filter_value")?)?),
+        None => None
+    };
 
     let mut subscription= SubscriptionData::new(&name, &query);
     subscription.set_uuid(SubscriptionUuid(Uuid::parse_str(&uuid)?))
@@ -546,6 +552,9 @@ impl Database for SQLiteDatabase {
 
     async fn store_subscription(&self, subscription: &SubscriptionData) -> Result<()> {
         let subscription = subscription.clone();
+        let client_filter_op: Option<String> = subscription.client_filter().map(|f| f.operation().to_string());
+        let client_filter_value = subscription.client_filter().and_then(|f| f.targets_to_opt_string());
+
         let count = self
             .pool
             .get()
@@ -600,8 +609,8 @@ impl Database for SQLiteDatabase {
                         ":read_existing_events": subscription.read_existing_events(),
                         ":content_format": subscription.content_format().to_string(),
                         ":ignore_channel_error": subscription.ignore_channel_error(),
-                        ":princs_filter_op": subscription.client_filter().operation().map(|x| x.to_string()),
-                        ":princs_filter_value": subscription.client_filter().targets_to_opt_string(),
+                        ":princs_filter_op": client_filter_op,
+                        ":princs_filter_value": client_filter_value,
                         ":outputs": serde_json::to_string(subscription.outputs())?,
                         ":locale": subscription.locale(),
                         ":data_locale": subscription.data_locale(),

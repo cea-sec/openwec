@@ -219,9 +219,10 @@ mod v1 {
         pub princs: HashSet<String>,
     }
 
-    impl From<PrincsFilter> for crate::subscription::ClientFilter {
-        fn from(value: PrincsFilter) -> Self {
-            crate::subscription::ClientFilter::new(value.operation.map(|x| x.into()), value.princs)
+    impl PrincsFilter {
+        fn into_client_filter(self) -> Option<crate::subscription::ClientFilter> {
+            let op = self.operation?;
+            Some(crate::subscription::ClientFilter::new(op.into(), self.princs))
         }
     }
 
@@ -280,7 +281,7 @@ mod v1 {
                 .set_read_existing_events(value.read_existing_events)
                 .set_content_format(value.content_format.into())
                 .set_ignore_channel_error(value.ignore_channel_error)
-                .set_client_filter(value.filter.into())
+                .set_client_filter(value.filter.into_client_filter())
                 .set_locale(value.locale)
                 .set_data_locale(value.data_locale)
                 .set_outputs(outputs?)
@@ -591,17 +592,18 @@ pub mod v2 {
         pub princs: HashSet<String>,
     }
 
-    impl From<PrincsFilter> for crate::subscription::ClientFilter {
-        fn from(value: PrincsFilter) -> Self {
-            crate::subscription::ClientFilter::new(value.operation.map(|x| x.into()), value.princs)
+    impl PrincsFilter {
+        fn into_client_filter(self) -> Option<crate::subscription::ClientFilter> {
+            let op = self.operation?;
+            Some(crate::subscription::ClientFilter::new(op.into(), self.princs))
         }
     }
 
-    impl From<crate::subscription::ClientFilter> for PrincsFilter {
-        fn from(value: crate::subscription::ClientFilter) -> Self {
+    impl From<Option<crate::subscription::ClientFilter>> for PrincsFilter {
+        fn from(value: Option<crate::subscription::ClientFilter>) -> Self {
             Self {
-                operation: value.operation().map(|x| x.clone().into()),
-                princs: value.targets().clone(),
+                operation: value.as_ref().map(|f| Some(f.operation().clone().into())),
+                princs: value.map_or(HashSet::new(), |f| f.targets().clone()),
             }
         }
     }
@@ -672,7 +674,7 @@ pub mod v2 {
                 .set_read_existing_events(value.read_existing_events)
                 .set_content_format(value.content_format.into())
                 .set_ignore_channel_error(value.ignore_channel_error)
-                .set_client_filter(value.filter.into())
+                .set_client_filter(value.filter.into_client_filter())
                 .set_locale(value.locale)
                 .set_data_locale(value.data_locale)
                 .set_outputs(outputs?)
@@ -703,7 +705,7 @@ pub mod v2 {
                 ignore_channel_error: value.ignore_channel_error(),
                 locale: value.locale().cloned(),
                 data_locale: value.data_locale().cloned(),
-                filter: value.client_filter().clone().into(),
+                filter: value.client_filter().cloned().into(),
                 outputs: value.outputs().iter().map(|o| o.clone().into()).collect(),
             }
         }
@@ -763,10 +765,10 @@ mod tests {
             .set_max_elements(Some(100))
             .set_read_existing_events(false)
             .set_uri(Some("toto".to_string()))
-            .set_client_filter(crate::subscription::ClientFilter::new(
-                Some(crate::subscription::ClientFilterOperation::Except),
+            .set_client_filter(Some(crate::subscription::ClientFilter::new(
+                crate::subscription::ClientFilterOperation::Except,
                 targets,
-            ))
+            )))
             .set_outputs(vec![crate::subscription::SubscriptionOutput::new(
                 crate::subscription::SubscriptionOutputFormat::Json,
                 crate::subscription::SubscriptionOutputDriver::Tcp(
