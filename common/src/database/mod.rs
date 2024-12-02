@@ -168,7 +168,7 @@ pub mod tests {
         assert_eq!(toto.read_existing_events(), DEFAULT_READ_EXISTING_EVENTS);
         assert_eq!(toto.content_format(), &DEFAULT_CONTENT_FORMAT);
         assert_eq!(toto.ignore_channel_error(), DEFAULT_IGNORE_CHANNEL_ERROR);
-        assert_eq!(toto.client_filter().operation(), None);
+        assert_eq!(toto.client_filter(), None);
         assert_eq!(toto.is_active(), false);
         assert_eq!(toto.is_active_for("couscous"), false);
         assert_eq!(toto.revision(), None);
@@ -194,10 +194,10 @@ pub mod tests {
             .set_read_existing_events(true)
             .set_content_format(ContentFormat::RenderedText)
             .set_ignore_channel_error(false)
-            .set_client_filter(ClientFilter::from(
-                Some("Only".to_string()),
+            .set_client_filter(Some(ClientFilter::from(
+                "Only".to_string(),
                 Some("couscous,boulette".to_string()),
-            )?)
+            )?))
             .set_outputs(vec![
                 SubscriptionOutput::new(
                     SubscriptionOutputFormat::Json,
@@ -227,11 +227,11 @@ pub mod tests {
         assert_eq!(tata.content_format(), &ContentFormat::RenderedText);
         assert_eq!(tata.ignore_channel_error(), false);
         assert_eq!(
-            *tata.client_filter().operation().unwrap(),
+            *tata.client_filter().unwrap().operation(),
             ClientFilterOperation::Only
         );
         assert_eq!(
-            tata.client_filter().targets(),
+            tata.client_filter().unwrap().targets(),
             &HashSet::from(["couscous".to_string(), "boulette".to_string()])
         );
 
@@ -272,8 +272,8 @@ pub mod tests {
             .set_ignore_channel_error(true)
             .set_revision(Some("1890".to_string()))
             .set_data_locale(Some("fr-FR".to_string()));
-        let mut new_client_filter = tata.client_filter().clone();
-        new_client_filter.add_target("semoule")?;
+        let mut new_client_filter = tata.client_filter().cloned();
+        new_client_filter.as_mut().unwrap().add_target("semoule")?;
         tata.set_client_filter(new_client_filter);
 
         db.store_subscription(&tata).await?;
@@ -293,11 +293,11 @@ pub mod tests {
         assert_eq!(tata2.content_format(), &ContentFormat::Raw);
         assert_eq!(tata2.ignore_channel_error(), true);
         assert_eq!(
-            *tata2.client_filter().operation().unwrap(),
+            *tata2.client_filter().unwrap().operation(),
             ClientFilterOperation::Only
         );
         assert_eq!(
-            tata2.client_filter().targets(),
+            tata2.client_filter().unwrap().targets(),
             &HashSet::from([
                 "couscous".to_string(),
                 "boulette".to_string(),
@@ -312,9 +312,9 @@ pub mod tests {
 
         assert!(tata2.public_version()? != tata_save.public_version()?);
 
-        let mut new_client_filter = tata2.client_filter().clone();
-        new_client_filter.delete_target("couscous")?;
-        new_client_filter.set_operation(Some(ClientFilterOperation::Except));
+        let mut new_client_filter = tata2.client_filter().cloned();
+        new_client_filter.as_mut().unwrap().delete_target("couscous")?;
+        new_client_filter.as_mut().unwrap().set_operation(ClientFilterOperation::Except);
         tata2.set_client_filter(new_client_filter);
 
         db.store_subscription(&tata2).await?;
@@ -324,11 +324,11 @@ pub mod tests {
             .await?
             .unwrap();
         assert_eq!(
-            *tata2_clone.client_filter().operation().unwrap(),
+            *tata2_clone.client_filter().unwrap().operation(),
             ClientFilterOperation::Except
         );
         assert_eq!(
-            tata2_clone.client_filter().targets(),
+            tata2_clone.client_filter().unwrap().targets(),
             &HashSet::from(["boulette".to_string(), "semoule".to_string()])
         );
 
@@ -336,9 +336,7 @@ pub mod tests {
         assert_eq!(tata2_clone.is_active_for("semoule"), false);
         assert_eq!(tata2_clone.is_active_for("boulette"), false);
 
-        let mut new_client_filter = tata2_clone.client_filter().clone();
-        new_client_filter.set_operation(None);
-        tata2_clone.set_client_filter(new_client_filter);
+        tata2_clone.set_client_filter(None);
 
         db.store_subscription(&tata2_clone).await?;
 
@@ -346,8 +344,7 @@ pub mod tests {
             .get_subscription_by_identifier(&tata.uuid_string())
             .await?
             .unwrap();
-        assert_eq!(tata2_clone_clone.client_filter().operation(), None);
-        assert_eq!(tata2_clone_clone.client_filter().targets(), &HashSet::new());
+        assert_eq!(tata2_clone_clone.client_filter(), None);
         assert_eq!(tata2_clone_clone.is_active_for("couscous"), true);
         assert_eq!(tata2_clone_clone.is_active_for("semoule"), true);
         assert_eq!(tata2_clone_clone.is_active_for("boulette"), true);

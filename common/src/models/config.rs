@@ -177,7 +177,7 @@ impl From<ClientFilterOperation> for crate::subscription::ClientFilterOperation 
 #[derive(Debug, Clone, Eq, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ClientFilter {
-    pub operation: Option<ClientFilterOperation>,
+    pub operation: ClientFilterOperation,
     #[serde(alias = "cert_subjects", alias = "princs")]
     pub targets: HashSet<String>,
 }
@@ -186,11 +186,7 @@ impl TryFrom<ClientFilter> for crate::subscription::ClientFilter {
     type Error = anyhow::Error;
 
     fn try_from(value: ClientFilter) -> std::prelude::v1::Result<Self, Self::Error> {
-        let mut filter = crate::subscription::ClientFilter::empty();
-        let operation = value.operation.map(|op| op.into());
-        filter.set_operation(operation);
-        filter.set_targets(value.targets)?;
-        Ok(filter)
+        Ok(crate::subscription::ClientFilter::new(value.operation.into(), value.targets))
     }
 }
 
@@ -296,7 +292,7 @@ impl TryFrom<Subscription> for crate::subscription::SubscriptionData {
         data.set_name(subscription.name.clone());
         data.set_query(subscription.query.clone());
         if let Some(filter) = subscription.filter {
-            data.set_client_filter(filter.try_into()?);
+            data.set_client_filter(Some(filter.try_into()?));
         }
 
         if subscription.outputs.is_empty() {
@@ -507,14 +503,12 @@ path = "/whatever/you/{ip}/want/{principal}/{ip:2}/{node}/end"
 
         expected.set_outputs(outputs);
 
-        let mut filter = crate::subscription::ClientFilter::empty();
-        filter.set_operation(Some(crate::subscription::ClientFilterOperation::Only));
         let mut targets = HashSet::new();
         targets.insert("toto@windomain.local".to_string());
         targets.insert("tutu@windomain.local".to_string());
-        filter.set_targets(targets)?;
+        let filter = crate::subscription::ClientFilter::new(crate::subscription::ClientFilterOperation::Only, targets);
 
-        expected.set_client_filter(filter);
+        expected.set_client_filter(Some(filter));
 
         // The only difference between both subscriptions should be the
         // internal version, so we set both the same value

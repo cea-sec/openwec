@@ -5,7 +5,7 @@ use std::{
     str::FromStr,
 };
 
-use anyhow::{anyhow, bail, Result};
+use anyhow::{anyhow, bail, Result, Error};
 use log::{info, warn};
 use serde::{Deserialize, Serialize};
 use strum::{AsRefStr, EnumString, VariantNames};
@@ -220,44 +220,36 @@ impl Display for ClientFilterOperation {
     }
 }
 
-impl ClientFilterOperation {
-    pub fn opt_from_str(op: &str) -> Result<Option<ClientFilterOperation>> {
+impl FromStr for ClientFilterOperation {
+    type Err = Error;
+
+    fn from_str(op: &str) -> std::result::Result<Self, Self::Err> {
         if op.eq_ignore_ascii_case("only") {
-            Ok(Some(ClientFilterOperation::Only))
-        } else if op.eq_ignore_ascii_case("except") {
-            Ok(Some(ClientFilterOperation::Except))
-        } else if op.eq_ignore_ascii_case("none") {
-            Ok(None)
-        } else {
-            bail!("Could not parse client filter operation")
+            return Ok(ClientFilterOperation::Only);
         }
+
+        if op.eq_ignore_ascii_case("except") {
+            return Ok(ClientFilterOperation::Except);
+        }
+
+        bail!("Could not parse client filter operation")
     }
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct ClientFilter {
-    operation: Option<ClientFilterOperation>,
+    operation: ClientFilterOperation,
     targets: HashSet<String>,
 }
 
 impl ClientFilter {
-    pub fn empty() -> Self {
-        ClientFilter {
-            operation: None,
-            targets: HashSet::new(),
-        }
-    }
-
-    pub fn new(operation: Option<ClientFilterOperation>, targets: HashSet<String>) -> Self {
+    pub fn new(operation: ClientFilterOperation, targets: HashSet<String>) -> Self {
         Self { operation, targets }
     }
 
-    pub fn from(operation: Option<String>, targets: Option<String>) -> Result<Self> {
+    pub fn from(operation: String, targets: Option<String>) -> Result<Self> {
         Ok(ClientFilter {
-            operation: match operation {
-                Some(op) => ClientFilterOperation::opt_from_str(&op)?,
-                None => None,
-            },
+            operation: operation.parse()?,
             targets: match targets {
                 Some(p) => HashSet::from_iter(p.split(',').map(|s| s.to_string())),
                 None => HashSet::new(),
@@ -267,9 +259,8 @@ impl ClientFilter {
 
     pub fn eval(&self, target: &str) -> bool {
         match self.operation {
-            None => true,
-            Some(ClientFilterOperation::Only) => self.targets.contains(target),
-            Some(ClientFilterOperation::Except) => !self.targets.contains(target),
+            ClientFilterOperation::Only => self.targets.contains(target),
+            ClientFilterOperation::Except => !self.targets.contains(target),
         }
     }
 
@@ -294,17 +285,11 @@ impl ClientFilter {
     }
 
     pub fn add_target(&mut self, target: &str) -> Result<()> {
-        if self.operation.is_none() {
-            bail!("Could not add a client to an unset filter")
-        }
         self.targets.insert(target.to_owned());
         Ok(())
     }
 
     pub fn delete_target(&mut self, target: &str) -> Result<()> {
-        if self.operation.is_none() {
-            bail!("Could not delete a client of an unset filter")
-        }
         if !self.targets.remove(target) {
             warn!("{} was not present in the targets set", target)
         }
@@ -312,21 +297,15 @@ impl ClientFilter {
     }
 
     pub fn set_targets(&mut self, targets: HashSet<String>) -> Result<()> {
-        if self.operation.is_none() {
-            bail!("Could not set targets of an unset filter")
-        }
         self.targets = targets;
         Ok(())
     }
 
-    pub fn operation(&self) -> Option<&ClientFilterOperation> {
-        self.operation.as_ref()
+    pub fn operation(&self) -> &ClientFilterOperation {
+        &self.operation
     }
 
-    pub fn set_operation(&mut self, operation: Option<ClientFilterOperation>) {
-        if operation.is_none() {
-            self.targets.clear();
-        }
+    pub fn set_operation(&mut self, operation: ClientFilterOperation) {
         self.operation = operation;
     }
 }
@@ -430,7 +409,7 @@ pub struct SubscriptionData {
     // Enable or disable the subscription
     enabled: bool,
     // Configure which client can see the subscription
-    client_filter: ClientFilter,
+    client_filter: Option<ClientFilter>,
     // Public parameters of the subscriptions. This structure is used
     // to compute the public subscription version sent to clients.
     parameters: SubscriptionParameters,
@@ -508,16 +487,16 @@ impl Display for SubscriptionData {
                 None => "Not configured",
             }
         )?;
-        match self.client_filter().operation() {
+        match self.client_filter() {
             None => {
                 writeln!(f, "\tClient filter: Not configured")?;
             }
-            Some(operation) => {
+            Some(filter) => {
                 writeln!(
                     f,
                     "\tClient filter: {} the following targets: {}",
-                    operation,
-                    self.client_filter().targets_to_string(),
+                    filter.operation(),
+                    filter.targets_to_string(),
                 )?;
             }
         }
@@ -542,7 +521,7 @@ impl SubscriptionData {
             revision: None,
             uri: None,
             enabled: DEFAULT_ENABLED,
-            client_filter: ClientFilter::empty(),
+            client_filter: None,
             outputs: Vec::new(),
             parameters: SubscriptionParameters {
                 name: name.to_string(),
@@ -804,11 +783,11 @@ impl SubscriptionData {
         self.enabled() && self.outputs().iter().any(|output| output.enabled())
     }
 
-    pub fn client_filter(&self) -> &ClientFilter {
-        &self.client_filter
+    pub fn client_filter(&self) -> Option<&ClientFilter> {
+        self.client_filter.as_ref()
     }
 
-    pub fn set_client_filter(&mut self, client_filter: ClientFilter) -> &mut Self {
+    pub fn set_client_filter(&mut self, client_filter: Option<ClientFilter>) -> &mut Self {
         self.client_filter = client_filter;
         self.update_internal_version();
         self
@@ -819,7 +798,11 @@ impl SubscriptionData {
             return false;
         }
 
-        self.client_filter().eval(client)
+        if let Some(client_filter) = self.client_filter() {
+            return client_filter.eval(client);
+        }
+
+        true
     }
 
     pub fn revision(&self) -> Option<&String> {
