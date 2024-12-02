@@ -102,7 +102,9 @@ The TCP driver send events in a "raw" TCP connection.
 
 The TCP connection is established when the first event has to be sent. It is kept opened as long as possible, and re-established if required. There is one TCP connection per output using TCP driver.
 
-You must provide an IP address or a hostname and a port to connect to.
+You must provide an IP address or a hostname (`host`) and a port to connect to.
+
+The TCP connection can optionally be secured using TLS (`tls_enabled`). The TCP driver verifies the server certificate against the specified certificate authorities (`tls_certificate_authorities`). The TCP driver can optionally use a client certificate `tls_certificate` (and its associated key `tls_key`) if the server requires client authentication.
 
 #### Configuration
 
@@ -110,7 +112,18 @@ You must provide an IP address or a hostname and a port to connect to.
 [[outputs]]
 driver = "Tcp"
 format = "<format>" # To replace
-config = { addr = "<hostname or IP>", port = <port>} # To replace
+# - host (required): Hostname or IP Address to send events to
+# - port (required): Tcp port to send events to
+# - tls_enabled (optional, defaults to false): wrap the TCP stream in a TLS channel.
+#       Must be set for other tls_ options to take effect
+# - tls_certificate_authorities (optional, defaults to undefined): Validate server certificate
+#       chain against these authorities. You can define multiple files or paths.
+#       All the certificates will be read and added to the trust store.
+# - tls_certificate (optional, defaults to undefined): Path to certificate in PEM format.
+#       This certificate will be presented to the server.
+# - tls_key (optional, defaults to undefined): Path to the private key corresponding to the
+#       specified certificate (PEM format).
+config = { host = "<hostname>", port = <port> } # To replace
 ```
 
 #### Command

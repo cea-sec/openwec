@@ -1,13 +1,13 @@
 use std::collections::{HashMap, HashSet};
 
 use anyhow::{bail, Context, Result};
-use log::error;
 use serde::Deserialize;
 use uuid::Uuid;
 
-use crate::{subscription::{
-    SubscriptionData, DEFAULT_OUTPUT_ENABLED,
-}, transformers::output_files_use_path::transform_files_config_to_path};
+use crate::{
+    subscription::{SubscriptionData, DEFAULT_OUTPUT_ENABLED},
+    transformers::output_files_use_path::transform_files_config_to_path,
+};
 
 #[derive(Debug, Clone, Deserialize, Eq, PartialEq)]
 #[serde(deny_unknown_fields)]
@@ -37,15 +37,43 @@ impl From<RedisConfiguration> for crate::subscription::RedisConfiguration {
 }
 
 #[derive(Debug, Clone, Deserialize, Eq, PartialEq)]
-#[serde(deny_unknown_fields)]
-struct TcpConfiguration {
-    pub addr: String,
-    pub port: u16,
+#[serde(untagged)]
+enum StringOrVecString {
+    String(String),
+    Vec(Vec<String>),
 }
 
-impl From<TcpConfiguration> for crate::subscription::TcpConfiguration {
-    fn from(value: TcpConfiguration) -> Self {
-        crate::subscription::TcpConfiguration::new(value.addr, value.port)
+#[derive(Debug, Clone, Deserialize, Eq, PartialEq)]
+#[serde(deny_unknown_fields)]
+struct TcpConfiguration {
+    // Stay compatible with old 'addr' attribute
+    #[serde(alias = "addr")]
+    pub host: String,
+    pub port: u16,
+    pub tls_enabled: Option<bool>,
+    // Accept String or Vec<String>
+    pub tls_certificate_authorities: Option<StringOrVecString>,
+    pub tls_certificate: Option<String>,
+    pub tls_key: Option<String>,
+}
+
+impl TryFrom<TcpConfiguration> for crate::subscription::TcpConfiguration {
+    type Error = anyhow::Error;
+
+    fn try_from(value: TcpConfiguration) -> std::result::Result<Self, Self::Error> {
+        crate::subscription::TcpConfiguration::new(
+            value.host.clone(),
+            value.port,
+            value.tls_enabled.unwrap_or(false),
+            match &value.tls_certificate_authorities {
+                Some(StringOrVecString::String(s)) => Vec::from([s.clone()]),
+                Some(StringOrVecString::Vec(v)) => v.clone(),
+                _ => Vec::new(),
+            },
+            value.tls_certificate.clone(),
+            value.tls_key.clone(),
+        )
+        .with_context(|| format!("Loading {:?}", value))
     }
 }
 
@@ -59,21 +87,27 @@ struct FilesConfiguration {
     pub filename: Option<String>,
 }
 
-impl From<FilesConfiguration> for crate::subscription::FilesConfiguration {
-    fn from(value: FilesConfiguration) -> Self {
+impl TryFrom<FilesConfiguration> for crate::subscription::FilesConfiguration {
+    type Error = anyhow::Error;
+
+    fn try_from(value: FilesConfiguration) -> std::result::Result<Self, Self::Error> {
         let path = match value.path {
             Some(path) => path,
-            None => {
-                match transform_files_config_to_path(&value.base, &value.split_on_addr_index, &value.append_node_name, &value.filename) {
-                    Ok(path) => path,
-                    Err(err) => {
-                        error!("Failed to import Files configuration {:?}: {:?}", value, err);
-                        String::new()
-                    }
-                }
-            }
+            None => transform_files_config_to_path(
+                &value.base,
+                &value.split_on_addr_index,
+                &value.append_node_name,
+                &value.filename,
+            )
+            .map_err(|err| {
+                anyhow::anyhow!(
+                    "Failed to import Files configuration {:?}: {:?}",
+                    value,
+                    err
+                )
+            })?,
         };
-        crate::subscription::FilesConfiguration::new(path)
+        Ok(crate::subscription::FilesConfiguration::new(path))
     }
 }
 
@@ -99,17 +133,19 @@ enum SubscriptionOutputDriver {
     UnixDatagram(UnixDatagramConfiguration),
 }
 
-impl From<SubscriptionOutputDriver> for crate::subscription::SubscriptionOutputDriver {
-    fn from(value: SubscriptionOutputDriver) -> Self {
-        match value {
+impl TryFrom<SubscriptionOutputDriver> for crate::subscription::SubscriptionOutputDriver {
+    type Error = anyhow::Error;
+
+    fn try_from(value: SubscriptionOutputDriver) -> std::result::Result<Self, Self::Error> {
+        Ok(match value {
             SubscriptionOutputDriver::Files(config) => {
-                crate::subscription::SubscriptionOutputDriver::Files(config.into())
+                crate::subscription::SubscriptionOutputDriver::Files(config.try_into()?)
             }
             SubscriptionOutputDriver::Kafka(config) => {
                 crate::subscription::SubscriptionOutputDriver::Kafka(config.into())
             }
             SubscriptionOutputDriver::Tcp(config) => {
-                crate::subscription::SubscriptionOutputDriver::Tcp(config.into())
+                crate::subscription::SubscriptionOutputDriver::Tcp(config.try_into()?)
             }
             SubscriptionOutputDriver::Redis(config) => {
                 crate::subscription::SubscriptionOutputDriver::Redis(config.into())
@@ -117,7 +153,7 @@ impl From<SubscriptionOutputDriver> for crate::subscription::SubscriptionOutputD
             SubscriptionOutputDriver::UnixDatagram(config) => {
                 crate::subscription::SubscriptionOutputDriver::UnixDatagram(config.into())
             }
-        }
+        })
     }
 }
 
@@ -130,13 +166,15 @@ struct SubscriptionOutput {
     pub enabled: Option<bool>,
 }
 
-impl From<SubscriptionOutput> for crate::subscription::SubscriptionOutput {
-    fn from(value: SubscriptionOutput) -> Self {
-        crate::subscription::SubscriptionOutput::new(
+impl TryFrom<SubscriptionOutput> for crate::subscription::SubscriptionOutput {
+    type Error = anyhow::Error;
+
+    fn try_from(value: SubscriptionOutput) -> std::result::Result<Self, Self::Error> {
+        Ok(crate::subscription::SubscriptionOutput::new(
             value.format.into(),
-            value.driver.into(),
+            value.driver.try_into()?,
             value.enabled.unwrap_or(DEFAULT_OUTPUT_ENABLED),
-        )
+        ))
     }
 }
 
@@ -145,7 +183,7 @@ enum SubscriptionOutputFormat {
     Json,
     Raw,
     RawJson,
-    Nxlog
+    Nxlog,
 }
 
 impl From<SubscriptionOutputFormat> for crate::subscription::SubscriptionOutputFormat {
@@ -153,8 +191,10 @@ impl From<SubscriptionOutputFormat> for crate::subscription::SubscriptionOutputF
         match value {
             SubscriptionOutputFormat::Json => crate::subscription::SubscriptionOutputFormat::Json,
             SubscriptionOutputFormat::Raw => crate::subscription::SubscriptionOutputFormat::Raw,
-            SubscriptionOutputFormat::RawJson => crate::subscription::SubscriptionOutputFormat::RawJson,
-            SubscriptionOutputFormat::Nxlog => crate::subscription::SubscriptionOutputFormat::Nxlog
+            SubscriptionOutputFormat::RawJson => {
+                crate::subscription::SubscriptionOutputFormat::RawJson
+            }
+            SubscriptionOutputFormat::Nxlog => crate::subscription::SubscriptionOutputFormat::Nxlog,
         }
     }
 }
@@ -303,7 +343,12 @@ impl TryFrom<Subscription> for crate::subscription::SubscriptionData {
         }
 
         for output in subscription.outputs.iter() {
-            data.add_output(output.clone().into());
+            data.add_output(output.clone().try_into().with_context(|| {
+                format!(
+                    "Loading subscription {} output {:?}",
+                    subscription.name, output
+                )
+            })?);
         }
 
         if let Some(options) = subscription.options {
@@ -391,6 +436,41 @@ enabled = true
 addr = "127.0.0.1"
 port = 8080
 
+[[outputs]]
+driver = "Tcp"
+format = "Json"
+enabled = true
+
+[outputs.config]
+host = "localhost"
+port = 8080
+tls_enabled = true
+tls_certificate_authorities = "test_path"
+
+[[outputs]]
+driver = "Tcp"
+format = "Json"
+enabled = true
+
+[outputs.config]
+host = "localhost"
+port = 8080
+tls_enabled = true
+tls_certificate_authorities = ["test_path1", "test_path2"]
+
+[[outputs]]
+driver = "Tcp"
+format = "Json"
+enabled = true
+
+[outputs.config]
+host = "localhost"
+port = 8080
+tls_enabled = true
+tls_certificate_authorities = ["test_path1", "test_path2"]
+tls_certificate = "test_cert_path"
+tls_key = "test_key_path"
+
 ## Redis output
 [[outputs]]
 driver = "Redis"
@@ -452,7 +532,7 @@ path = "/whatever/you/{ip}/want/{principal}/{ip:2}/{node}/end"
                 crate::subscription::SubscriptionOutputFormat::Json,
                 crate::subscription::SubscriptionOutputDriver::Files(
                     crate::subscription::FilesConfiguration::new(
-                        "/tmp/{ip:2}/{ip:3}/{ip}/{principal}/{node}/courgette".to_string()
+                        "/tmp/{ip:2}/{ip:3}/{ip}/{principal}/{node}/courgette".to_string(),
                     ),
                 ),
                 true,
@@ -470,7 +550,56 @@ path = "/whatever/you/{ip}/want/{principal}/{ip:2}/{node}/end"
             crate::subscription::SubscriptionOutput::new(
                 crate::subscription::SubscriptionOutputFormat::RawJson,
                 crate::subscription::SubscriptionOutputDriver::Tcp(
-                    crate::subscription::TcpConfiguration::new("127.0.0.1".to_string(), 8080),
+                    crate::subscription::TcpConfiguration::new(
+                        "127.0.0.1".to_string(),
+                        8080,
+                        false,
+                        Vec::new(),
+                        None,
+                        None,
+                    )?,
+                ),
+                true,
+            ),
+            crate::subscription::SubscriptionOutput::new(
+                crate::subscription::SubscriptionOutputFormat::Json,
+                crate::subscription::SubscriptionOutputDriver::Tcp(
+                    crate::subscription::TcpConfiguration::new(
+                        "localhost".to_string(),
+                        8080,
+                        true,
+                        vec!["test_path".to_string()],
+                        None,
+                        None,
+                    )?,
+                ),
+                true,
+            ),
+            crate::subscription::SubscriptionOutput::new(
+                crate::subscription::SubscriptionOutputFormat::Json,
+                crate::subscription::SubscriptionOutputDriver::Tcp(
+                    crate::subscription::TcpConfiguration::new(
+                        "localhost".to_string(),
+                        8080,
+                        true,
+                        vec!["test_path1".to_string(), "test_path2".to_string()],
+                        None,
+                        None,
+                    )?,
+                ),
+                true,
+            ),
+            crate::subscription::SubscriptionOutput::new(
+                crate::subscription::SubscriptionOutputFormat::Json,
+                crate::subscription::SubscriptionOutputDriver::Tcp(
+                    crate::subscription::TcpConfiguration::new(
+                        "localhost".to_string(),
+                        8080,
+                        true,
+                        vec!["test_path1".to_string(), "test_path2".to_string()],
+                        Some("test_cert_path".to_string()),
+                        Some("test_key_path".to_string()),
+                    )?,
                 ),
                 true,
             ),
@@ -497,7 +626,7 @@ path = "/whatever/you/{ip}/want/{principal}/{ip:2}/{node}/end"
                 crate::subscription::SubscriptionOutputFormat::Json,
                 crate::subscription::SubscriptionOutputDriver::Files(
                     crate::subscription::FilesConfiguration::new(
-                        "/whatever/you/{ip}/want/{principal}/{ip:2}/{node}/end".to_string()
+                        "/whatever/you/{ip}/want/{principal}/{ip:2}/{node}/end".to_string(),
                     ),
                 ),
                 true,
@@ -719,22 +848,26 @@ config = { topic = "my-kafka-topic", options = { "bootstrap.servers" = "localhos
     fn test_getting_started_conf() -> Result<()> {
         let mut data = parse(GETTING_STARTED_CONF, None)?;
 
-        let mut expected =
-            crate::subscription::SubscriptionData::new("my-test-subscription", GETTING_STARTED_QUERY);
-        expected
-            .set_uuid(crate::subscription::SubscriptionUuid(Uuid::from_str(
-                "28fcc206-1336-4e4a-b76b-18b0ab46e585",
-            )?));
+        let mut expected = crate::subscription::SubscriptionData::new(
+            "my-test-subscription",
+            GETTING_STARTED_QUERY,
+        );
+        expected.set_uuid(crate::subscription::SubscriptionUuid(Uuid::from_str(
+            "28fcc206-1336-4e4a-b76b-18b0ab46e585",
+        )?));
 
         let mut kafka_options = HashMap::new();
-        kafka_options.insert("bootstrap.servers".to_string(), "localhost:9092".to_string());
+        kafka_options.insert(
+            "bootstrap.servers".to_string(),
+            "localhost:9092".to_string(),
+        );
 
         let outputs = vec![
             crate::subscription::SubscriptionOutput::new(
                 crate::subscription::SubscriptionOutputFormat::Raw,
                 crate::subscription::SubscriptionOutputDriver::Files(
                     crate::subscription::FilesConfiguration::new(
-                        "/data/logs/{ip}/{principal}/messages".to_string()
+                        "/data/logs/{ip}/{principal}/messages".to_string(),
                     ),
                 ),
                 true,
