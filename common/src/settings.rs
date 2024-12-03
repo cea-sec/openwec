@@ -322,7 +322,7 @@ impl Cli {
 #[serde(deny_unknown_fields)]
 pub struct FilesOutput {
     // Time after which an unused file descriptor is closed
-    files_descriptor_close_timeout: Option<u64>
+    files_descriptor_close_timeout: Option<u64>,
 }
 
 impl FilesOutput {
@@ -351,7 +351,7 @@ pub struct Outputs {
     #[serde(default)]
     files: FilesOutput,
     #[serde(default)]
-    kafka: KafkaOutput
+    kafka: KafkaOutput,
 }
 
 impl Outputs {
@@ -368,6 +368,60 @@ impl Outputs {
     }
 }
 
+#[derive(Debug, Deserialize, Clone, Default)]
+#[serde(deny_unknown_fields)]
+pub struct Monitoring {
+    listen_address: String,
+    listen_port: u16,
+    http_request_duration_buckets: Option<Vec<f64>>,
+    count_input_events_per_machine: Option<bool>,
+    count_input_event_bytes_per_machine: Option<bool>,
+    count_http_request_body_network_size_per_machine: Option<bool>,
+    count_http_request_body_real_size_per_machine: Option<bool>,
+    machines_refresh_interval: Option<u64>,
+}
+
+impl Monitoring {
+    pub fn listen_address(&self) -> &str {
+        &self.listen_address
+    }
+
+    pub fn listen_port(&self) -> u16 {
+        self.listen_port
+    }
+
+    pub fn http_request_duration_buckets(&self) -> &[f64] {
+        match &self.http_request_duration_buckets {
+            Some(bucket) => bucket,
+            None => &[
+                0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0,
+            ],
+        }
+    }
+
+    pub fn count_input_events_per_machine(&self) -> bool {
+        self.count_input_events_per_machine.unwrap_or(false)
+    }
+
+    pub fn count_input_event_bytes_per_machine(&self) -> bool {
+        self.count_input_event_bytes_per_machine.unwrap_or(false)
+    }
+
+    pub fn count_http_request_body_network_size_per_machine(&self) -> bool {
+        self.count_http_request_body_network_size_per_machine
+            .unwrap_or(false)
+    }
+
+    pub fn count_http_request_body_real_size_per_machine(&self) -> bool {
+        self.count_http_request_body_real_size_per_machine
+            .unwrap_or(false)
+    }
+    
+    pub fn machines_refresh_interval(&self) -> u64 {
+        self.machines_refresh_interval.unwrap_or(30)
+    }
+}
+
 #[derive(Debug, Deserialize, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct Settings {
@@ -381,6 +435,8 @@ pub struct Settings {
     cli: Cli,
     #[serde(default)]
     outputs: Outputs,
+    #[serde(default)]
+    monitoring: Option<Monitoring>,
 }
 
 impl std::str::FromStr for Settings {
@@ -421,6 +477,10 @@ impl Settings {
 
     pub fn outputs(&self) -> &Outputs {
         &self.outputs
+    }
+
+    pub fn monitoring(&self) -> Option<&Monitoring> {
+        self.monitoring.as_ref()
     }
 }
 
@@ -484,9 +544,12 @@ mod tests {
         assert!(s.logging().verbosity().is_none());
         assert!(s.logging().access_logs().is_none());
         assert_eq!(s.logging().server_logs(), LoggingType::Stderr);
+
         assert_eq!(s.server().tcp_keepalive_time(), 3600);
         assert_eq!(s.server().tcp_keepalive_intvl().unwrap(), 1);
         assert_eq!(s.server().tcp_keepalive_probes().unwrap(), 10);
+
+        assert!(s.monitoring().is_none());
     }
 
     const CONFIG_TLS_POSTGRES: &str = r#"
@@ -513,6 +576,10 @@ mod tests {
         server_certificate = "/etc/server_certificate.pem"
         server_private_key = "/etc/server_private_key.pem"
         ca_certificate = "/etc/ca_certificate.pem"
+
+        [monitoring]
+        listen_address = "127.0.0.1"
+        listen_port = 9090
     "#;
 
     #[test]
@@ -555,13 +622,49 @@ mod tests {
         assert_eq!(s.logging().server_logs(), LoggingType::Stdout);
         assert_eq!(s.logging().server_logs_pattern().unwrap(), "toto");
         assert_eq!(s.logging().access_logs_pattern(), "tutu");
+
         assert_eq!(s.server().tcp_keepalive_time(), 7200);
         assert!(s.server().tcp_keepalive_intvl().is_none());
         assert!(s.server().tcp_keepalive_probes().is_none());
+
         assert_eq!(s.cli().read_only_subscriptions(), false);
+
         assert_eq!(s.outputs().garbage_collect_interval(), 600);
         assert_eq!(s.outputs().files().files_descriptor_close_timeout(), 600);
         assert!(s.outputs().kafka().options().is_empty());
+
+        assert!(s.monitoring().is_some());
+        assert_eq!(s.monitoring().unwrap().listen_address(), "127.0.0.1");
+        assert_eq!(s.monitoring().unwrap().listen_port(), 9090);
+        assert_eq!(
+            s.monitoring()
+                .unwrap()
+                .count_input_event_bytes_per_machine(),
+            false
+        );
+        assert_eq!(
+            s.monitoring()
+                .unwrap()
+                .count_http_request_body_network_size_per_machine(),
+            false
+        );
+        assert_eq!(
+            s.monitoring()
+                .unwrap()
+                .count_http_request_body_real_size_per_machine(),
+            false
+        );
+        assert_eq!(
+            s.monitoring().unwrap().count_input_events_per_machine(),
+            false
+        );
+        assert_eq!(
+            s.monitoring().unwrap().http_request_duration_buckets(),
+            &[0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0,]
+        );
+        assert_eq!(
+            s.monitoring().unwrap().machines_refresh_interval(), 30
+        );
     }
 
     const CONFIG_TLS_POSTGRES_WITH_CLI: &str = r#"
@@ -590,12 +693,56 @@ mod tests {
 
         [cli]
         read_only_subscriptions = true
+
+        [monitoring]
+        listen_address = "127.0.0.1"
+        listen_port = 9090
+        http_request_duration_buckets = [0.0005, 0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0]
+        count_input_event_bytes_per_machine = true
+        count_http_request_body_network_size_per_machine = true
+        count_http_request_body_real_size_per_machine = true
+        count_input_events_per_machine = true
+        machines_refresh_interval = 10
     "#;
 
     #[test]
     fn test_settings_tls_postgres_with_cli() {
         let s = Settings::from_str(CONFIG_TLS_POSTGRES_WITH_CLI).unwrap();
         assert_eq!(s.cli().read_only_subscriptions(), true);
+
+        assert!(s.monitoring().is_some());
+        assert_eq!(s.monitoring().unwrap().listen_address(), "127.0.0.1");
+        assert_eq!(s.monitoring().unwrap().listen_port(), 9090);
+        assert_eq!(
+            s.monitoring()
+                .unwrap()
+                .count_input_event_bytes_per_machine(),
+            true
+        );
+        assert_eq!(
+            s.monitoring()
+                .unwrap()
+                .count_http_request_body_network_size_per_machine(),
+            true
+        );
+        assert_eq!(
+            s.monitoring()
+                .unwrap()
+                .count_http_request_body_real_size_per_machine(),
+            true
+        );
+        assert_eq!(
+            s.monitoring().unwrap().count_input_events_per_machine(),
+            true
+        );
+        assert_eq!(
+            s.monitoring().unwrap().http_request_duration_buckets(),
+            &[0.0005, 0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0]
+        );
+        assert_eq!(
+            s.monitoring().unwrap().machines_refresh_interval(),
+            10
+        );
     }
 
     const CONFIG_TLS_POSTGRES_WITH_OUTPUTS: &str = r#"
