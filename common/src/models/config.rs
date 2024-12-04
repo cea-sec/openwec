@@ -218,6 +218,10 @@ impl From<ClientFilterOperation> for crate::subscription::ClientFilterOperation 
 #[serde(deny_unknown_fields)]
 struct ClientFilter {
     pub operation: ClientFilterOperation,
+    #[serde(rename = "type", default)]
+    pub kind: crate::subscription::ClientFilterType,
+    #[serde(default)]
+    pub flags: crate::subscription::ClientFilterFlags,
     #[serde(alias = "cert_subjects", alias = "princs")]
     pub targets: HashSet<String>,
 }
@@ -226,7 +230,7 @@ impl TryFrom<ClientFilter> for crate::subscription::ClientFilter {
     type Error = anyhow::Error;
 
     fn try_from(value: ClientFilter) -> std::prelude::v1::Result<Self, Self::Error> {
-        Ok(crate::subscription::ClientFilter::new(value.operation.into(), value.targets))
+        crate::subscription::ClientFilter::try_new(value.operation.into(), value.kind, value.flags, value.targets)
     }
 }
 
@@ -635,7 +639,9 @@ path = "/whatever/you/{ip}/want/{principal}/{ip:2}/{node}/end"
         let mut targets = HashSet::new();
         targets.insert("toto@windomain.local".to_string());
         targets.insert("tutu@windomain.local".to_string());
-        let filter = crate::subscription::ClientFilter::new(crate::subscription::ClientFilterOperation::Only, targets);
+        let kind = crate::subscription::ClientFilterType::KerberosPrinc;
+        let flags = crate::subscription::ClientFilterFlags::empty();
+        let filter = crate::subscription::ClientFilter::try_new(crate::subscription::ClientFilterOperation::Only, kind, flags, targets)?;
 
         expected.set_client_filter(Some(filter));
 

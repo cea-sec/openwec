@@ -216,7 +216,11 @@ fn row_to_subscription(row: &Row) -> Result<SubscriptionData> {
     let client_filter_op: Option<String> = row.try_get("client_filter_op")?;
 
     let client_filter = match client_filter_op {
-        Some(op) => Some(ClientFilter::from(op, row.try_get("client_filter_value")?)?),
+        Some(op) =>  {
+            let client_filter_type: Option<_> = row.try_get("client_filter_type").unwrap();
+            let client_filter_type = client_filter_type.unwrap_or("KerberosPrinc".to_owned());
+            Some(ClientFilter::from(op, client_filter_type, row.try_get("client_filter_flags")?, row.try_get("client_filter_value")?)?)
+        },
         None => None
     };
 
@@ -628,6 +632,8 @@ impl Database for PostgresDatabase {
 
         let max_envelope_size: i32 = subscription.max_envelope_size().try_into()?;
         let client_filter_op: Option<String> = subscription.client_filter().map(|f| f.operation().to_string());
+        let client_filter_type = subscription.client_filter().map(|f| f.kind().to_string());
+        let client_filter_flags = subscription.client_filter().map(|f| f.flags().to_string());
         let client_filter_value = subscription.client_filter().and_then(|f| f.targets_to_opt_string());
 
         let count = self
@@ -638,9 +644,9 @@ impl Database for PostgresDatabase {
                 r#"INSERT INTO subscriptions (uuid, version, revision, name, uri, query,
                     heartbeat_interval, connection_retry_count, connection_retry_interval,
                     max_time, max_elements, max_envelope_size, enabled, read_existing_events, content_format,
-                    ignore_channel_error, client_filter_op, client_filter_value, outputs, locale,
+                    ignore_channel_error, client_filter_op, client_filter_type, client_filter_flags, client_filter_value, outputs, locale,
                     data_locale)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
                     ON CONFLICT (uuid) DO UPDATE SET
                         version = excluded.version,
                         revision = excluded.revision,
@@ -658,6 +664,8 @@ impl Database for PostgresDatabase {
                         content_format = excluded.content_format,
                         ignore_channel_error = excluded.ignore_channel_error,
                         client_filter_op = excluded.client_filter_op,
+                        client_filter_type = excluded.client_filter_type,
+                        client_filter_flags = excluded.client_filter_flags,
                         client_filter_value = excluded.client_filter_value,
                         outputs = excluded.outputs,
                         locale = excluded.locale,
@@ -680,6 +688,8 @@ impl Database for PostgresDatabase {
                     &subscription.content_format().to_string(),
                     &subscription.ignore_channel_error(),
                     &client_filter_op,
+                    &client_filter_type,
+                    &client_filter_flags,
                     &client_filter_value,
                     &serde_json::to_string(subscription.outputs())?.as_str(),
                     &subscription.locale(),

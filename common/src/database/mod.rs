@@ -170,7 +170,7 @@ pub mod tests {
         assert_eq!(toto.ignore_channel_error(), DEFAULT_IGNORE_CHANNEL_ERROR);
         assert_eq!(toto.client_filter(), None);
         assert_eq!(toto.is_active(), false);
-        assert_eq!(toto.is_active_for("couscous"), false);
+        assert_eq!(toto.is_active_for("couscous", None), false);
         assert_eq!(toto.revision(), None);
         assert_eq!(toto.data_locale(), None);
         assert_eq!(toto.locale(), None);
@@ -196,6 +196,8 @@ pub mod tests {
             .set_ignore_channel_error(false)
             .set_client_filter(Some(ClientFilter::from(
                 "Only".to_string(),
+                "KerberosPrinc".to_string(),
+                None,
                 Some("couscous,boulette".to_string()),
             )?))
             .set_outputs(vec![
@@ -232,7 +234,7 @@ pub mod tests {
         );
         assert_eq!(
             tata.client_filter().unwrap().targets(),
-            &HashSet::from(["couscous".to_string(), "boulette".to_string()])
+            HashSet::from(["couscous", "boulette"])
         );
 
         assert_eq!(
@@ -251,10 +253,10 @@ pub mod tests {
             ],
         );
         assert_eq!(tata.is_active(), true);
-        assert_eq!(tata.is_active_for("couscous"), true);
-        // Filter is case-sensitive
-        assert_eq!(tata.is_active_for("Couscous"), false);
-        assert_eq!(tata.is_active_for("semoule"), false);
+        assert_eq!(tata.is_active_for("couscous", None), true);
+        // Filter is case-insensitive
+        assert_eq!(tata.is_active_for("Couscous", None), true);
+        assert_eq!(tata.is_active_for("semoule", None), false);
         assert_eq!(tata.revision(), Some("1472".to_string()).as_ref());
         assert_eq!(tata.locale(), Some("fr-FR".to_string()).as_ref());
         assert_eq!(tata.data_locale(), Some("en-US".to_string()).as_ref());
@@ -308,14 +310,14 @@ pub mod tests {
         );
         assert_eq!(
             tata2.client_filter().unwrap().targets(),
-            &HashSet::from([
-                "couscous".to_string(),
-                "boulette".to_string(),
-                "semoule".to_string()
+            HashSet::from([
+                "couscous",
+                "boulette",
+                "semoule"
             ])
         );
-        assert_eq!(tata2.is_active_for("couscous"), true);
-        assert_eq!(tata2.is_active_for("semoule"), true);
+        assert_eq!(tata2.is_active_for("couscous", None), true);
+        assert_eq!(tata2.is_active_for("semoule", None), true);
         assert_eq!(tata2.revision(), Some("1890".to_string()).as_ref());
         assert_eq!(tata2.locale(), Some("fr-FR".to_string()).as_ref()); // Unchanged
         assert_eq!(tata2.data_locale(), Some("fr-FR".to_string()).as_ref());
@@ -342,12 +344,12 @@ pub mod tests {
         );
         assert_eq!(
             tata2_clone.client_filter().unwrap().targets(),
-            &HashSet::from(["boulette".to_string(), "semoule".to_string()])
+            HashSet::from(["boulette", "semoule"])
         );
 
-        assert_eq!(tata2_clone.is_active_for("couscous"), true);
-        assert_eq!(tata2_clone.is_active_for("semoule"), false);
-        assert_eq!(tata2_clone.is_active_for("boulette"), false);
+        assert_eq!(tata2_clone.is_active_for("couscous", None), true);
+        assert_eq!(tata2_clone.is_active_for("semoule", None), false);
+        assert_eq!(tata2_clone.is_active_for("boulette", None), false);
 
         tata2_clone.set_client_filter(None);
 
@@ -358,9 +360,9 @@ pub mod tests {
             .await?
             .unwrap();
         assert_eq!(tata2_clone_clone.client_filter(), None);
-        assert_eq!(tata2_clone_clone.is_active_for("couscous"), true);
-        assert_eq!(tata2_clone_clone.is_active_for("semoule"), true);
-        assert_eq!(tata2_clone_clone.is_active_for("boulette"), true);
+        assert_eq!(tata2_clone_clone.is_active_for("couscous", None), true);
+        assert_eq!(tata2_clone_clone.is_active_for("semoule", None), true);
+        assert_eq!(tata2_clone_clone.is_active_for("boulette", None), true);
 
         db.delete_subscription(&toto3.uuid_string()).await?;
         ensure!(
