@@ -9,8 +9,10 @@ use std::{
 use anyhow::{anyhow, bail, Result, Error};
 use log::{info, warn};
 use serde::{Deserialize, Serialize};
-use strum::{AsRefStr, EnumString, IntoStaticStr, VariantNames};
+use strum::{Display, AsRefStr, EnumString, IntoStaticStr, VariantNames};
 use uuid::Uuid;
+use bitflags::bitflags;
+use glob::Pattern;
 
 use crate::utils::VersionHasher;
 
@@ -296,71 +298,214 @@ impl FromStr for ClientFilterOperation {
     }
 }
 
+#[derive(Default, Debug, Clone, Eq, PartialEq, Serialize, Deserialize, Display, AsRefStr, EnumString)]
+#[strum(ascii_case_insensitive)]
+pub enum ClientFilterType {
+    #[default]
+    KerberosPrinc,
+    TLSCertSubject,
+    MachineID,
+}
+
+bitflags! {
+    #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
+    pub struct ClientFilterFlags: u32 {
+        const CaseInsensitive = 1 << 0;
+        const GlobPattern = 1 << 1;
+    }
+}
+
+impl Display for ClientFilterFlags {
+    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+        bitflags::parser::to_writer_strict(self, f)
+    }
+}
+
+impl Default for ClientFilterFlags {
+    fn default() -> Self {
+        Self::empty()
+    }
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+enum ClientFilterTargets {
+    Exact(HashSet<String>),
+    Glob(Vec<Pattern>)
+}
+
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct ClientFilter {
     operation: ClientFilterOperation,
-    targets: HashSet<String>,
+    kind: ClientFilterType,
+    flags: ClientFilterFlags,
+    targets: ClientFilterTargets,
 }
 
 impl ClientFilter {
-    pub fn new(operation: ClientFilterOperation, targets: HashSet<String>) -> Self {
-        Self { operation, targets }
-    }
-
-    pub fn from(operation: String, targets: Option<String>) -> Result<Self> {
-        Ok(ClientFilter {
-            operation: operation.parse()?,
-            targets: match targets {
-                Some(p) => HashSet::from_iter(p.split(',').map(|s| s.to_string())),
-                None => HashSet::new(),
-            },
-        })
-    }
-
-    pub fn eval(&self, target: &str) -> bool {
-        match self.operation {
-            ClientFilterOperation::Only => self.targets.contains(target),
-            ClientFilterOperation::Except => !self.targets.contains(target),
+    pub fn new_legacy(operation: ClientFilterOperation, targets: HashSet<String>) -> Self {
+        Self {
+            operation,
+            kind: ClientFilterType::KerberosPrinc,
+            flags: ClientFilterFlags::empty(),
+            targets: ClientFilterTargets::Exact(targets),
         }
     }
 
-    pub fn targets(&self) -> &HashSet<String> {
-        &self.targets
+    pub fn try_new(operation: ClientFilterOperation, kind: ClientFilterType, flags: ClientFilterFlags, mut targets: HashSet<String>) -> Result<Self> {
+        let targets = if flags.contains(ClientFilterFlags::GlobPattern) {
+            ClientFilterTargets::Glob(targets.iter().map(|t| Pattern::new(t.as_str())).collect::<Result<Vec<Pattern>, _>>()?)
+        } else {
+            if flags.contains(ClientFilterFlags::CaseInsensitive) {
+                targets = targets.iter().map(|t| t.to_lowercase()).collect();
+            }
+            ClientFilterTargets::Exact(targets)
+        };
+
+        Ok(Self { operation, kind, flags, targets })
+    }
+
+    pub fn from(operation: String, kind: String, flags: Option<String>, targets: Option<String>) -> Result<Self> {
+        let flags: ClientFilterFlags = bitflags::parser::from_str_strict(flags.unwrap_or_default().as_str()).map_err(|e| anyhow!("{:?}", e))?;
+
+        let mut clients = if flags.contains(ClientFilterFlags::GlobPattern) {
+            ClientFilterTargets::Glob(Vec::new())
+        } else {
+            ClientFilterTargets::Exact(HashSet::new())
+        };
+
+        if let Some(targets) = targets {
+            let targets = targets.split(',');
+
+            clients = if flags.contains(ClientFilterFlags::GlobPattern) {
+                ClientFilterTargets::Glob(targets.map(Pattern::new).collect::<Result<Vec<Pattern>, _>>()?)
+            } else {
+                let targets = if flags.contains(ClientFilterFlags::CaseInsensitive) {
+                    HashSet::from_iter(targets.map(|t| t.to_lowercase()))
+                } else {
+                    HashSet::from_iter(targets.map(|s| s.to_string()))
+                };
+
+                ClientFilterTargets::Exact(targets)
+            };
+        }
+
+        Ok(ClientFilter {
+            operation: operation.parse()?, kind: kind.parse()?, flags, targets: clients
+        })
+    }
+
+    fn matches(&self, target: &str) -> bool {
+        match &self.targets {
+            ClientFilterTargets::Exact(targets) => {
+                if self.flags.contains(ClientFilterFlags::CaseInsensitive) {
+                    return targets.contains(&target.to_lowercase());
+                }
+
+                targets.contains(target)
+            },
+            ClientFilterTargets::Glob(targets) => {
+                let mut match_opts = glob::MatchOptions::new();
+                match_opts.case_sensitive = !self.flags.contains(ClientFilterFlags::CaseInsensitive);
+
+                for p in targets {
+                    if p.matches_with(target, match_opts) {
+                        return true;
+                    }
+                }
+
+                false
+            }
+        }
+    }
+
+    pub fn eval(&self, client: &str, machine_id: Option<&str>) -> bool {
+        let target = match self.kind {
+            ClientFilterType::MachineID => {
+                let Some(machine_id) = machine_id else {
+                    return false;
+                };
+
+                machine_id
+            }
+            _ => client,
+        };
+
+        match self.operation {
+            ClientFilterOperation::Only => self.matches(target),
+            ClientFilterOperation::Except => !self.matches(target),
+        }
+    }
+
+    pub fn targets(&self) -> HashSet<&str> {
+        match &self.targets {
+            ClientFilterTargets::Exact(targets) => targets.iter().map(|t| t.as_str()).collect(),
+            ClientFilterTargets::Glob(targets) => targets.iter().map(|t| t.as_str()).collect(),
+        }
     }
 
     pub fn targets_to_string(&self) -> String {
         self.targets()
             .iter()
             .cloned()
+            .map(String::from)
             .collect::<Vec<String>>()
             .join(",")
     }
 
     pub fn targets_to_opt_string(&self) -> Option<String> {
-        if self.targets().is_empty() {
-            None
-        } else {
-            Some(self.targets_to_string())
+        match &self.targets {
+            ClientFilterTargets::Exact(targets) => {
+                if targets.is_empty() {
+                    return None;
+                }
+            },
+            ClientFilterTargets::Glob(targets) => {
+                if targets.is_empty() {
+                    return None;
+                }
+            }
         }
+
+        Some(self.targets_to_string())
     }
 
     #[deprecated(since = "0.4.0", note = "This should be used only by the legacy CLI interface. Use ClientFilter constructors instead")]
     pub fn add_target(&mut self, target: &str) -> Result<()> {
-        self.targets.insert(target.to_owned());
+        match &mut self.targets {
+            ClientFilterTargets::Exact(targets) => { targets.insert(target.to_owned()); },
+            ClientFilterTargets::Glob(targets) => { targets.push(Pattern::new(target)?); },
+        }
         Ok(())
     }
 
     #[deprecated(since = "0.4.0", note = "This should be used only by the legacy CLI interface. Use ClientFilter constructors instead")]
     pub fn delete_target(&mut self, target: &str) -> Result<()> {
-        if !self.targets.remove(target) {
-            warn!("{} was not present in the targets set", target)
+        match &mut self.targets {
+            ClientFilterTargets::Exact(targets) => {
+                if !targets.remove(target) {
+                    warn!("{} was not present in the targets set", target)
+                }
+            },
+            ClientFilterTargets::Glob(targets) => {
+                let Some(i) = targets.iter().position(|p| p.as_str() == target) else {
+                    warn!("{} was not present in the targets set", target);
+                    return Ok(());
+                };
+
+                targets.remove(i);
+            },
         }
+
         Ok(())
     }
 
     #[deprecated(since = "0.4.0", note = "This should be used only by the legacy CLI interface. Use ClientFilter constructors instead")]
     pub fn set_targets(&mut self, targets: HashSet<String>) -> Result<()> {
-        self.targets = targets;
+        match &mut self.targets {
+            ClientFilterTargets::Exact(t) => *t = targets,
+            ClientFilterTargets::Glob(t) => *t = targets.iter().map(|t| Pattern::new(t)).collect::<Result<Vec<Pattern>, _>>()?,
+        }
+
         Ok(())
     }
 
@@ -371,6 +516,14 @@ impl ClientFilter {
     #[deprecated(since = "0.4.0", note = "This should be used only by the legacy CLI interface. Use ClientFilter constructors instead")]
     pub fn set_operation(&mut self, operation: ClientFilterOperation) {
         self.operation = operation;
+    }
+
+    pub fn kind(&self) -> &ClientFilterType {
+        &self.kind
+    }
+
+    pub fn flags(&self) -> &ClientFilterFlags {
+        &self.flags
     }
 }
 
@@ -857,13 +1010,13 @@ impl SubscriptionData {
         self
     }
 
-    pub fn is_active_for(&self, client: &str) -> bool {
+    pub fn is_active_for(&self, client: &str, machine_id: Option<&str>) -> bool {
         if !self.is_active() {
             return false;
         }
 
         if let Some(client_filter) = self.client_filter() {
-            return client_filter.eval(client);
+            return client_filter.eval(client, machine_id);
         }
 
         true
