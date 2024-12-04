@@ -202,7 +202,7 @@ mod v1 {
                 return None;
             };
 
-            Some(crate::subscription::ClientFilter::new(op.into(), self.princs))
+            Some(crate::subscription::ClientFilter::new_legacy(op.into(), self.princs))
         }
     }
 
@@ -549,7 +549,7 @@ pub mod v2 {
                 return None;
             };
 
-            Some(crate::subscription::ClientFilter::new(op.into(), self.princs))
+            Some(crate::subscription::ClientFilter::new_legacy(op.into(), self.princs))
         }
     }
 
@@ -557,7 +557,7 @@ pub mod v2 {
         fn from(value: Option<crate::subscription::ClientFilter>) -> Self {
             Self {
                 operation: value.as_ref().and_then(|f| Some(f.operation().clone().into())),
-                princs: value.map_or(HashSet::new(), |f| f.targets().clone()),
+                princs: value.map_or(HashSet::new(), |f| f.targets().iter().cloned().map(String::from).collect()),
             }
         }
     }
@@ -712,10 +712,12 @@ mod tests {
             .set_max_elements(Some(100))
             .set_read_existing_events(false)
             .set_uri(Some("toto".to_string()))
-            .set_client_filter(Some(crate::subscription::ClientFilter::new(
+            .set_client_filter(Some(crate::subscription::ClientFilter::try_new(
                 crate::subscription::ClientFilterOperation::Except,
+                crate::subscription::ClientFilterType::KerberosPrinc,
+                crate::subscription::ClientFilterFlags::CaseSensitive,
                 targets,
-            )))
+            )?))
             .set_outputs(vec![crate::subscription::SubscriptionOutput::new(
                 crate::subscription::SubscriptionOutputFormat::Json,
                 crate::subscription::SubscriptionOutputDriver::Tcp(

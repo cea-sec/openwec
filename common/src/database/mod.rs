@@ -196,6 +196,8 @@ pub mod tests {
             .set_ignore_channel_error(false)
             .set_client_filter(Some(ClientFilter::from(
                 "Only".to_string(),
+                "KerberosPrinc".to_string(),
+                None,
                 Some("couscous,boulette".to_string()),
             )?))
             .set_outputs(vec![
@@ -232,7 +234,7 @@ pub mod tests {
         );
         assert_eq!(
             tata.client_filter().unwrap().targets(),
-            &HashSet::from(["couscous".to_string(), "boulette".to_string()])
+            HashSet::from(["couscous", "boulette"])
         );
 
         assert_eq!(
@@ -298,10 +300,10 @@ pub mod tests {
         );
         assert_eq!(
             tata2.client_filter().unwrap().targets(),
-            &HashSet::from([
-                "couscous".to_string(),
-                "boulette".to_string(),
-                "semoule".to_string()
+            HashSet::from([
+                "couscous",
+                "boulette",
+                "semoule"
             ])
         );
         assert_eq!(tata2.is_active_for("couscous"), true);
@@ -329,7 +331,7 @@ pub mod tests {
         );
         assert_eq!(
             tata2_clone.client_filter().unwrap().targets(),
-            &HashSet::from(["boulette".to_string(), "semoule".to_string()])
+            HashSet::from(["boulette", "semoule"])
         );
 
         assert_eq!(tata2_clone.is_active_for("couscous"), true);

@@ -617,7 +617,7 @@ async fn edit_filter(subscription: &mut SubscriptionData, matches: &ArgMatches) 
             warn!("'{}' filter has been set without principals making this subscription apply to nothing.", op)
         }
 
-        subscription.set_client_filter(Some(ClientFilter::new(op, princs)));
+        subscription.set_client_filter(Some(ClientFilter::new_legacy(op, princs)));
         return Ok(());
     }
 

@@ -17,6 +17,10 @@ impl SQLiteMigration for AlterClientFilterInSubscriptionsTable {
             .map_err(|err| anyhow!("SQLiteError: {}", err))?;
         conn.execute("ALTER TABLE subscriptions RENAME COLUMN princs_filter_value TO client_filter_value", [])
             .map_err(|err| anyhow!("SQLiteError: {}", err))?;
+        conn.execute("ALTER TABLE subscriptions ADD COLUMN client_filter_type TEXT", [])
+            .map_err(|err| anyhow!("SQLiteError: {}", err))?;
+        conn.execute("ALTER TABLE subscriptions ADD COLUMN client_filter_flags TEXT", [])
+            .map_err(|err| anyhow!("SQLiteError: {}", err))?;
         Ok(())
     }
 
@@ -24,6 +28,10 @@ impl SQLiteMigration for AlterClientFilterInSubscriptionsTable {
         conn.execute("ALTER TABLE subscriptions RENAME COLUMN client_filter_op TO princs_filter_op", [])
             .map_err(|err| anyhow!("SQLiteError: {}", err))?;
         conn.execute("ALTER TABLE subscriptions RENAME COLUMN client_filter_value TO princs_filter_value", [])
+            .map_err(|err| anyhow!("SQLiteError: {}", err))?;
+        conn.execute("ALTER TABLE subscriptions DROP COLUMN client_filter_type", [])
+            .map_err(|err| anyhow!("SQLiteError: {}", err))?;
+        conn.execute("ALTER TABLE subscriptions DROP COLUMN client_filter_flags", [])
             .map_err(|err| anyhow!("SQLiteError: {}", err))?;
         Ok(())
     }
