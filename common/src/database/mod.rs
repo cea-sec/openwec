@@ -7,6 +7,7 @@ use crate::{
     bookmark::BookmarkData,
     database::postgres::PostgresDatabase,
     database::sqlite::SQLiteDatabase,
+    database::redis::RedisDatabase,
     heartbeat::{HeartbeatData, HeartbeatsCache},
     settings::Settings,
     subscription::{
@@ -21,6 +22,7 @@ use self::schema::{Migration, Version};
 pub mod postgres;
 pub mod schema;
 pub mod sqlite;
+pub mod redis;
 
 pub type Db = Arc<dyn Database + Send + Sync>;
 
