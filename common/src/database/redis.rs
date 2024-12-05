@@ -619,3 +619,176 @@ impl Database for RedisDatabase {
         Ok(result)
     }
 }
+
+
+#[cfg(test)]
+mod tests {
+
+    use tempfile::TempPath;
+    use std::env;
+
+    use crate::{
+        database::schema::{self, Migrator},
+        migration,
+    };
+
+    use super::*;
+    use std::{fs, future::IntoFuture, net::Shutdown, process::{Child, Command, Stdio}};
+    use std::path::PathBuf;
+    use tempfile::NamedTempFile;
+    use std::io::{self, BufRead, Write};
+    use std::fs::{File, OpenOptions};
+    use std::time::Duration;
+    use tokio::{net::TcpListener, sync::{oneshot, Notify}, time::sleep};
+    use tokio::sync::Mutex;
+    use std::net::SocketAddr;
+    use serial_test::serial;
+
+    #[allow(unused)]
+    async fn cleanup_db(db: &RedisDatabase) -> Result<()> {
+        let mut con = db.pool.get().await?;
+        let _ : () = deadpool_redis::redis::cmd("FLUSHALL").query_async(&mut con).await?;
+        Ok(())
+    }
+
+    async fn drop_migrations_table(db: &RedisDatabase) -> Result<()> {
+        let mut conn = db.pool.get().await.context("Failed to get Redis connection")?;
+        let key = MIGRATION_TABLE_NAME;
+        let _:() = conn.del(key).await?;
+        Ok(())
+    }
+
+    async fn redis_db() -> Result<RedisDatabase> {
+        let connection_string = env::var("REDIS_URL").unwrap_or("redis://127.0.0.1:6379".to_string());
+        RedisDatabase::new(connection_string.as_str()).await
+    }
+
+    async fn db_with_migrations() -> Result<Arc<dyn Database>> {
+        let mut db = redis_db().await?;
+        schema::redis::register_migrations(&mut db);
+        drop_migrations_table(&db).await?;
+        Ok(Arc::new(db))
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_open_and_close() -> Result<()> {
+            redis_db()
+            .await
+            .expect("Could not connect to database");
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_bookmarks() -> Result<()> {
+        crate::database::tests::test_bookmarks(db_with_migrations().await?).await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_heartbeats() -> Result<()> {
+        crate::database::tests::test_heartbeats(db_with_migrations().await?).await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_heartbeats_cache() -> Result<()> {
+        crate::database::tests::test_heartbeats_cache(db_with_migrations().await?).await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_subscriptions() -> Result<()> {
+        crate::database::tests::test_subscriptions(db_with_migrations().await?).await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_stats() -> Result<()> {
+        crate::database::tests::test_stats_and_machines(db_with_migrations().await?).await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_current_version_empty() -> Result<()> {
+        let db = db_with_migrations().await?;
+        let res = db.current_version().await?;
+        assert_eq!(res, None);
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_current_version() -> Result<()> {
+        let db = redis_db().await?;
+        let mut con = db.pool.get().await?;
+        let members = vec![(1.0, 1),(2.0, 2),(3.0, 3)];
+        let _:() = con.zadd_multiple(MIGRATION_TABLE_NAME, &members).await?;
+        let res = db.current_version().await?;
+        assert_eq!(res, Some(3));
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_migrated_versions() -> Result<()> {
+        let db = redis_db().await?;
+        let mut con = db.pool.get().await?;
+        let members = vec![(1.0, 1),(2.0, 2),(3.0, 3)];
+        let _:() = con.zadd_multiple(MIGRATION_TABLE_NAME, &members).await?;
+        let res = db.migrated_versions().await?;
+        assert_eq!(res, BTreeSet::<i64>::from_iter(vec![1,2,3]));
+        Ok(())
+    }
+
+    struct CreateUsers;
+    migration!(CreateUsers, 1, "create users table");
+
+    #[async_trait]
+    impl RedisMigration for CreateUsers {
+        async fn up(&self, conn: &mut Connection) -> Result<()> {
+            let key = format!("{}", RedisDomain::Users);
+            let _:() = conn.set(key, "").await?;
+            Ok(())
+        }
+
+        async fn down(&self, conn: &mut Connection) -> Result<()> {
+            let key = format!("{}", RedisDomain::Users);
+            let  _:() = conn.del(key).await?;
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_register() -> Result<()> {
+        let mut db = redis_db()
+            .await
+            .expect("Could not connect to database");
+
+        drop_migrations_table(&db).await?;
+        db.register_migration(Arc::new(CreateUsers));
+
+        db.setup_schema().await.expect("Could not setup schema");
+
+        let db_arc = Arc::new(db);
+
+        let migrator = Migrator::new(db_arc.clone());
+
+        migrator.up(None, false).await.unwrap();
+
+        assert_eq!(db_arc.current_version().await.unwrap(), Some(1));
+
+        migrator.down(None, false).await.unwrap();
+
+        assert_eq!(db_arc.current_version().await.unwrap(), None);
+        Ok(())
+    }
+
+}
