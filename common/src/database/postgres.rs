@@ -213,10 +213,10 @@ fn row_to_subscription(row: &Row) -> Result<SubscriptionData> {
     let max_time: i32 = row.try_get("max_time")?;
     let max_elements: Option<i32> = row.try_get("max_elements")?;
 
-    let client_filter_op: Option<String> = row.try_get("princs_filter_op")?;
+    let client_filter_op: Option<String> = row.try_get("client_filter_op")?;
 
     let client_filter = match client_filter_op {
-        Some(op) => Some(ClientFilter::from(op, row.try_get("princs_filter_value")?)?),
+        Some(op) => Some(ClientFilter::from(op, row.try_get("client_filter_value")?)?),
         None => None
     };
 
@@ -638,7 +638,7 @@ impl Database for PostgresDatabase {
                 r#"INSERT INTO subscriptions (uuid, version, revision, name, uri, query,
                     heartbeat_interval, connection_retry_count, connection_retry_interval,
                     max_time, max_elements, max_envelope_size, enabled, read_existing_events, content_format,
-                    ignore_channel_error, princs_filter_op, princs_filter_value, outputs, locale,
+                    ignore_channel_error, client_filter_op, client_filter_value, outputs, locale,
                     data_locale)
                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
                     ON CONFLICT (uuid) DO UPDATE SET
@@ -657,8 +657,8 @@ impl Database for PostgresDatabase {
                         read_existing_events = excluded.read_existing_events,
                         content_format = excluded.content_format,
                         ignore_channel_error = excluded.ignore_channel_error,
-                        princs_filter_op = excluded.princs_filter_op,
-                        princs_filter_value = excluded.princs_filter_value,
+                        client_filter_op = excluded.client_filter_op,
+                        client_filter_value = excluded.client_filter_value,
                         outputs = excluded.outputs,
                         locale = excluded.locale,
                         data_locale = excluded.data_locale"#,
