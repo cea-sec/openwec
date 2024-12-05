@@ -65,6 +65,28 @@ pub trait RedisMigration: Migration {
     }
 }
 
+enum MachineStatusFilter {
+    Alive,
+    Active,
+    Dead,
+}
+
+impl MachineStatusFilter {
+    fn is_match(&self, last_seen: &i64, last_event_seen: &Option<i64>, start_time: i64) -> bool {
+        match self {
+            MachineStatusFilter::Alive => {
+                *last_seen > start_time && last_event_seen.map_or(true, |event_time| event_time <= start_time)
+            },
+            MachineStatusFilter::Active => {
+                last_event_seen.map_or(false, |event_time| event_time > start_time)
+            },
+            MachineStatusFilter::Dead => {
+                *last_seen <= start_time && last_event_seen.map_or(true, |event_time| event_time <= start_time)
+            }
+        }
+    }
+}
+
 #[allow(unused)]
 pub struct RedisDatabase {
     pool: Pool,
