@@ -87,6 +87,13 @@ impl MachineStatusFilter {
     }
 }
 
+fn get_value_or_default(
+    fields: &HashMap<RedisDomain, String>,
+    key: RedisDomain,
+) -> String {
+    fields.get(&key).cloned().unwrap_or_else(|| RedisDomain::Any.to_string())
+}
+
 #[allow(unused)]
 pub struct RedisDatabase {
     pool: Pool,
@@ -104,6 +111,75 @@ impl RedisDatabase {
 
         Ok(db)
     }
+    async fn get_heartbeats_by_field(
+        &self,
+        fields: HashMap<RedisDomain, String>
+    ) -> Result<Vec<HeartbeatData>> {
+
+        let mut conn = self.pool.get().await.context("Failed to get Redis connection")?;
+
+        let key = format!("{}:{}:{}", RedisDomain::Heartbeat,
+        get_value_or_default(&fields, RedisDomain::Subscription),
+        get_value_or_default(&fields, RedisDomain::Machine));
+
+        let keys = list_keys(&mut conn, &key).await?;
+        let mut heartbeats = Vec::<HeartbeatData>::new();
+
+        let mut subscriptions_cache = HashMap::<String, SubscriptionData>::new();
+
+        for key in keys {
+            let heartbeat_data : HashMap<String,String> = conn.hgetall(&key).await.context("Failed to get heartbeat data")?;
+            if !heartbeat_data.is_empty() {
+
+                // cache subs
+                let subscription_uuid = heartbeat_data[RedisDomain::Subscription.as_str()].clone();
+                let cached_data = subscriptions_cache.get(&subscription_uuid).cloned();
+
+                let subscription_data_opt = if cached_data.is_none() {
+                    let fetched_data = self.get_subscription_by_identifier(&subscription_uuid).await?;
+                    if let Some(fetched_subscription) = fetched_data.clone() {
+                        subscriptions_cache.insert(subscription_uuid.clone(), fetched_subscription);
+                    }
+                    fetched_data
+                } else {
+                    cached_data
+                };
+
+                if subscription_data_opt.is_none() {
+                    return Ok(Vec::<HeartbeatData>::new());
+                }
+
+                let subscription_data = subscription_data_opt.ok_or_else(|| {
+                    anyhow::anyhow!("Subscription data not found for UUID: {}", subscription_uuid)
+                })?;
+
+                let expected_ip = fields.get(&RedisDomain::Ip);
+                if expected_ip.is_some() && heartbeat_data.get(RedisDomain::Ip.as_str()) != expected_ip {
+                    continue;
+                }
+
+                let hb = HeartbeatData::new(
+                    heartbeat_data[RedisDomain::Machine.as_str()].clone(),
+                    heartbeat_data[RedisDomain::Ip.as_str()].clone(),
+                    subscription_data,
+                    heartbeat_data.get(RedisDomain::FistSeen.as_str())
+                        .and_then(|value| value.parse::<i64>().ok())
+                        .context(format!("Failed to parse integer for field '{}'", RedisDomain::FistSeen))?,
+                    heartbeat_data.get(RedisDomain::LastSeen.as_str())
+                    .and_then(|value| value.parse::<i64>().ok())
+                    .context(format!("Failed to parse integer for field '{}'", RedisDomain::LastSeen))?,
+                    heartbeat_data.get(RedisDomain::LastEventSeen.as_str())
+                    .and_then(|value| value.parse::<i64>().ok()),
+                );
+                heartbeats.push(hb);
+            } else {
+                log::warn!("No bookmard found for key: {}", key);
+            }
+        }
+
+        Ok(heartbeats)
+    }
+
 }
 
 async fn list_keys(con: &mut Connection, key: &str) -> Result<Vec<String>>
@@ -121,6 +197,30 @@ async fn list_keys_with_fallback(con: &mut Connection, key: &str, fallback: &str
     }
 
     Ok(keys)
+}
+
+async fn set_heartbeat_inner(conn: &mut Connection, subscription: &str, machine: &str, value: &HeartbeatValue) -> Result<()> {
+    let redis_key = format!("{}:{}:{}", RedisDomain::Heartbeat, subscription.to_uppercase(), machine);
+    let key_exists = conn.exists(&redis_key).await.unwrap_or(true);
+    let mut pipe = Pipeline::new();
+    pipe.hset(&redis_key, RedisDomain::Subscription, subscription.to_uppercase());
+    pipe.hset(&redis_key, RedisDomain::Machine, machine);
+    pipe.hset(&redis_key, RedisDomain::Ip, value.ip.clone());
+    if !key_exists {
+        pipe.hset(&redis_key, RedisDomain::FistSeen, value.last_seen);
+    }
+    pipe.hset(&redis_key, RedisDomain::LastSeen, value.last_seen);
+
+    if let Some(last_event_seen) = value.last_event_seen {
+        pipe.hset(&redis_key, RedisDomain::LastEventSeen, last_event_seen);
+    }
+
+    let _ : Vec<usize> = pipe.query_async(conn.as_mut()).await.context("Failed to set heartbeat data")?;
+    Ok(())
+}
+
+async fn set_heartbeat(conn: &mut Connection, key: &HeartbeatKey, value: &HeartbeatValue) -> Result<()> {
+    set_heartbeat_inner(conn, &key.subscription, &key.machine, value).await
 }
 
 #[allow(unused)]
@@ -213,7 +313,13 @@ impl Database for RedisDatabase {
         machine: &str,
         subscription: Option<&str>,
     ) -> Result<Vec<HeartbeatData>> {
-        todo!()
+        let mut fields = HashMap::<RedisDomain, String>::from([
+            (RedisDomain::Machine, machine.to_string()),
+        ]);
+        if let Some(subs) = subscription {
+            fields.insert(RedisDomain::Subscription, subs.to_string());
+        }
+        self.get_heartbeats_by_field(fields).await
     }
 
     async fn get_heartbeats_by_ip(
@@ -221,18 +327,28 @@ impl Database for RedisDatabase {
         ip: &str,
         subscription: Option<&str>,
     ) -> Result<Vec<HeartbeatData>> {
-        todo!()
+        let mut fields = HashMap::<RedisDomain, String>::from([
+            (RedisDomain::Ip, ip.to_string()),
+        ]);
+        if let Some(subs) = subscription {
+            fields.insert(RedisDomain::Subscription, subs.to_string());
+        }
+        self.get_heartbeats_by_field(fields).await
     }
 
     async fn get_heartbeats(&self) -> Result<Vec<HeartbeatData>> {
-        todo!()
+        let fields = HashMap::<RedisDomain, String>::new();
+        self.get_heartbeats_by_field(fields).await
     }
 
     async fn get_heartbeats_by_subscription(
         &self,
         subscription: &str,
     ) -> Result<Vec<HeartbeatData>> {
-        todo!()
+        let fields = HashMap::<RedisDomain, String>::from([
+            (RedisDomain::Subscription, subscription.to_string()),
+        ]);
+        self.get_heartbeats_by_field(fields).await
     }
 
     async fn store_heartbeat(
@@ -242,11 +358,27 @@ impl Database for RedisDatabase {
         subscription: &str,
         is_event: bool,
     ) -> Result<()> {
-        todo!()
+        let mut conn = self.pool.get().await.context("Failed to get Redis connection")?;
+        let now = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)?
+            .as_secs();
+
+        let hbv = HeartbeatValue{
+            ip,
+            last_seen: now,
+            last_event_seen: if is_event { Some(now) } else { None },
+        };
+
+        set_heartbeat_inner(&mut conn, subscription, machine, &hbv).await
     }
 
     async fn store_heartbeats(&self, heartbeats: &HeartbeatsCache) -> Result<()> {
-        todo!()
+        let mut conn = self.pool.get().await.context("Failed to get Redis connection")?;
+        for (key, value) in heartbeats.iter() {
+            let ip:String = value.ip.clone();
+            set_heartbeat(&mut conn, key, value).await?;
+        }
+        Ok(())
     }
 
     async fn get_subscriptions(&self) -> Result<Vec<SubscriptionData>> {
