@@ -166,10 +166,10 @@ fn row_to_subscription(row: &Row) -> Result<SubscriptionData> {
 
     let content_format = ContentFormat::from_str(row.get::<&str, String>("content_format")?.as_ref())?;
 
-    let client_filter_op: Option<String> = row.get("princs_filter_op")?;
+    let client_filter_op: Option<String> = row.get("client_filter_op")?;
 
     let client_filter = match client_filter_op {
-        Some(op) => Some(ClientFilter::from(op, row.get("princs_filter_value")?)?),
+        Some(op) => Some(ClientFilter::from(op, row.get("client_filter_value")?)?),
         None => None
     };
 
@@ -564,12 +564,12 @@ impl Database for SQLiteDatabase {
                     r#"INSERT INTO subscriptions (uuid, version, revision, name, uri, query,
                     heartbeat_interval, connection_retry_count, connection_retry_interval,
                     max_time, max_elements, max_envelope_size, enabled, read_existing_events, content_format,
-                    ignore_channel_error, princs_filter_op, princs_filter_value, outputs, locale,
+                    ignore_channel_error, client_filter_op, client_filter_value, outputs, locale,
                     data_locale)
                     VALUES (:uuid, :version, :revision, :name, :uri, :query,
                         :heartbeat_interval, :connection_retry_count, :connection_retry_interval,
                         :max_time, :max_elements, :max_envelope_size, :enabled, :read_existing_events, :content_format,
-                        :ignore_channel_error, :princs_filter_op, :princs_filter_value, :outputs,
+                        :ignore_channel_error, :client_filter_op, :client_filter_value, :outputs,
                         :locale, :data_locale)
                     ON CONFLICT (uuid) DO UPDATE SET
                         version = excluded.version,
@@ -587,8 +587,8 @@ impl Database for SQLiteDatabase {
                         read_existing_events = excluded.read_existing_events,
                         content_format = excluded.content_format,
                         ignore_channel_error = excluded.ignore_channel_error,
-                        princs_filter_op = excluded.princs_filter_op,
-                        princs_filter_value = excluded.princs_filter_value,
+                        client_filter_op = excluded.client_filter_op,
+                        client_filter_value = excluded.client_filter_value,
                         outputs = excluded.outputs,
                         locale = excluded.locale,
                         data_locale = excluded.data_locale"#,
@@ -609,8 +609,8 @@ impl Database for SQLiteDatabase {
                         ":read_existing_events": subscription.read_existing_events(),
                         ":content_format": subscription.content_format().to_string(),
                         ":ignore_channel_error": subscription.ignore_channel_error(),
-                        ":princs_filter_op": client_filter_op,
-                        ":princs_filter_value": client_filter_value,
+                        ":client_filter_op": client_filter_op,
+                        ":client_filter_value": client_filter_value,
                         ":outputs": serde_json::to_string(subscription.outputs())?,
                         ":locale": subscription.locale(),
                         ":data_locale": subscription.data_locale(),
