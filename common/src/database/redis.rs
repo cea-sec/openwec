@@ -105,11 +105,32 @@ async fn list_keys_with_fallback(con: &mut Connection, key: &str, fallback: &str
 #[async_trait]
 impl Database for RedisDatabase {
     async fn get_bookmark(&self, machine: &str, subscription: &str) -> Result<Option<String>> {
-        todo!()
+        let mut conn = self.pool.get().await.context("Failed to get Redis connection")?;
+        let key = format!("{}:{}:{}", RedisDomain::BookMark, subscription.to_uppercase(), machine);
+        let bookmark_data : HashMap<String,String> = conn.hgetall(&key).await.context("Failed to get bookmark data")?;
+        Ok(bookmark_data.get(RedisDomain::BookMark.as_str()).cloned())
     }
 
     async fn get_bookmarks(&self, subscription: &str) -> Result<Vec<BookmarkData>> {
-        todo!()
+        let mut conn = self.pool.get().await.context("Failed to get Redis connection")?;
+        let key = format!("{}:{}:{}", RedisDomain::BookMark, subscription.to_uppercase(), RedisDomain::Any);
+        let keys = list_keys(&mut conn, &key).await?;
+        let mut bookmarks = Vec::<BookmarkData>::new();
+
+        for key in keys {
+            let bookmark_data : HashMap<String,String> = conn.hgetall(&key).await.context("Failed to get bookmark data")?;
+            if !bookmark_data.is_empty() {
+                bookmarks.push(BookmarkData {
+                    subscription: bookmark_data[RedisDomain::Subscription.as_str()].clone(),
+                    machine: bookmark_data[RedisDomain::Machine.as_str()].clone(),
+                    bookmark: bookmark_data[RedisDomain::BookMark.as_str()].clone(),
+                });
+            } else {
+                log::warn!("No bookmard found for key: {}", key);
+            }
+        }
+
+        Ok(bookmarks)
     }
 
     async fn store_bookmark(
@@ -118,7 +139,17 @@ impl Database for RedisDatabase {
         subscription: &str,
         bookmark: &str,
     ) -> Result<()> {
-        todo!()
+        let mut conn = self.pool.get().await.context("Failed to get Redis connection")?;
+        let key = format!("{}:{}:{}", RedisDomain::BookMark, subscription.to_uppercase(), machine);
+
+        let mut pipe = Pipeline::new();
+        pipe.hset(&key, RedisDomain::Subscription, subscription.to_uppercase());
+        pipe.hset(&key, RedisDomain::Machine, machine);
+        pipe.hset(&key, RedisDomain::BookMark, bookmark);
+
+        let _: Vec<usize> = pipe.query_async(&mut conn).await.context("Failed to store bookmark data")?;
+
+        Ok(())
     }
 
     async fn delete_bookmarks(
@@ -126,7 +157,33 @@ impl Database for RedisDatabase {
         machine: Option<&str>,
         subscription: Option<&str>,
     ) -> Result<()> {
-        todo!()
+        let mut conn = self.pool.get().await.context("Failed to get Redis connection")?;
+        let compose_key = |subscription: &str, machine: &str| -> String {
+            format!("{}:{}:{}", RedisDomain::BookMark, subscription.to_uppercase(), machine)
+        };
+        let key : String = match (subscription, machine) {
+            (Some(subscription), Some(machine)) => {
+                compose_key(subscription, machine)
+            },
+            (Some(subscription), None) => {
+                compose_key(subscription, RedisDomain::Any.as_str())
+            },
+            (None, Some(machine)) => {
+                compose_key(RedisDomain::Any.as_str(), machine)
+            },
+            (None, None) => {
+                compose_key(RedisDomain::Any.as_str(), RedisDomain::Any.as_str())
+            }
+        };
+
+        let keys = list_keys(&mut conn, &key).await?;
+        let mut pipe = Pipeline::new();
+        for key in keys.iter() {
+            pipe.del(key);
+        }
+        let _ : Vec<usize> = pipe.query_async(&mut conn).await.context("Failed to delete bookmark data")?;
+
+        Ok(())
     }
 
     async fn get_heartbeats_by_machine(
