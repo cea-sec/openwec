@@ -486,7 +486,37 @@ impl Database for RedisDatabase {
         subscription: &str,
         start_time: i64,
     ) -> Result<SubscriptionStatsCounters> {
-        todo!()
+        let fields = HashMap::<RedisDomain, String>::from([
+            (RedisDomain::Subscription, subscription.to_string()),
+        ]);
+        let heartbeats = self.get_heartbeats_by_field(fields).await?;
+
+        let total_machines_count = i64::try_from(heartbeats.len())?;
+        let mut alive_machines_count = 0;
+        let mut active_machines_count = 0;
+        let mut dead_machines_count = 0;
+
+        for hb in heartbeats.iter() {
+            match hb {
+                HeartbeatData{last_seen, last_event_seen, ..} if MachineStatusFilter::Alive.is_match(last_seen, last_event_seen, start_time) => {
+                    alive_machines_count += 1;
+                },
+                HeartbeatData{last_seen, last_event_seen, ..} if MachineStatusFilter::Active.is_match(last_seen, last_event_seen, start_time) => {
+                    active_machines_count += 1;
+                },
+                HeartbeatData{last_seen, last_event_seen, ..} if MachineStatusFilter::Dead.is_match(last_seen, last_event_seen, start_time) => {
+                    dead_machines_count += 1;
+                },
+                _ => {},
+            };
+        }
+
+        Ok(SubscriptionStatsCounters::new(
+            total_machines_count,
+            alive_machines_count,
+            active_machines_count,
+            dead_machines_count,
+        ))
     }
 
     async fn get_machines(
@@ -495,6 +525,35 @@ impl Database for RedisDatabase {
         start_time: i64,
         stat_type: Option<SubscriptionMachineState>,
     ) -> Result<Vec<SubscriptionMachine>> {
-        todo!()
+        let fields = HashMap::<RedisDomain, String>::from([
+            (RedisDomain::Subscription, subscription.to_string()),
+        ]);
+        let heartbeats = self.get_heartbeats_by_field(fields).await?;
+        let mut result = Vec::<SubscriptionMachine>::new();
+
+        for hb in heartbeats.iter() {
+
+            match stat_type {
+                None => {},
+                Some(SubscriptionMachineState::Active) => {
+                    if !MachineStatusFilter::Active.is_match(&hb.last_seen, &hb.last_event_seen, start_time) {
+                        continue;
+                    }
+                },
+                Some(SubscriptionMachineState::Alive) => {
+                    if !MachineStatusFilter::Alive.is_match(&hb.last_seen, &hb.last_event_seen, start_time) {
+                        continue;
+                    }
+                },
+                Some(SubscriptionMachineState::Dead) => {
+                    if !MachineStatusFilter::Dead.is_match(&hb.last_seen, &hb.last_event_seen, start_time) {
+                        continue;
+                    }
+                },
+            }
+            result.push(SubscriptionMachine::new(hb.machine().to_string(), hb.ip().to_string()));
+        }
+
+        Ok(result)
     }
 }
