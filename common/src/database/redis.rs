@@ -41,6 +41,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::SystemTime;
 
+use super::redisdomain::RedisDomain;
 use crate::bookmark::{self, BookmarkData};
 use crate::database::Database;
 use crate::heartbeat::{self, HeartbeatData, HeartbeatKey, HeartbeatValue, HeartbeatsCache};
@@ -81,6 +82,23 @@ impl RedisDatabase {
 
         Ok(db)
     }
+}
+
+async fn list_keys(con: &mut Connection, key: &str) -> Result<Vec<String>>
+{
+    let res = con.keys(key).await.context("Unable to list keys")?;
+    Ok(res)
+}
+
+async fn list_keys_with_fallback(con: &mut Connection, key: &str, fallback: &str) -> Result<Vec<String>>
+{
+    let keys:Vec<String> = con.keys(key).await?;
+    if keys.is_empty() {
+        let fallback_keys: Vec<String> = con.keys(fallback).await?;
+        return Ok(fallback_keys);
+    }
+
+    Ok(keys)
 }
 
 #[allow(unused)]
@@ -153,22 +171,79 @@ impl Database for RedisDatabase {
     }
 
     async fn get_subscriptions(&self) -> Result<Vec<SubscriptionData>> {
-        todo!()
+        let mut conn = self.pool.get().await.context("Failed to get Redis connection")?;
+
+        let key = format!("{}:{}:{}", RedisDomain::Subscription, RedisDomain::Any, RedisDomain::Any);
+
+        let keys = list_keys(&mut conn, &key).await?;
+
+        let mut subscriptions = Vec::new();
+
+        for key in keys {
+            let subscription_json: Option<String> = conn.get(&key).await.context("Failed to get subscription data")?;
+
+            if let Some(subscription_json) = subscription_json {
+                match serde_json::from_str::<SubscriptionData>(&subscription_json) {
+                    Ok(subscription) => subscriptions.push(subscription),
+                    Err(err) => {
+                        log::warn!("Failed to deserialize subscription data for key {}: {}", key, err);
+                    }
+                }
+            } else {
+                log::warn!("No subscription found for key: {}", key);
+            }
+        }
+
+        Ok(subscriptions)
     }
 
     async fn get_subscription_by_identifier(
         &self,
         identifier: &str,
     ) -> Result<Option<SubscriptionData>> {
-        todo!()
+        let mut conn = self.pool.get().await.context("Failed to get Redis connection")?;
+        let first_pass_key = format!("{}:{}:{}", RedisDomain::Subscription, identifier, RedisDomain::Any);
+        let second_pass_key = format!("{}:{}:{}", RedisDomain::Subscription, RedisDomain::Any, identifier);
+
+        let keys = list_keys_with_fallback(&mut conn, &first_pass_key, &second_pass_key).await?;
+
+        if !keys.is_empty() {
+            let result: Option<String> = conn.get(&keys[0]).await.context("Failed to get subscription data")?;
+            if result.is_some() {
+                let subscription: SubscriptionData = serde_json::from_str(&result.unwrap()).context("Failed to deserialize subscription data")?;
+                return Ok(Some(subscription));
+            }
+        }
+        Ok(None)
     }
 
     async fn store_subscription(&self, subscription: &SubscriptionData) -> Result<()> {
-        todo!()
+        let mut conn = self.pool.get().await.context("Failed to get Redis connection")?;
+
+        let key_filter = format!("{}:{}:{}",RedisDomain::Subscription, subscription.uuid().to_string().to_uppercase(), RedisDomain::Any);
+        let keys = list_keys(&mut conn, &key_filter).await?;
+        if (!keys.is_empty()) {
+            let _:() = conn.del(keys).await?;
+        }
+
+        let key = format!("{}:{}:{}", RedisDomain::Subscription, subscription.uuid().to_string().to_uppercase(), subscription.name());
+        let value = serde_json::to_string(subscription).context("Failed to serialize subscription data")?;
+        let _ : String = conn.set(key, value).await.context("Failed to store subscription data")?;
+        Ok(())
     }
 
     async fn delete_subscription(&self, uuid: &str) -> Result<()> {
-        todo!()
+        let mut conn = self.pool.get().await.context("Failed to get Redis connection")?;
+        let first_pass_key = format!("{}:{}:{}", RedisDomain::Subscription, uuid.to_uppercase(), RedisDomain::Any);
+        let second_pass_key = format!("{}:{}:{}", RedisDomain::Subscription, RedisDomain::Any, uuid);
+
+        let keys = list_keys_with_fallback(&mut conn, &first_pass_key, &second_pass_key).await?;
+
+        self.delete_bookmarks(None, Some(uuid)).await.context("Failed to delete subscription releated bookmark data")?;
+        if !keys.is_empty() {
+            let _: () = conn.del(keys).await.context("Failed to delete subscription data")?;
+        }
+        Ok(())
     }
 
     async fn current_version(&self) -> Result<Option<Version>> {
