@@ -265,7 +265,7 @@ impl SubscriptionOutputFormat {
     }
 }
 
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub enum PrincsFilterOperation {
     Only,
     Except,
@@ -294,7 +294,7 @@ impl PrincsFilterOperation {
     }
 }
 
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct PrincsFilter {
     operation: Option<PrincsFilterOperation>,
     princs: HashSet<String>,
@@ -383,7 +383,7 @@ impl PrincsFilter {
     }
 }
 
-#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub enum ContentFormat {
     Raw,
     RenderedText,
@@ -412,7 +412,7 @@ impl FromStr for ContentFormat {
     }
 }
 
-#[derive(Debug, PartialEq, Clone, Eq, Hash, Copy, Serialize)]
+#[derive(Debug, PartialEq, Clone, Eq, Hash, Copy, Serialize, Deserialize)]
 pub struct SubscriptionUuid(pub Uuid);
 
 impl Display for SubscriptionUuid {
@@ -424,7 +424,7 @@ impl Display for SubscriptionUuid {
 // We use the newtype pattern so that the compiler can check that
 // we don't use one instead of the other
 
-#[derive(Debug, PartialEq, Clone, Eq, Hash, Copy)]
+#[derive(Debug, PartialEq, Clone, Eq, Hash, Copy, Serialize, Deserialize)]
 pub struct InternalVersion(pub Uuid);
 
 impl Display for InternalVersion {
@@ -447,7 +447,7 @@ impl Display for PublicVersion {
 /// of the subscription is updated and clients are expected to update
 /// their configuration.
 /// Every elements must implement the Hash trait
-#[derive(Debug, PartialEq, Clone, Eq, Hash)]
+#[derive(Debug, PartialEq, Clone, Eq, Hash, Serialize, Deserialize)]
 pub struct SubscriptionParameters {
     pub name: String,
     pub query: String,
@@ -464,7 +464,7 @@ pub struct SubscriptionParameters {
     pub data_locale: Option<String>,
 }
 
-#[derive(Debug, PartialEq, Clone, Eq)]
+#[derive(Debug, PartialEq, Clone, Eq, Serialize, Deserialize)]
 pub struct SubscriptionData {
     // Unique identifier of the subscription
     uuid: SubscriptionUuid,
