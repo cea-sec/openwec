@@ -52,6 +52,8 @@ use crate::transformers::output_files_use_path::new;
 
 use super::schema::{Migration, MigrationBase, Version};
 
+const MIGRATION_TABLE_NAME: &str = "__schema_migrations";
+
 #[async_trait]
 pub trait RedisMigration: Migration {
     /// Called when this migration is to be executed.
@@ -111,6 +113,18 @@ impl RedisDatabase {
 
         Ok(db)
     }
+
+    /// Register a migration. If a migration with the same version is already registered, a warning
+    /// is logged and the registration fails.
+    pub fn register_migration(&mut self, migration: Arc<dyn RedisMigration + Send + Sync>) {
+        let version = migration.version();
+        if let Vacant(e) = self.migrations.entry(version) {
+            e.insert(migration);
+        } else {
+            warn!("Migration with version {:?} is already registered", version);
+        }
+    }
+
     async fn get_heartbeats_by_field(
         &self,
         fields: HashMap<RedisDomain, String>
@@ -457,28 +471,76 @@ impl Database for RedisDatabase {
         Ok(())
     }
 
+    /// Fails if `setup_schema` hasn't previously been called or if the query otherwise fails.
     async fn current_version(&self) -> Result<Option<Version>> {
-        todo!()
+        let mut conn = self.pool.get().await.context("Failed to get Redis connection")?;
+        let key = MIGRATION_TABLE_NAME;
+        let versions:Vec<String> = conn.zrange(key, -1, -1).await.context("There is no version info stored in DB.")?;
+        let last_version = versions.last().and_then(|v| v.parse::<i64>().ok());
+        Ok(last_version)
     }
 
+    /// Fails if `setup_schema` hasn't previously been called or if the query otherwise fails.
     async fn migrated_versions(&self) -> Result<BTreeSet<Version>> {
-        todo!()
+        let mut conn = self.pool.get().await.context("Failed to get Redis connection")?;
+        let key = MIGRATION_TABLE_NAME;
+        let versions:Vec<String> = conn.zrange(key, 0, -1).await.context("There is no version info stored in DB.")?;
+        let result : BTreeSet<i64> = versions.into_iter().map(|v| v.parse::<i64>().context(format!("Failed to parse version: {}", v))).collect::<Result<_>>()?;
+        Ok(result)
     }
 
+    /// Fails if `setup_schema` hasn't previously been called or if the migration otherwise fails.
     async fn apply_migration(&self, version: Version) -> Result<()> {
-        todo!()
+        let migration = self
+            .migrations
+            .get(&version)
+            .ok_or_else(|| anyhow!("Could not retrieve migration with version {}", version))?
+            .clone();
+        let mut conn = self.pool.get().await.context("Failed to get Redis connection")?;
+        migration.up(&mut conn).await?;
+        let key = MIGRATION_TABLE_NAME;
+        let version = migration.version();
+        let added_count: i64 = conn.zadd(key, version, version).await.context(format!("Unable to add version: {}", version))?;
+        if added_count > 0 {
+            println!("Successfully added version {} to sorted set", version);
+        } else {
+            println!("Version {} was not added (it may already exist)", version);
+        }
+        Ok(())
     }
 
+    /// Fails if `setup_schema` hasn't previously been called or if the migration otherwise fails.
     async fn revert_migration(&self, version: Version) -> Result<()> {
-        todo!()
+        let migration = self
+            .migrations
+            .get(&version)
+            .ok_or_else(|| anyhow!("Could not retrieve migration with version {}", version))?
+            .clone();
+        let mut conn = self.pool.get().await.context("Failed to get Redis connection")?;
+        migration.down(&mut conn).await?;
+        let key = MIGRATION_TABLE_NAME;
+        let version = migration.version();
+        let removed_count: i64 = conn.zrem(key, version).await.context("Failed to remove version")?;
+        if removed_count > 0 {
+            println!("Successfully removed version: {}", version);
+        } else {
+            println!("Version {} not found in the sorted set.", version);
+        }
+        Ok(())
     }
 
+    /// Create the tables required to keep track of schema state. If the tables already
+    /// exist, this function has no operation.
     async fn setup_schema(&self) -> Result<()> {
-        todo!()
+        Ok(())
     }
 
     async fn migrations(&self) -> BTreeMap<Version, Arc<dyn Migration + Send + Sync>> {
-        todo!()
+        let mut base_migrations = BTreeMap::new();
+        for (version, migration) in self.migrations.iter() {
+            base_migrations.insert(*version, migration.to_base());
+        }
+        base_migrations
     }
 
     async fn get_stats(
