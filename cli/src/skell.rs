@@ -124,15 +124,15 @@ fn get_filter() -> String {
 #
 # Filters enables you to choose which clients can read the subscription
 # There are two operations available :
-# - "Only": only the listed principals will be able to read the subscription
-# - "Except": everyone but the listed principals will be able to read the subscription
+# - "Only": only the listed clients will be able to read the subscription
+# - "Except": everyone but the listed clients will be able to read the subscription
 #
 # By default, everyone can read the subscription.
 #
 # Example to only authorize "courgette@REALM" and "radis@REALM" to read the subscription.
 # [filter]
 # operation = "Only"
-# princs = ["courgette@REALM", "radis@REALM"]
+# targets = ["courgette@REALM", "radis@REALM"]
 
 "#
     .to_string()
