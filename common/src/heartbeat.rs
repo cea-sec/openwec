@@ -13,9 +13,9 @@ pub struct HeartbeatData {
     #[serde(serialize_with = "utils::serialize_timestamp")]
     first_seen: Timestamp,
     #[serde(serialize_with = "utils::serialize_timestamp")]
-    last_seen: Timestamp,
+    pub last_seen: Timestamp,
     #[serde(serialize_with = "utils::serialize_option_timestamp")]
-    last_event_seen: Option<Timestamp>,
+    pub last_event_seen: Option<Timestamp>,
 }
 
 fn serialize_subscription_data<S>(

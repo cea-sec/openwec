@@ -7,6 +7,7 @@ use crate::{
     bookmark::BookmarkData,
     database::postgres::PostgresDatabase,
     database::sqlite::SQLiteDatabase,
+    database::redis::RedisDatabase,
     heartbeat::{HeartbeatData, HeartbeatsCache},
     settings::Settings,
     subscription::{
@@ -21,6 +22,8 @@ use self::schema::{Migration, Version};
 pub mod postgres;
 pub mod schema;
 pub mod sqlite;
+pub mod redis;
+pub mod redisdomain;
 
 pub type Db = Arc<dyn Database + Send + Sync>;
 
@@ -38,6 +41,12 @@ pub async fn db_from_settings(settings: &Settings) -> Result<Db> {
                 .await
                 .context("Failed to initialize Postgres client")?;
             schema::postgres::register_migrations(&mut db);
+            Ok(Arc::new(db))
+        }
+        crate::settings::Database::Redis(redis) => {
+            let db = RedisDatabase::new(redis.connection_url())
+            .await
+            .context("Failed to initialize Redis client")?;
             Ok(Arc::new(db))
         }
     }
