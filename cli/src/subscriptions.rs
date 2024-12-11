@@ -629,6 +629,7 @@ async fn edit_filter(subscription: &mut SubscriptionData, matches: &ArgMatches) 
 
         match matches.subcommand() {
             Some(("add", matches)) => {
+                #[allow(deprecated)]
                 filter.add_target(
                     matches
                         .get_one::<String>("principal")
@@ -636,6 +637,7 @@ async fn edit_filter(subscription: &mut SubscriptionData, matches: &ArgMatches) 
                 )?;
             }
             Some(("delete", matches)) => {
+                #[allow(deprecated)]
                 filter.delete_target(
                     matches
                         .get_one::<String>("principal")
@@ -648,6 +650,7 @@ async fn edit_filter(subscription: &mut SubscriptionData, matches: &ArgMatches) 
                     for identifier in identifiers {
                         princs.insert(identifier.clone());
                     }
+                    #[allow(deprecated)]
                     filter.set_targets(princs)?;
                 }
                 None => {

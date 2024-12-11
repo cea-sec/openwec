@@ -131,7 +131,7 @@ pub mod tests {
     };
 
     use super::{schema::Migrator, *};
-    use std::{collections::HashSet, thread::sleep, time::Duration, time::SystemTime};
+    use std::{collections::HashSet, thread::sleep, time::{Duration, SystemTime}};
 
     async fn setup_db(db: Arc<dyn Database>) -> Result<()> {
         db.setup_schema().await?;
@@ -272,9 +272,19 @@ pub mod tests {
             .set_ignore_channel_error(true)
             .set_revision(Some("1890".to_string()))
             .set_data_locale(Some("fr-FR".to_string()));
-        let mut new_client_filter = tata.client_filter().cloned();
-        new_client_filter.as_mut().unwrap().add_target("semoule")?;
-        tata.set_client_filter(new_client_filter);
+
+
+        let orig_filter = &tata.client_filter().unwrap();
+        let mut new_targets: HashSet<String> = orig_filter.targets().iter().map(|&f| f.to_owned()).collect();
+        new_targets.insert("semoule".to_owned());
+
+        let new_client_filter = ClientFilter::try_new(orig_filter.operation().clone(),
+            orig_filter.kind().clone(),
+            orig_filter.flags().clone(),
+            new_targets
+        )?;
+
+        tata.set_client_filter(Some(new_client_filter));
 
         db.store_subscription(&tata).await?;
 
@@ -313,7 +323,10 @@ pub mod tests {
         assert!(tata2.public_version()? != tata_save.public_version()?);
 
         let mut new_client_filter = tata2.client_filter().cloned();
+
+        #[allow(deprecated)]
         new_client_filter.as_mut().unwrap().delete_target("couscous")?;
+        #[allow(deprecated)]
         new_client_filter.as_mut().unwrap().set_operation(ClientFilterOperation::Except);
         tata2.set_client_filter(new_client_filter);
 

@@ -344,11 +344,13 @@ impl ClientFilter {
         }
     }
 
+    #[deprecated(since = "0.4.0", note = "This should be used only by the legacy CLI interface. Use ClientFilter constructors instead")]
     pub fn add_target(&mut self, target: &str) -> Result<()> {
         self.targets.insert(target.to_owned());
         Ok(())
     }
 
+    #[deprecated(since = "0.4.0", note = "This should be used only by the legacy CLI interface. Use ClientFilter constructors instead")]
     pub fn delete_target(&mut self, target: &str) -> Result<()> {
         if !self.targets.remove(target) {
             warn!("{} was not present in the targets set", target)
@@ -356,6 +358,7 @@ impl ClientFilter {
         Ok(())
     }
 
+    #[deprecated(since = "0.4.0", note = "This should be used only by the legacy CLI interface. Use ClientFilter constructors instead")]
     pub fn set_targets(&mut self, targets: HashSet<String>) -> Result<()> {
         self.targets = targets;
         Ok(())
@@ -365,6 +368,7 @@ impl ClientFilter {
         &self.operation
     }
 
+    #[deprecated(since = "0.4.0", note = "This should be used only by the legacy CLI interface. Use ClientFilter constructors instead")]
     pub fn set_operation(&mut self, operation: ClientFilterOperation) {
         self.operation = operation;
     }
