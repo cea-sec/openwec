@@ -6,7 +6,7 @@ use std::{
     str::FromStr,
 };
 
-use anyhow::{anyhow, bail, Result, Error};
+use anyhow::{anyhow, bail, Result};
 use log::{info, warn};
 use serde::{Deserialize, Serialize};
 use strum::{Display, AsRefStr, EnumString, IntoStaticStr, VariantNames};
@@ -267,35 +267,11 @@ impl SubscriptionOutputFormat {
     }
 }
 
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq, Display, EnumString)]
+#[strum(serialize_all = "PascalCase", ascii_case_insensitive)]
 pub enum ClientFilterOperation {
     Only,
     Except,
-}
-
-impl Display for ClientFilterOperation {
-    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-        match self {
-            ClientFilterOperation::Only => write!(f, "Only"),
-            ClientFilterOperation::Except => write!(f, "Except"),
-        }
-    }
-}
-
-impl FromStr for ClientFilterOperation {
-    type Err = Error;
-
-    fn from_str(op: &str) -> std::result::Result<Self, Self::Err> {
-        if op.eq_ignore_ascii_case("only") {
-            return Ok(ClientFilterOperation::Only);
-        }
-
-        if op.eq_ignore_ascii_case("except") {
-            return Ok(ClientFilterOperation::Except);
-        }
-
-        bail!("Could not parse client filter operation")
-    }
 }
 
 #[derive(Default, Debug, Clone, Eq, PartialEq, Serialize, Deserialize, Display, AsRefStr, EnumString)]
