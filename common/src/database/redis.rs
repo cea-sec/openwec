@@ -291,12 +291,13 @@ impl Database for RedisDatabase {
         let mut conn = self.pool.get().await.context("Failed to get Redis connection")?;
         let key = format!("{}:{}:{}", RedisDomain::BookMark, subscription.to_uppercase(), machine);
 
-        let mut pipe = Pipeline::new();
-        pipe.hset(&key, RedisDomain::Subscription, subscription.to_uppercase());
-        pipe.hset(&key, RedisDomain::Machine, machine);
-        pipe.hset(&key, RedisDomain::BookMark, bookmark);
+        let items:Vec<(RedisDomain, String)> = vec![
+            (RedisDomain::Subscription, subscription.to_uppercase()),
+            (RedisDomain::Machine, machine.to_string()),
+            (RedisDomain::BookMark, bookmark.to_string()),
+        ];
 
-        let _: Vec<usize> = pipe.query_async(&mut conn).await.context("Failed to store bookmark data")?;
+        let _: () = conn.hset_multiple(&key, &items).await.context("Failed to store bookmark data")?;
 
         Ok(())
     }
