@@ -242,8 +242,7 @@ impl Database for RedisDatabase {
     async fn get_bookmark(&self, machine: &str, subscription: &str) -> Result<Option<String>> {
         let mut conn = self.pool.get().await.context("Failed to get Redis connection")?;
         let key = format!("{}:{}:{}", RedisDomain::BookMark, subscription.to_uppercase(), machine);
-        let bookmark_data : HashMap<String,String> = conn.hgetall(&key).await.context("Failed to get bookmark data")?;
-        Ok(bookmark_data.get(RedisDomain::BookMark.as_str()).cloned())
+        Ok(conn.hget(&key, RedisDomain::BookMark.as_str()).await.context("Failed to get bookmark data")?)
     }
 
     async fn get_bookmarks(&self, subscription: &str) -> Result<Vec<BookmarkData>> {
