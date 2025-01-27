@@ -164,7 +164,7 @@ impl RedisDatabase {
                 };
 
                 if subscription_data_opt.is_none() {
-                    return Ok(Vec::<HeartbeatData>::new());
+                    continue;
                 }
 
                 let subscription_data = subscription_data_opt.ok_or_else(|| {
@@ -648,14 +648,15 @@ impl Database for RedisDatabase {
 #[cfg(test)]
 mod tests {
 
-    use std::env;
+    use std::{env, str::FromStr};
+    use uuid::Uuid;
 
     use crate::{
-        database::schema::{self, Migrator},
-        migration,
+        database::schema::{self, Migrator}, migration, subscription::SubscriptionUuid
     };
 
     use super::*;
+    use anyhow::Ok;
     use serial_test::serial;
 
     #[allow(unused)]
@@ -817,6 +818,27 @@ mod tests {
         let key = "BookMark:SUBSCRIPTION:*";
         let keys = list_keys(&mut con, key).await?;
         assert!(keys.len() == 2);
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_heartbeat_without_subscription() -> Result<()> {
+        let db = redis_db().await?;
+        cleanup_db(&db).await?;
+        db.store_heartbeat("machine1", "127.0.0.1".to_string(), "subscription1", true).await?;
+        db.store_heartbeat("machine2", "192.168.0.1".to_string(), "subscription1", true).await?;
+        db.store_heartbeat("machine2", "0.0.0.1".to_string(), "b00bf259-3ba9-4faf-b58e-d0e9a3275778", true).await?;
+        let mut subs = SubscriptionData::new("subscription2", "query");
+        subs.set_uuid(SubscriptionUuid(Uuid::from_str("b00bf259-3ba9-4faf-b58e-d0e9a3275778")?));
+        db.store_subscription(&subs).await?;
+        let mut fields = HeartbeatFilter::default();
+        fields.machine = Some("machine2".to_string());
+        let heartbeat_data = db.get_heartbeats_by_field(fields).await?;
+
+        assert!(heartbeat_data.len() == 1, "expected: {} received:{}", 1, heartbeat_data.len());
+        assert_eq!(heartbeat_data[0].machine(), "machine2");
+
         Ok(())
     }
 
