@@ -148,7 +148,9 @@ impl RedisDatabase {
             if !heartbeat_data.is_empty() {
 
                 // cache subs
-                let subscription_uuid = heartbeat_data[RedisDomain::Subscription.as_str()].clone();
+                let subscription_uuid = option_to_result(
+                    heartbeat_data.get(RedisDomain::Subscription.as_str()),
+                    anyhow!("RedisError: No Heartbea/{} present!", RedisDomain::Subscription.as_str()))?;
                 let cached_data = subscriptions_cache.get(&subscription_uuid).cloned();
 
                 let subscription_data_opt = if cached_data.is_none() {
