@@ -176,8 +176,12 @@ impl RedisDatabase {
                 }
 
                 let hb = HeartbeatData::new(
-                    heartbeat_data[RedisDomain::Machine.as_str()].clone(),
-                    heartbeat_data[RedisDomain::Ip.as_str()].clone(),
+                    option_to_result(
+                        heartbeat_data.get(RedisDomain::Machine.as_str()),
+                        anyhow!("RedisError: No Heartbea/{} present!", RedisDomain::Machine.as_str()))?,
+                    option_to_result(
+                        heartbeat_data.get(RedisDomain::Ip.as_str()),
+                        anyhow!("RedisError: No Heartbea/{} present!", RedisDomain::Ip.as_str()))?,
                     subscription_data,
                     heartbeat_data.get(RedisDomain::FirstSeen.as_str())
                         .and_then(|value| value.parse::<i64>().ok())
