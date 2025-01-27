@@ -25,30 +25,23 @@
 //       SOFTWARE.
 //
 //
-#![allow(unused_imports)]
-use anyhow::{anyhow, ensure, Context, Error, Result};
+use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
-use deadpool_redis::redis::{self, RedisError};
-use deadpool_redis::redis::{pipe, AsyncCommands, Pipeline};
+use deadpool_redis::redis::{AsyncCommands, Pipeline};
 use deadpool_redis::{Config, Connection, Pool, Runtime};
 use log::warn;
-use serde::de::value;
-use uuid::Uuid;
-use std::borrow::Borrow;
 use std::collections::btree_map::Entry::Vacant;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
-use std::str::FromStr;
 use std::sync::Arc;
 use std::time::SystemTime;
 
+use crate::bookmark::BookmarkData;
 use super::redisdomain::RedisDomain;
-use crate::bookmark::{self, BookmarkData};
 use crate::database::Database;
-use crate::heartbeat::{self, HeartbeatData, HeartbeatKey, HeartbeatValue, HeartbeatsCache};
+use crate::heartbeat::{HeartbeatData, HeartbeatKey, HeartbeatValue, HeartbeatsCache};
 use crate::subscription::{
-    self, ContentFormat, InternalVersion, PrincsFilter, SubscriptionData, SubscriptionMachine, SubscriptionMachineState, SubscriptionStatsCounters, SubscriptionUuid
+    SubscriptionData, SubscriptionMachine, SubscriptionMachineState, SubscriptionStatsCounters
 };
-use crate::transformers::output_files_use_path::new;
 
 use super::schema::{Migration, MigrationBase, Version};
 
@@ -624,7 +617,6 @@ impl Database for RedisDatabase {
 #[cfg(test)]
 mod tests {
 
-    use tempfile::TempPath;
     use std::env;
 
     use crate::{
@@ -633,15 +625,6 @@ mod tests {
     };
 
     use super::*;
-    use std::{fs, future::IntoFuture, net::Shutdown, process::{Child, Command, Stdio}};
-    use std::path::PathBuf;
-    use tempfile::NamedTempFile;
-    use std::io::{self, BufRead, Write};
-    use std::fs::{File, OpenOptions};
-    use std::time::Duration;
-    use tokio::{net::TcpListener, sync::{oneshot, Notify}, time::sleep};
-    use tokio::sync::Mutex;
-    use std::net::SocketAddr;
     use serial_test::serial;
 
     #[allow(unused)]
