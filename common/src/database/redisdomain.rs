@@ -1,7 +1,7 @@
 use deadpool_redis::redis::{self, ToRedisArgs};
-use std::fmt;
+use strum::{Display, EnumString};
 
-#[derive(Debug, Eq, Hash, PartialEq)]
+#[derive(Debug, Eq, Hash, PartialEq, EnumString, Display)]
 pub enum RedisDomain {
     Users,
     Subscription,
@@ -12,13 +12,8 @@ pub enum RedisDomain {
     FistSeen,
     LastSeen,
     LastEventSeen,
+    #[strum(serialize = "*")]
     Any,
-}
-
-impl fmt::Display for RedisDomain {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.as_str())
-    }
 }
 
 impl ToRedisArgs for RedisDomain {
