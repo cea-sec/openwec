@@ -460,6 +460,7 @@ dependencies = [
  "deadpool-redis",
  "deadpool-sqlite",
  "encoding_rs",
+ "futures-util",
  "log",
  "openssl",
  "postgres-openssl",

@@ -42,6 +42,7 @@ use crate::heartbeat::{HeartbeatData, HeartbeatKey, HeartbeatValue, HeartbeatsCa
 use crate::subscription::{
     SubscriptionData, SubscriptionMachine, SubscriptionMachineState, SubscriptionStatsCounters
 };
+use futures_util::stream::StreamExt;
 
 use super::schema::{Migration, MigrationBase, Version};
 
@@ -189,17 +190,22 @@ impl RedisDatabase {
 
 }
 
-async fn list_keys(con: &mut Connection, key: &str) -> Result<Vec<String>>
-{
-    let res = con.keys(key).await.context("Unable to list keys")?;
+async fn list_keys(con: &mut Connection, key: &str) -> Result<Vec<String>> {
+    let mut res = Vec::new();
+    let mut iter = con.scan_match::<&str, String>(key).await.context("Unable to list keys")?;
+
+    while let Some(key) = iter.next().await {
+        res.push(key);
+    }
+
     Ok(res)
 }
 
 async fn list_keys_with_fallback(con: &mut Connection, key: &str, fallback: &str) -> Result<Vec<String>>
 {
-    let keys:Vec<String> = con.keys(key).await?;
+    let keys:Vec<String> = list_keys(con, key).await?;
     if keys.is_empty() {
-        let fallback_keys: Vec<String> = con.keys(fallback).await?;
+        let fallback_keys: Vec<String> = list_keys(con, fallback).await?;
         return Ok(fallback_keys);
     }
 
@@ -772,6 +778,20 @@ mod tests {
         migrator.down(None, false).await.unwrap();
 
         assert_eq!(db_arc.current_version().await.unwrap(), None);
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_list_keys() -> Result<()> {
+        let db = redis_db().await?;
+        cleanup_db(&db).await?;
+        let mut con = db.pool.get().await?;
+        db.store_bookmark("machine1", "subscription", "bookmark1").await?;
+        db.store_bookmark("machine2", "subscription", "bookmark2").await?;
+        let key = "BookMark:SUBSCRIPTION:*";
+        let keys = list_keys(&mut con, key).await?;
+        assert!(keys.len() == 2);
         Ok(())
     }
 
