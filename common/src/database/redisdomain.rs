@@ -9,7 +9,7 @@ pub enum RedisDomain {
     Heartbeat,
     BookMark,
     Ip,
-    FistSeen,
+    FirstSeen,
     LastSeen,
     LastEventSeen,
     #[strum(serialize = "*")]
@@ -31,7 +31,7 @@ impl RedisDomain {
             RedisDomain::Heartbeat => "heartbeat",
             RedisDomain::BookMark => "bookmark",
             RedisDomain::Ip => "ip",
-            RedisDomain::FistSeen => "first_seen",
+            RedisDomain::FirstSeen => "first_seen",
             RedisDomain::LastSeen => "last_seen",
             RedisDomain::LastEventSeen => "last_event_seen",
             RedisDomain::Any => "*",

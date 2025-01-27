@@ -83,17 +83,25 @@ impl MachineStatusFilter {
     }
 }
 
-fn get_value_or_default<'a>(
-    fields: &'a HashMap<RedisDomain, String>,
-    key: RedisDomain,
-) -> &'a str {
-    fields.get(&key).map(move |s| s.as_str()).unwrap_or_else(|| RedisDomain::Any.as_str())
-}
-
-#[allow(unused)]
 pub struct RedisDatabase {
     pool: Pool,
     migrations: BTreeMap<Version, Arc<dyn RedisMigration + Send + Sync>>,
+}
+
+struct HeartbeatFilter {
+    subscription: Option<String>,
+    machine: Option<String>,
+    ip: Option<String>,
+}
+
+impl Default for HeartbeatFilter {
+    fn default() -> Self {
+        HeartbeatFilter {
+            ip: None,
+            machine: None,
+            subscription: None,
+        }
+    }
 }
 
 impl RedisDatabase {
@@ -121,14 +129,14 @@ impl RedisDatabase {
 
     async fn get_heartbeats_by_field(
         &self,
-        fields: HashMap<RedisDomain, String>
+        fields: HeartbeatFilter
     ) -> Result<Vec<HeartbeatData>> {
 
         let mut conn = self.pool.get().await.context("Failed to get Redis connection")?;
 
         let key = format!("{}:{}:{}", RedisDomain::Heartbeat,
-        get_value_or_default(&fields, RedisDomain::Subscription),
-        get_value_or_default(&fields, RedisDomain::Machine));
+        fields.subscription.unwrap_or_else(|| RedisDomain::Any.to_string()),
+        fields.machine.unwrap_or_else(|| RedisDomain::Any.to_string()));
 
         let keys = list_keys(&mut conn, &key).await?;
         let mut heartbeats = Vec::<HeartbeatData>::new();
@@ -161,8 +169,7 @@ impl RedisDatabase {
                     anyhow::anyhow!("Subscription data not found for UUID: {}", subscription_uuid)
                 })?;
 
-                let expected_ip = fields.get(&RedisDomain::Ip);
-                if expected_ip.is_some() && heartbeat_data.get(RedisDomain::Ip.as_str()) != expected_ip {
+                if fields.ip.is_some() && heartbeat_data.get(RedisDomain::Ip.as_str()) != fields.ip.as_ref() {
                     continue;
                 }
 
@@ -170,9 +177,9 @@ impl RedisDatabase {
                     heartbeat_data[RedisDomain::Machine.as_str()].clone(),
                     heartbeat_data[RedisDomain::Ip.as_str()].clone(),
                     subscription_data,
-                    heartbeat_data.get(RedisDomain::FistSeen.as_str())
+                    heartbeat_data.get(RedisDomain::FirstSeen.as_str())
                         .and_then(|value| value.parse::<i64>().ok())
-                        .context(format!("Failed to parse integer for field '{}'", RedisDomain::FistSeen))?,
+                        .context(format!("Failed to parse integer for field '{}'", RedisDomain::FirstSeen))?,
                     heartbeat_data.get(RedisDomain::LastSeen.as_str())
                     .and_then(|value| value.parse::<i64>().ok())
                     .context(format!("Failed to parse integer for field '{}'", RedisDomain::LastSeen))?,
@@ -220,7 +227,7 @@ async fn set_heartbeat_inner(conn: &mut Connection, subscription: &str, machine:
     pipe.hset(&redis_key, RedisDomain::Machine, machine);
     pipe.hset(&redis_key, RedisDomain::Ip, value.ip.clone());
     if !key_exists {
-        pipe.hset(&redis_key, RedisDomain::FistSeen, value.last_seen);
+        pipe.hset(&redis_key, RedisDomain::FirstSeen, value.last_seen);
     }
     pipe.hset(&redis_key, RedisDomain::LastSeen, value.last_seen);
 
@@ -343,8 +350,11 @@ impl Database for RedisDatabase {
         let mut fields = HashMap::<RedisDomain, String>::from([
             (RedisDomain::Machine, machine.to_string()),
         ]);
+
+        let mut fields = HeartbeatFilter::default();
+
         if let Some(subs) = subscription {
-            fields.insert(RedisDomain::Subscription, subs.to_string());
+            fields.subscription = Some(subs.to_string());
         }
         self.get_heartbeats_by_field(fields).await
     }
@@ -354,17 +364,17 @@ impl Database for RedisDatabase {
         ip: &str,
         subscription: Option<&str>,
     ) -> Result<Vec<HeartbeatData>> {
-        let mut fields = HashMap::<RedisDomain, String>::from([
-            (RedisDomain::Ip, ip.to_string()),
-        ]);
+        let mut fields = HeartbeatFilter::default();
+        fields.ip = Some(ip.to_string());
+
         if let Some(subs) = subscription {
-            fields.insert(RedisDomain::Subscription, subs.to_string());
+            fields.subscription = Some(subs.to_string());
         }
         self.get_heartbeats_by_field(fields).await
     }
 
     async fn get_heartbeats(&self) -> Result<Vec<HeartbeatData>> {
-        let fields = HashMap::<RedisDomain, String>::new();
+        let fields = HeartbeatFilter::default();
         self.get_heartbeats_by_field(fields).await
     }
 
@@ -372,9 +382,9 @@ impl Database for RedisDatabase {
         &self,
         subscription: &str,
     ) -> Result<Vec<HeartbeatData>> {
-        let fields = HashMap::<RedisDomain, String>::from([
-            (RedisDomain::Subscription, subscription.to_string()),
-        ]);
+        let mut fields = HeartbeatFilter::default();
+        fields.subscription = Some(subscription.to_string());
+
         self.get_heartbeats_by_field(fields).await
     }
 
@@ -561,9 +571,8 @@ impl Database for RedisDatabase {
         subscription: &str,
         start_time: i64,
     ) -> Result<SubscriptionStatsCounters> {
-        let fields = HashMap::<RedisDomain, String>::from([
-            (RedisDomain::Subscription, subscription.to_string()),
-        ]);
+        let mut fields = HeartbeatFilter::default();
+        fields.subscription = Some(subscription.to_string());
         let heartbeats = self.get_heartbeats_by_field(fields).await?;
 
         let total_machines_count = i64::try_from(heartbeats.len())?;
@@ -600,9 +609,9 @@ impl Database for RedisDatabase {
         start_time: i64,
         stat_type: Option<SubscriptionMachineState>,
     ) -> Result<Vec<SubscriptionMachine>> {
-        let fields = HashMap::<RedisDomain, String>::from([
-            (RedisDomain::Subscription, subscription.to_string()),
-        ]);
+        let mut fields = HeartbeatFilter::default();
+        fields.subscription = Some(subscription.to_string());
+
         let heartbeats = self.get_heartbeats_by_field(fields).await?;
         let mut result = Vec::<SubscriptionMachine>::new();
 
