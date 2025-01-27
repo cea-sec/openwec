@@ -83,11 +83,11 @@ impl MachineStatusFilter {
     }
 }
 
-fn get_value_or_default(
-    fields: &HashMap<RedisDomain, String>,
+fn get_value_or_default<'a>(
+    fields: &'a HashMap<RedisDomain, String>,
     key: RedisDomain,
-) -> String {
-    fields.get(&key).cloned().unwrap_or_else(|| RedisDomain::Any.to_string())
+) -> &'a str {
+    fields.get(&key).map(move |s| s.as_str()).unwrap_or_else(|| RedisDomain::Any.as_str())
 }
 
 #[allow(unused)]
