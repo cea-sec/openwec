@@ -44,9 +44,10 @@ pub async fn db_from_settings(settings: &Settings) -> Result<Db> {
             Ok(Arc::new(db))
         }
         crate::settings::Database::Redis(redis) => {
-            let db = RedisDatabase::new(redis.connection_url())
-            .await
-            .context("Failed to initialize Redis client")?;
+            let mut db = RedisDatabase::new(redis.connection_url())
+                .await
+                .context("Failed to initialize Redis client")?;
+            schema::redis::register_migrations(&mut db);
             Ok(Arc::new(db))
         }
     }

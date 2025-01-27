@@ -666,6 +666,7 @@ mod tests {
     async fn db_with_migrations() -> Result<Arc<dyn Database>> {
         let mut db = redis_db().await?;
         schema::redis::register_migrations(&mut db);
+        cleanup_db(&db).await?;
         drop_migrations_table(&db).await?;
         Ok(Arc::new(db))
     }
