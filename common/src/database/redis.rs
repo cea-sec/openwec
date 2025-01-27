@@ -327,11 +327,10 @@ impl Database for RedisDatabase {
         };
 
         let keys = list_keys(&mut conn, &key).await?;
-        let mut pipe = Pipeline::new();
-        for key in keys.iter() {
-            pipe.del(key);
+        if (!keys.is_empty())
+        {
+            let _ : usize = conn.del(keys.as_slice()).await.context("Failed to delete bookmark data")?;
         }
-        let _ : Vec<usize> = pipe.query_async(&mut conn).await.context("Failed to delete bookmark data")?;
 
         Ok(())
     }
