@@ -236,6 +236,15 @@ async fn set_heartbeat(conn: &mut Connection, key: &HeartbeatKey, value: &Heartb
     set_heartbeat_inner(conn, &key.subscription, &key.machine, value).await
 }
 
+fn option_to_result<T, E>(option: Option<&T>, err: E) -> Result<T, E>
+where
+    T: Clone,
+{
+    option
+        .map(|value| value.clone())
+        .ok_or(err)
+}
+
 #[allow(unused)]
 #[async_trait]
 impl Database for RedisDatabase {
@@ -255,9 +264,15 @@ impl Database for RedisDatabase {
             let bookmark_data : HashMap<String,String> = conn.hgetall(&key).await.context("Failed to get bookmark data")?;
             if !bookmark_data.is_empty() {
                 bookmarks.push(BookmarkData {
-                    subscription: bookmark_data[RedisDomain::Subscription.as_str()].clone(),
-                    machine: bookmark_data[RedisDomain::Machine.as_str()].clone(),
-                    bookmark: bookmark_data[RedisDomain::BookMark.as_str()].clone(),
+                    subscription: option_to_result(
+                        bookmark_data.get(RedisDomain::Subscription.as_str()),
+                        anyhow!("RedisError: No Bookmark/{} present!", RedisDomain::Subscription.as_str()))?.clone(),
+                    machine: option_to_result(
+                        bookmark_data.get(RedisDomain::Machine.as_str()),
+                        anyhow!("RedisError: No Bookmark/{} present!", RedisDomain::Machine.as_str()))?.clone(),
+                    bookmark: option_to_result(
+                        bookmark_data.get(RedisDomain::BookMark.as_str()),
+                        anyhow!("RedisError: No Bookmark/{} present!", RedisDomain::BookMark.as_str()))?.clone(),
                 });
             } else {
                 log::warn!("No bookmard found for key: {}", key);
