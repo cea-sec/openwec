@@ -8,6 +8,7 @@ mod heartbeat;
 mod kerberos;
 mod logging;
 mod logic;
+mod monitoring;
 mod multipart;
 mod output;
 mod proxy_protocol;
@@ -19,7 +20,7 @@ mod tls;
 use anyhow::{anyhow, bail, Context, Result};
 use common::database::{db_from_settings, schema_is_up_to_date, Db};
 use common::encoding::decode_utf16le;
-use common::settings::{Authentication, Kerberos, Tls};
+use common::settings::{Authentication, Kerberos, Monitoring, Tls};
 use common::settings::{Collector, Server as ServerSettings, Settings};
 use core::pin::Pin;
 use futures::Future;
@@ -38,6 +39,12 @@ use hyper_util::rt::TokioIo;
 use kerberos::AuthenticationError;
 use libgssapi::error::MajorFlags;
 use log::{debug, error, info, trace, warn};
+use metrics::{counter, histogram};
+use monitoring::{
+    HTTP_REQUESTS_COUNTER, HTTP_REQUEST_BODY_NETWORK_SIZE_BYTES_COUNTER,
+    HTTP_REQUEST_BODY_REAL_SIZE_BYTES_COUNTER, HTTP_REQUEST_DURATION_SECONDS_HISTOGRAM,
+    HTTP_REQUEST_STATUS_CODE, HTTP_REQUEST_URI, MACHINE,
+};
 use quick_xml::writer::Writer;
 use soap::Serializable;
 use socket2::{SockRef, TcpKeepalive};
@@ -89,6 +96,8 @@ pub struct RequestData {
     principal: String,
     remote_addr: SocketAddr,
     category: RequestCategory,
+    uri: String,
+    method: String,
 }
 
 impl RequestData {
@@ -97,6 +106,8 @@ impl RequestData {
             principal: principal.to_owned(),
             remote_addr: remote_addr.to_owned(),
             category: RequestCategory::try_from(req)?,
+            method: req.method().to_string(),
+            uri: req.uri().to_string(),
         })
     }
 
@@ -113,6 +124,14 @@ impl RequestData {
     /// Get a reference to the request data's category.
     pub fn category(&self) -> &RequestCategory {
         &self.category
+    }
+
+    pub fn uri(&self) -> &str {
+        &self.uri
+    }
+
+    pub fn method(&self) -> &str {
+        &self.method
     }
 }
 
@@ -137,7 +156,9 @@ fn full<T: Into<Bytes>>(chunk: T) -> BoxBody<Bytes, Infallible> {
 
 async fn get_request_payload(
     collector: &Collector,
+    monitoring: &Option<Monitoring>,
     auth_ctx: &AuthenticationContext,
+    request_data: &RequestData,
     req: Request<Incoming>,
 ) -> Result<Option<String>> {
     let (parts, body) = req.into_parts();
@@ -168,6 +189,21 @@ async fn get_request_payload(
         return Ok(None);
     }
 
+    let http_request_body_network_size_bytes_counter = match monitoring {
+        Some(monitoring_conf)
+            if monitoring_conf.count_http_request_body_network_size_per_machine() =>
+        {
+            counter!(HTTP_REQUEST_BODY_NETWORK_SIZE_BYTES_COUNTER,
+                HTTP_REQUEST_URI => request_data.uri().to_string(),
+                MACHINE => request_data.principal().to_string())
+        }
+        _ => {
+            counter!(HTTP_REQUEST_BODY_NETWORK_SIZE_BYTES_COUNTER,
+                HTTP_REQUEST_URI => request_data.uri().to_string())
+        }
+    };
+    http_request_body_network_size_bytes_counter.increment(data.len().try_into()?);
+
     let message = match auth_ctx {
         AuthenticationContext::Tls(_, _) => tls::get_request_payload(parts, data).await?,
         AuthenticationContext::Kerberos(conn_state) => {
@@ -177,6 +213,21 @@ async fn get_request_payload(
 
     match message {
         Some(bytes) => {
+            let http_request_body_real_size_bytes_counter = match monitoring {
+                Some(monitoring_conf)
+                    if monitoring_conf.count_http_request_body_real_size_per_machine() =>
+                {
+                    counter!(HTTP_REQUEST_BODY_REAL_SIZE_BYTES_COUNTER,
+                        HTTP_REQUEST_URI => request_data.uri().to_string(),
+                        MACHINE => request_data.principal().to_string())
+                }
+                _ => {
+                    counter!(HTTP_REQUEST_BODY_REAL_SIZE_BYTES_COUNTER,
+                        HTTP_REQUEST_URI => request_data.uri().to_string())
+                }
+            };
+            http_request_body_real_size_bytes_counter.increment(bytes.len().try_into()?);
+
             // Spawn a blocking task to decode utf16
             tokio::task::spawn_blocking(|| Ok(Some(decode_utf16le(bytes)?))).await?
         }
@@ -287,6 +338,7 @@ async fn authenticate(
 async fn handle_payload(
     server: &ServerSettings,
     collector: &Collector,
+    monitoring: &Option<Monitoring>,
     db: Db,
     subscriptions: Subscriptions,
     heartbeat_tx: mpsc::Sender<WriteHeartbeatMessage>,
@@ -307,6 +359,7 @@ async fn handle_payload(
             let response = logic::handle_message(
                 server,
                 collector,
+                monitoring,
                 db,
                 subscriptions,
                 heartbeat_tx,
@@ -379,14 +432,23 @@ fn log_response(
     principal: &str,
     conn_status: ConnectionStatus,
 ) {
-    let duration: f32 = start.elapsed().as_micros() as f32;
+    let duration = start.elapsed().as_secs_f64();
+
+    histogram!(HTTP_REQUEST_DURATION_SECONDS_HISTOGRAM,
+        HTTP_REQUEST_URI => uri.to_owned())
+    .record(duration);
+
+    counter!(HTTP_REQUESTS_COUNTER,
+        HTTP_REQUEST_STATUS_CODE => status.as_str().to_owned(),
+        HTTP_REQUEST_URI => uri.to_owned())
+    .increment(1);
 
     // MDC is thread related, so it should be safe to use it in a non-async
     // function.
     log_mdc::insert("http_status", status.as_str());
     log_mdc::insert("http_method", method);
     log_mdc::insert("http_uri", uri);
-    log_mdc::insert("response_time", format!("{:.3}", duration / 1000.0));
+    log_mdc::insert("response_time", format!("{:.3}", duration * 1000.0));
     log_mdc::insert("ip", addr.ip().to_string());
     log_mdc::insert("port", addr.port().to_string());
     log_mdc::insert("principal", principal);
@@ -407,6 +469,7 @@ fn build_error_response(status: StatusCode) -> Response<BoxBody<Bytes, Infallibl
 async fn handle(
     server: ServerSettings,
     collector: Collector,
+    monitoring: Option<Monitoring>,
     db: Db,
     subscriptions: Subscriptions,
     heartbeat_tx: mpsc::Sender<WriteHeartbeatMessage>,
@@ -474,23 +537,24 @@ async fn handle(
     };
 
     // Get request payload
-    let request_payload = match get_request_payload(&collector, &auth_ctx, req).await {
-        Ok(payload) => payload,
-        Err(e) => {
-            error!("Failed to retrieve request payload: {:?}", e);
-            let status = StatusCode::BAD_REQUEST;
-            log_response(
-                &addr,
-                &method,
-                &uri,
-                &start,
-                status,
-                &principal,
-                ConnectionStatus::Alive,
-            );
-            return Ok(build_error_response(status));
-        }
-    };
+    let request_payload =
+        match get_request_payload(&collector, &monitoring, &auth_ctx, &request_data, req).await {
+            Ok(payload) => payload,
+            Err(e) => {
+                error!("Failed to retrieve request payload: {:?}", e);
+                let status = StatusCode::BAD_REQUEST;
+                log_response(
+                    &addr,
+                    &method,
+                    &uri,
+                    &start,
+                    status,
+                    &principal,
+                    ConnectionStatus::Alive,
+                );
+                return Ok(build_error_response(status));
+            }
+        };
 
     trace!(
         "Received payload: {:?}",
@@ -521,6 +585,7 @@ async fn handle(
         let res = handle_payload(
             &server,
             &collector,
+            &monitoring,
             db,
             subscriptions,
             heartbeat_tx,
@@ -678,6 +743,7 @@ fn create_kerberos_server(
     collector_subscriptions: Subscriptions,
     collector_heartbeat_tx: mpsc::Sender<WriteHeartbeatMessage>,
     collector_server_settings: ServerSettings,
+    monitoring_settings: Option<Monitoring>,
     collector_shutdown_ct: CancellationToken,
     server_addr: SocketAddr,
 ) -> Pin<Box<dyn Future<Output = Result<()>> + Send>> {
@@ -730,6 +796,7 @@ fn create_kerberos_server(
             let svc_db = collector_db.clone();
             let svc_server_settings = collector_server_settings.clone();
             let svc_server_principal = server_principal.clone();
+            let svc_monitoring_settings = monitoring_settings.clone();
             let subscriptions = collector_subscriptions.clone();
             let collector_heartbeat_tx = collector_heartbeat_tx.clone();
 
@@ -769,6 +836,7 @@ fn create_kerberos_server(
                         handle(
                             svc_server_settings.clone(),
                             collector_settings.clone(),
+                            svc_monitoring_settings.clone(),
                             svc_db.clone(),
                             subscriptions.clone(),
                             collector_heartbeat_tx.clone(),
@@ -827,6 +895,7 @@ fn create_tls_server(
     collector_subscriptions: Subscriptions,
     collector_heartbeat_tx: mpsc::Sender<WriteHeartbeatMessage>,
     collector_server_settings: ServerSettings,
+    monitoring_settings: Option<Monitoring>,
     collector_shutdown_ct: CancellationToken,
     server_addr: SocketAddr,
 ) -> Pin<Box<dyn Future<Output = Result<()>> + Send>> {
@@ -875,6 +944,7 @@ fn create_tls_server(
             let collector_settings = collector_settings.clone();
             let svc_db = collector_db.clone();
             let svc_server_settings = collector_server_settings.clone();
+            let svc_monitoring_settings = monitoring_settings.clone();
             let subscriptions = collector_subscriptions.clone();
             let collector_heartbeat_tx = collector_heartbeat_tx.clone();
             let thumbprint = tls_config.thumbprint.clone();
@@ -945,6 +1015,7 @@ fn create_tls_server(
                         handle(
                             svc_server_settings.clone(),
                             collector_settings.clone(),
+                            svc_monitoring_settings.clone(),
                             svc_db.clone(),
                             subscriptions.clone(),
                             collector_heartbeat_tx.clone(),
@@ -1062,6 +1133,10 @@ pub async fn run(settings: Settings, verbosity: u8) {
 
     let subscriptions = Arc::new(RwLock::new(HashMap::new()));
 
+    if let Some(monitoring_settings) = settings.monitoring() {
+        monitoring::init(&db, subscriptions.clone(), monitoring_settings).expect("Failed to initialize metrics exporter");
+    }
+
     let reload_interval = settings.server().db_sync_interval();
     let outputs_settings = settings.outputs().clone();
     let update_task_db = db.clone();
@@ -1133,6 +1208,7 @@ pub async fn run(settings: Settings, verbosity: u8) {
         let collector_heartbeat_tx = heartbeat_tx.clone();
         let collector_server_settings = settings.server().clone();
         let collector_shutdown_ct = shutdown_ct.clone();
+        let collector_monitoring_settings = settings.monitoring().cloned();
 
         // Construct our SocketAddr to listen on...
         let addr = SocketAddr::from((
@@ -1153,6 +1229,7 @@ pub async fn run(settings: Settings, verbosity: u8) {
                     collector_subscriptions,
                     collector_heartbeat_tx,
                     collector_server_settings,
+                    collector_monitoring_settings,
                     collector_shutdown_ct,
                     addr,
                 ));
@@ -1165,6 +1242,7 @@ pub async fn run(settings: Settings, verbosity: u8) {
                     collector_subscriptions,
                     collector_heartbeat_tx,
                     collector_server_settings,
+                    collector_monitoring_settings,
                     collector_shutdown_ct,
                     addr,
                 ));
