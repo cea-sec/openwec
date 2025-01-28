@@ -1,4 +1,4 @@
-FROM alpine:3.20 AS chef
+FROM alpine:3.21 AS chef
 RUN apk add --no-cache rust cargo && cargo install cargo-chef
 WORKDIR /SRC
 
@@ -27,7 +27,7 @@ COPY . .
 RUN cargo build --release --locked
 
 
-FROM alpine:3.20
+FROM alpine:3.21
 ARG APP=/usr/src/openwec
 ARG DATA=/var/lib/openwec/data
 ARG DB=/var/lib/openwec/db
