@@ -160,36 +160,45 @@ impl From<SubscriptionOutputFormat> for crate::subscription::SubscriptionOutputF
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Deserialize)]
-enum PrincsFilterOperation {
+enum ClientFilterOperation {
     Only,
     Except,
 }
 
-impl From<PrincsFilterOperation> for crate::subscription::PrincsFilterOperation {
-    fn from(value: PrincsFilterOperation) -> Self {
+impl From<ClientFilterOperation> for crate::subscription::ClientFilterOperation {
+    fn from(value: ClientFilterOperation) -> Self {
         match value {
-            PrincsFilterOperation::Except => crate::subscription::PrincsFilterOperation::Except,
-            PrincsFilterOperation::Only => crate::subscription::PrincsFilterOperation::Only,
+            ClientFilterOperation::Except => crate::subscription::ClientFilterOperation::Except,
+            ClientFilterOperation::Only => crate::subscription::ClientFilterOperation::Only,
         }
     }
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct PrincsFilter {
-    pub operation: Option<PrincsFilterOperation>,
-    pub princs: HashSet<String>,
+struct ClientFilter {
+    pub operation: ClientFilterOperation,
+    #[serde(rename = "type", default)]
+    pub kind: crate::subscription::ClientFilterType,
+    #[serde(default)]
+    pub flags: crate::subscription::ClientFilterFlags,
+    #[serde(default)]
+    pub targets: HashSet<String>,
+
+    #[deprecated(since = "0.4.0", note = "Only for backward compatibility. Use targets instead")]
+    pub princs: Option<HashSet<String>>,
 }
 
-impl TryFrom<PrincsFilter> for crate::subscription::PrincsFilter {
+impl TryFrom<ClientFilter> for crate::subscription::ClientFilter {
     type Error = anyhow::Error;
 
-    fn try_from(value: PrincsFilter) -> std::prelude::v1::Result<Self, Self::Error> {
-        let mut filter = crate::subscription::PrincsFilter::empty();
-        let operation = value.operation.map(|op| op.into());
-        filter.set_operation(operation);
-        filter.set_princs(value.princs)?;
-        Ok(filter)
+    fn try_from(value: ClientFilter) -> std::prelude::v1::Result<Self, Self::Error> {
+        #[allow(deprecated)]
+        if let Some(princs) = value.princs {
+            return Ok(crate::subscription::ClientFilter::new_legacy(value.operation.into(), princs));
+        }
+
+        crate::subscription::ClientFilter::try_new(value.operation.into(), value.kind, value.flags, value.targets)
     }
 }
 
@@ -280,7 +289,7 @@ struct Subscription {
     pub version: Uuid,
     pub name: String,
     pub query: String,
-    pub filter: Option<PrincsFilter>,
+    pub filter: Option<ClientFilter>,
     pub outputs: Vec<SubscriptionOutput>,
     pub options: Option<SubscriptionOptions>,
 }
@@ -295,7 +304,7 @@ impl TryFrom<Subscription> for crate::subscription::SubscriptionData {
         data.set_name(subscription.name.clone());
         data.set_query(subscription.query.clone());
         if let Some(filter) = subscription.filter {
-            data.set_princs_filter(filter.try_into()?);
+            data.set_client_filter(Some(filter.try_into()?));
         }
 
         if subscription.outputs.is_empty() {
@@ -506,14 +515,14 @@ path = "/whatever/you/{ip}/want/{principal}/{ip:2}/{node}/end"
 
         expected.set_outputs(outputs);
 
-        let mut filter = crate::subscription::PrincsFilter::empty();
-        filter.set_operation(Some(crate::subscription::PrincsFilterOperation::Only));
-        let mut princs = HashSet::new();
-        princs.insert("toto@windomain.local".to_string());
-        princs.insert("tutu@windomain.local".to_string());
-        filter.set_princs(princs)?;
+        let mut targets = HashSet::new();
+        targets.insert("toto@windomain.local".to_string());
+        targets.insert("tutu@windomain.local".to_string());
+        let kind = crate::subscription::ClientFilterType::KerberosPrinc;
+        let flags = crate::subscription::ClientFilterFlags::CaseSensitive;
+        let filter = crate::subscription::ClientFilter::try_new(crate::subscription::ClientFilterOperation::Only, kind, flags, targets)?;
 
-        expected.set_princs_filter(filter);
+        expected.set_client_filter(Some(filter));
 
         // The only difference between both subscriptions should be the
         // internal version, so we set both the same value

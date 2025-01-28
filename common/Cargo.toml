@@ -26,6 +26,8 @@ deadpool-sqlite = "0.5.0"
 openssl = "0.10.66"
 postgres-openssl = "0.5.0"
 strum = { version = "0.26.1", features = ["derive"] }
+bitflags = { version = "2.6.0", features = ["serde"] }
+glob = "0.3.1"
 
 [dev-dependencies]
 tempfile = "3.14.0"
