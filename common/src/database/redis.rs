@@ -185,10 +185,10 @@ impl RedisDatabase {
                     subscription_data,
                     heartbeat_data.get(RedisDomain::FirstSeen.as_str())
                         .and_then(|value| value.parse::<i64>().ok())
-                        .context(format!("Failed to parse integer for field '{}'", RedisDomain::FirstSeen))?,
+                        .with_context(|| format!("Failed to parse integer for field '{}'", RedisDomain::FirstSeen))?,
                     heartbeat_data.get(RedisDomain::LastSeen.as_str())
                     .and_then(|value| value.parse::<i64>().ok())
-                    .context(format!("Failed to parse integer for field '{}'", RedisDomain::LastSeen))?,
+                    .with_context(|| format!("Failed to parse integer for field '{}'", RedisDomain::LastSeen))?,
                     heartbeat_data.get(RedisDomain::LastEventSeen.as_str())
                     .and_then(|value| value.parse::<i64>().ok()),
                 );
@@ -515,7 +515,7 @@ impl Database for RedisDatabase {
         let mut conn = self.pool.get().await.context("Failed to get Redis connection")?;
         let key = MIGRATION_TABLE_NAME;
         let versions:Vec<String> = conn.zrange(key, 0, -1).await.context("There is no version info stored in DB.")?;
-        let result : BTreeSet<i64> = versions.into_iter().map(|v| v.parse::<i64>().context(format!("Failed to parse version: {}", v))).collect::<Result<_>>()?;
+        let result : BTreeSet<i64> = versions.into_iter().map(|v| v.parse::<i64>().with_context(|| format!("Failed to parse version: {}", v))).collect::<Result<_>>()?;
         Ok(result)
     }
 
@@ -530,7 +530,7 @@ impl Database for RedisDatabase {
         migration.up(&mut conn).await?;
         let key = MIGRATION_TABLE_NAME;
         let version = migration.version();
-        let added_count: i64 = conn.zadd(key, version, version).await.context(format!("Unable to add version: {}", version))?;
+        let added_count: i64 = conn.zadd(key, version, version).await.with_context(|| format!("Unable to add version: {}", version))?;
         if added_count > 0 {
             println!("Successfully added version {} to sorted set", version);
         } else {
