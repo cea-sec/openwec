@@ -490,10 +490,9 @@ impl Database for RedisDatabase {
 
     async fn delete_subscription(&self, uuid: &str) -> Result<()> {
         let mut conn = self.pool.get().await.context("Failed to get Redis connection")?;
-        let first_pass_key = format!("{}:{}:{}", RedisDomain::Subscription, uuid.to_uppercase(), RedisDomain::Any);
-        let second_pass_key = format!("{}:{}:{}", RedisDomain::Subscription, RedisDomain::Any, uuid);
+        let key = format!("{}:{}:{}", RedisDomain::Subscription, uuid.to_uppercase(), RedisDomain::Any);
 
-        let keys = list_keys_with_fallback(&mut conn, &first_pass_key, &second_pass_key).await?;
+        let keys = list_keys(&mut conn, &key).await?;
 
         self.delete_bookmarks(None, Some(uuid)).await.context("Failed to delete subscription releated bookmark data")?;
         if !keys.is_empty() {
