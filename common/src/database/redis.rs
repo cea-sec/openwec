@@ -27,7 +27,7 @@
 //
 use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
-use deadpool_redis::redis::{AsyncCommands, Pipeline};
+use deadpool_redis::redis::AsyncCommands;
 use deadpool_redis::{Config, Connection, Pool, Runtime};
 use log::warn;
 use std::collections::btree_map::Entry::Vacant;
@@ -228,20 +228,23 @@ async fn list_keys_with_fallback(con: &mut Connection, key: &str, fallback: &str
 async fn set_heartbeat_inner(conn: &mut Connection, subscription: &str, machine: &str, value: HeartbeatValue) -> Result<()> {
     let redis_key = format!("{}:{}:{}", RedisDomain::Heartbeat, subscription.to_uppercase(), machine);
     let key_exists = conn.exists(&redis_key).await.unwrap_or(true);
-    let mut pipe = Pipeline::new();
-    pipe.hset(&redis_key, RedisDomain::Subscription, subscription.to_uppercase());
-    pipe.hset(&redis_key, RedisDomain::Machine, machine);
-    pipe.hset(&redis_key, RedisDomain::Ip, value.ip.clone());
+
+    let mut items:Vec<(RedisDomain, String)> = vec![
+        (RedisDomain::Subscription, subscription.to_uppercase()),
+        (RedisDomain::Machine, machine.to_string()),
+        (RedisDomain::Ip, value.ip),
+        (RedisDomain::LastSeen, value.last_seen.to_string()),
+    ];
+
     if !key_exists {
-        pipe.hset(&redis_key, RedisDomain::FirstSeen, value.last_seen);
+        items.push((RedisDomain::FirstSeen, value.last_seen.to_string()));
     }
-    pipe.hset(&redis_key, RedisDomain::LastSeen, value.last_seen);
-
     if let Some(last_event_seen) = value.last_event_seen {
-        pipe.hset(&redis_key, RedisDomain::LastEventSeen, last_event_seen);
+        items.push((RedisDomain::LastEventSeen, last_event_seen.to_string()));
     }
 
-    let _ : Vec<usize> = pipe.query_async(conn.as_mut()).await.context("Failed to set heartbeat data")?;
+    let _: () = conn.hset_multiple(&redis_key, &items).await.context("Failed to store bookmark data")?;
+
     Ok(())
 }
 
