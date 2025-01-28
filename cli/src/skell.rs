@@ -178,10 +178,19 @@ fn get_outputs() -> String {
 # driver = "Tcp"
 # format = "Raw"
 
-# Tcp driver has the following paramters:
-# - addr (required): Hostname or IP Address to send events to
+# Tcp driver has the following parameters:
+# - host (required): Hostname or IP Address to send events to
 # - port (required): Tcp port to send events to
-# config = { addr = "localhost", port = 5000 }
+# - tls_enabled (optional, defaults to false): wrap the TCP stream in a TLS session.
+#       Must be set for other tls_ options to take effect
+# - tls_certificate_authorities (optional, defaults to undefined): Validate server certificate
+#       chain against these authorities. You can define multiple files or paths.
+#       All the certificates will be read and added to the trust store.
+# - tls_certificate (optional, defaults to undefined): Path to certificate in PEM format.
+#       This certificate will be presented to the server.
+# - tls_key (optional, defaults to undefined): Path to the private key corresponding to the
+#       specified certificate (PEM format).
+# config = { host = "localhost", port = 5000 }
 
 
 # Configure a Redis output

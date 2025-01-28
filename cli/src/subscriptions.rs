@@ -740,7 +740,14 @@ fn outputs_add_tcp(matches: &ArgMatches) -> Result<TcpConfiguration> {
         .ok_or_else(|| anyhow!("Missing TCP port"))?;
 
     info!("Adding TCP output: {}:{}", addr, port);
-    Ok(TcpConfiguration::new(addr.clone(), *port))
+    TcpConfiguration::new(
+        addr.clone(),
+        *port,
+        false,
+        Vec::new(),
+        None,
+        None,
+    )
 }
 
 fn outputs_add_redis(matches: &ArgMatches) -> Result<RedisConfiguration> {

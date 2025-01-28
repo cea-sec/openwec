@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Add `max_elements` subscription parameter (#185)
 - Add an optional Prometheus endpoint that exposes metrics (#190)
+- Optionally wrap TCP stream in a TLS session in TCP driver (#203)
 
 ## [v0.3.0]
 

@@ -2,6 +2,7 @@ use std::{
     collections::{HashMap, HashSet},
     fmt::{Display, Formatter},
     hash::{Hash, Hasher},
+    net::IpAddr,
     str::FromStr,
 };
 
@@ -70,23 +71,76 @@ impl RedisConfiguration {
     }
 }
 
-#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize, Default)]
 pub struct TcpConfiguration {
-    addr: String,
+    // Stay compatible with old 'addr' attribute
+    #[serde(alias = "addr")]
+    host: String,
     port: u16,
+    tls_enabled: bool,
+    tls_certificate_authorities: Vec<String>,
+    tls_certificate: Option<String>,
+    tls_key: Option<String>,
 }
 
 impl TcpConfiguration {
-    pub fn new(addr: String, port: u16) -> Self {
-        TcpConfiguration { addr, port }
+    pub fn new(
+        host: String,
+        port: u16,
+        tls_enabled: bool,
+        tls_certificate_authorities: Vec<String>,
+        tls_certificate: Option<String>,
+        tls_key: Option<String>,
+    ) -> Result<Self> {
+        // Check that addr is a hostname if tls is enabled
+        if tls_enabled {
+            if IpAddr::from_str(&host).is_ok() {
+                bail!("host must be a hostname if tls is enabled, found {}", &host);
+            }
+
+            if tls_certificate_authorities.is_empty() {
+                bail!("tls_certificate_authorities must be not empty if tls is enabled")
+            }
+
+            match (&tls_certificate, &tls_key) {
+                (Some(_), Some(_)) => (),
+                (None, None) => (),
+                (cert, key) => bail!("tls_certificate and tls_key must both be defined, found tls_certificate={:?} and tls_key={:?}", cert, key)
+            }
+        }
+
+        Ok(TcpConfiguration {
+            host,
+            port,
+            tls_enabled,
+            tls_certificate_authorities,
+            tls_certificate,
+            tls_key,
+        })
     }
 
-    pub fn addr(&self) -> &str {
-        self.addr.as_ref()
+    pub fn host(&self) -> &str {
+        self.host.as_ref()
     }
 
     pub fn port(&self) -> u16 {
         self.port
+    }
+
+    pub fn tls_enabled(&self) -> bool {
+        self.tls_enabled
+    }
+
+    pub fn tls_certificate_authorities(&self) -> &[String] {
+        self.tls_certificate_authorities.as_ref()
+    }
+
+    pub fn tls_certificate(&self) -> Option<&String> {
+        self.tls_certificate.as_ref()
+    }
+
+    pub fn tls_key(&self) -> Option<&String> {
+        self.tls_key.as_ref()
     }
 }
 
