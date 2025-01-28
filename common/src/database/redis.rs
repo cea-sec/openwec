@@ -225,7 +225,7 @@ async fn list_keys_with_fallback(con: &mut Connection, key: &str, fallback: &str
     Ok(keys)
 }
 
-async fn set_heartbeat_inner(conn: &mut Connection, subscription: &str, machine: &str, value: &HeartbeatValue) -> Result<()> {
+async fn set_heartbeat_inner(conn: &mut Connection, subscription: &str, machine: &str, value: HeartbeatValue) -> Result<()> {
     let redis_key = format!("{}:{}:{}", RedisDomain::Heartbeat, subscription.to_uppercase(), machine);
     let key_exists = conn.exists(&redis_key).await.unwrap_or(true);
     let mut pipe = Pipeline::new();
@@ -246,7 +246,7 @@ async fn set_heartbeat_inner(conn: &mut Connection, subscription: &str, machine:
 }
 
 async fn set_heartbeat(conn: &mut Connection, key: &HeartbeatKey, value: &HeartbeatValue) -> Result<()> {
-    set_heartbeat_inner(conn, &key.subscription, &key.machine, value).await
+    set_heartbeat_inner(conn, &key.subscription, &key.machine, value.to_owned()).await
 }
 
 fn option_to_result<T, E>(option: Option<&T>, err: E) -> Result<T, E>
@@ -412,7 +412,7 @@ impl Database for RedisDatabase {
             last_event_seen: if is_event { Some(now) } else { None },
         };
 
-        set_heartbeat_inner(&mut conn, subscription, machine, &hbv).await
+        set_heartbeat_inner(&mut conn, subscription, machine, hbv).await
     }
 
     async fn store_heartbeats(&self, heartbeats: &HeartbeatsCache) -> Result<()> {
