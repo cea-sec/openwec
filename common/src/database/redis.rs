@@ -421,7 +421,6 @@ impl Database for RedisDatabase {
     async fn store_heartbeats(&self, heartbeats: &HeartbeatsCache) -> Result<()> {
         let mut conn = self.pool.get().await.context("Failed to get Redis connection")?;
         for (key, value) in heartbeats.iter() {
-            let ip:String = value.ip.clone();
             set_heartbeat(&mut conn, key, value).await?;
         }
         Ok(())
