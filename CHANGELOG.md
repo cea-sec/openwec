@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Add `max_elements` subscription parameter (#185)
+- Add an optional Prometheus endpoint that exposes metrics (#190)
 
 ## [v0.3.0]
 
