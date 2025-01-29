@@ -17,7 +17,7 @@ buf-read-ext = "0.4.0"
 httparse = "1.10.0"
 hyper = { version = "1.5.0", features = ["full"] }
 itoa = "1.0.6"
-libgssapi = { version = "0.7.2", features = ["iov"] }
+libgssapi = { version = "0.8.2", features = ["iov"] }
 log = "0.4.19"
 mime = "0.3.17"
 quick-xml = "0.36.0"
