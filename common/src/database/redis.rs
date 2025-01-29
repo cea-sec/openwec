@@ -141,8 +141,6 @@ impl RedisDatabase {
         let keys = list_keys(&mut conn, &key).await?;
         let mut heartbeats = Vec::<HeartbeatData>::new();
 
-        let mut subscriptions_cache = HashMap::<String, SubscriptionData>::new();
-
         for key in keys {
             let heartbeat_data : HashMap<String,String> = conn.hgetall(&key).await.context("Failed to get heartbeat data")?;
             if !heartbeat_data.is_empty() {
@@ -151,17 +149,8 @@ impl RedisDatabase {
                 let subscription_uuid = option_to_result(
                     heartbeat_data.get(RedisDomain::Subscription.as_str()),
                     anyhow!("RedisError: No Heartbea/{} present!", RedisDomain::Subscription.as_str()))?;
-                let cached_data = subscriptions_cache.get(&subscription_uuid).cloned();
 
-                let subscription_data_opt = if cached_data.is_none() {
-                    let fetched_data = self.get_subscription_by_identifier(&subscription_uuid).await?;
-                    if let Some(fetched_subscription) = fetched_data.clone() {
-                        subscriptions_cache.insert(subscription_uuid.clone(), fetched_subscription);
-                    }
-                    fetched_data
-                } else {
-                    cached_data
-                };
+                let subscription_data_opt = self.get_subscription_by_identifier(&subscription_uuid).await?;
 
                 if subscription_data_opt.is_none() {
                     continue;
