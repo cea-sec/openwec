@@ -203,17 +203,6 @@ async fn list_keys(con: &mut Connection, key: &str) -> Result<Vec<String>> {
     Ok(res)
 }
 
-async fn list_keys_with_fallback(con: &mut Connection, key: &str, fallback: &str) -> Result<Vec<String>>
-{
-    let keys:Vec<String> = list_keys(con, key).await?;
-    if keys.is_empty() {
-        let fallback_keys: Vec<String> = list_keys(con, fallback).await?;
-        return Ok(fallback_keys);
-    }
-
-    Ok(keys)
-}
-
 async fn set_heartbeat_inner(conn: &mut Connection, subscription: &str, machine: &str, value: HeartbeatValue) -> Result<()> {
     let redis_key = format!("{}:{}:{}", RedisDomain::Heartbeat, subscription.to_uppercase(), machine);
     let key_exists = conn.exists(&redis_key).await.unwrap_or(true);
@@ -447,13 +436,16 @@ impl Database for RedisDatabase {
         identifier: &str,
     ) -> Result<Option<SubscriptionData>> {
         let mut conn = self.pool.get().await.context("Failed to get Redis connection")?;
-        let first_pass_key = format!("{}:{}:{}", RedisDomain::Subscription, identifier, RedisDomain::Any);
-        let second_pass_key = format!("{}:{}:{}", RedisDomain::Subscription, RedisDomain::Any, identifier);
+        let key = format!("{}:{}:{}", RedisDomain::Subscription, RedisDomain::Any, RedisDomain::Any);
 
-        let keys = list_keys_with_fallback(&mut conn, &first_pass_key, &second_pass_key).await?;
+        let keys = list_keys(&mut conn, &key).await?;
 
-        if !keys.is_empty() {
-            let result: Option<String> = conn.get(&keys[0]).await.context("Failed to get subscription data")?;
+        let filtered: Vec<String> = keys.into_iter()
+        .filter(|key| key.split(':').skip(1).any(|elt| elt == identifier))
+        .collect();
+
+        if !filtered.is_empty() {
+            let result: Option<String> = conn.get(&filtered[0]).await.context("Failed to get subscription data")?;
             if result.is_some() {
                 let subscription: SubscriptionData = serde_json::from_str(&result.unwrap()).context("Failed to deserialize subscription data")?;
                 return Ok(Some(subscription));
