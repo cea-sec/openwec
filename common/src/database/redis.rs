@@ -36,7 +36,6 @@ use std::sync::Arc;
 use std::time::SystemTime;
 
 use crate::bookmark::BookmarkData;
-use super::redisdomain::RedisDomain;
 use crate::database::Database;
 use crate::heartbeat::{HeartbeatData, HeartbeatKey, HeartbeatValue, HeartbeatsCache};
 use crate::subscription::{
@@ -45,6 +44,48 @@ use crate::subscription::{
 use futures_util::stream::StreamExt;
 
 use super::schema::{Migration, MigrationBase, Version};
+
+
+use deadpool_redis::redis::{self, ToRedisArgs};
+use strum::{Display, EnumString};
+
+#[derive(Debug, Eq, Hash, PartialEq, EnumString, Display)]
+pub enum RedisDomain {
+    Users,
+    Subscription,
+    Machine,
+    Heartbeat,
+    BookMark,
+    Ip,
+    FirstSeen,
+    LastSeen,
+    LastEventSeen,
+    #[strum(serialize = "*")]
+    Any,
+}
+
+impl ToRedisArgs for RedisDomain {
+    fn write_redis_args<W: ?Sized + redis::RedisWrite>(&self, out: &mut W) {
+        out.write_arg(self.as_str().as_bytes());
+    }
+}
+
+impl RedisDomain {
+    pub fn as_str(&self) -> &str {
+        match self {
+            RedisDomain::Users => "users",
+            RedisDomain::Subscription => "subscription",
+            RedisDomain::Machine => "machine",
+            RedisDomain::Heartbeat => "heartbeat",
+            RedisDomain::BookMark => "bookmark",
+            RedisDomain::Ip => "ip",
+            RedisDomain::FirstSeen => "first_seen",
+            RedisDomain::LastSeen => "last_seen",
+            RedisDomain::LastEventSeen => "last_event_seen",
+            RedisDomain::Any => "*",
+        }
+    }
+}
 
 const MIGRATION_TABLE_NAME: &str = "__schema_migrations";
 

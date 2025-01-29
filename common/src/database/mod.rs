@@ -23,7 +23,6 @@ pub mod postgres;
 pub mod schema;
 pub mod sqlite;
 pub mod redis;
-pub mod redisdomain;
 
 pub type Db = Arc<dyn Database + Send + Sync>;
 
