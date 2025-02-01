@@ -661,6 +661,15 @@ impl SubscriptionData {
         Ok(PublicVersion(Uuid::from_u64_pair(result, result)))
     }
 
+    pub fn parameters(&self) -> &SubscriptionParameters {
+        &self.parameters
+    }
+
+    pub fn set_parameters(&mut self, parameters: SubscriptionParameters) -> &mut SubscriptionData {
+        self.parameters = parameters;
+        self
+    }
+
     /// Get a reference to the subscription's name.
     pub fn name(&self) -> &str {
         self.parameters.name.as_ref()

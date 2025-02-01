@@ -41,6 +41,7 @@ use crate::heartbeat::{HeartbeatData, HeartbeatKey, HeartbeatValue, HeartbeatsCa
 use crate::subscription::{
     SubscriptionData, SubscriptionMachine, SubscriptionMachineState, SubscriptionStatsCounters
 };
+use crate::database::schema::redis::v1::subscription::*;
 use futures_util::stream::StreamExt;
 
 use super::schema::{Migration, MigrationBase, Version};
@@ -440,11 +441,11 @@ impl Database for RedisDatabase {
         let mut subscriptions = Vec::new();
 
         for key in keys {
-            let subscription_json: Option<String> = conn.get(&key).await.context("Failed to get subscription data")?;
+            let subscription_redis_data: Option<String> = conn.get(&key).await.context("Failed to get subscription data")?;
 
-            if let Some(subscription_json) = subscription_json {
-                match serde_json::from_str::<SubscriptionData>(&subscription_json) {
-                    Ok(subscription) => subscriptions.push(subscription),
+            if let Some(subscription_redis_data) = subscription_redis_data {
+                match serde_json::from_str::<SubscriptionRedisData>(&subscription_redis_data) {
+                    Ok(subscription) => subscriptions.push(subscription.into_subscription_data()),
                     Err(err) => {
                         log::warn!("Failed to deserialize subscription data for key {}: {}", key, err);
                     }
@@ -473,8 +474,8 @@ impl Database for RedisDatabase {
         if !filtered.is_empty() {
             let result: Option<String> = conn.get(&filtered[0]).await.context("Failed to get subscription data")?;
             if result.is_some() {
-                let subscription: SubscriptionData = serde_json::from_str(&result.unwrap()).context("Failed to deserialize subscription data")?;
-                return Ok(Some(subscription));
+                let subscription_redis_data: SubscriptionRedisData = serde_json::from_str(&result.unwrap()).context("Failed to deserialize subscription data")?;
+                return Ok(Some(subscription_redis_data.into_subscription_data()));
             }
         }
         Ok(None)
@@ -489,8 +490,11 @@ impl Database for RedisDatabase {
             let _:() = conn.del(keys).await?;
         }
 
+
+        let subscription_redis_data = SubscriptionRedisData::from_subscription_data(subscription);
+
         let key = format!("{}:{}:{}", RedisDomain::Subscription, subscription.uuid().to_string().to_uppercase(), subscription.name());
-        let value = serde_json::to_string(subscription).context("Failed to serialize subscription data")?;
+        let value = serde_json::to_string(&subscription_redis_data).context("Failed to serialize subscription data")?;
         let _ : String = conn.set(key, value).await.context("Failed to store subscription data")?;
         Ok(())
     }
