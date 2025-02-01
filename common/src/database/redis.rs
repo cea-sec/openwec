@@ -129,20 +129,11 @@ pub struct RedisDatabase {
     migrations: BTreeMap<Version, Arc<dyn RedisMigration + Send + Sync>>,
 }
 
+#[derive(Default)]
 struct HeartbeatFilter {
     subscription: Option<String>,
     machine: Option<String>,
     ip: Option<String>,
-}
-
-impl Default for HeartbeatFilter {
-    fn default() -> Self {
-        HeartbeatFilter {
-            ip: None,
-            machine: None,
-            subscription: None,
-        }
-    }
 }
 
 impl RedisDatabase {
@@ -275,9 +266,7 @@ fn option_to_result<T, E>(option: Option<&T>, err: E) -> Result<T, E>
 where
     T: Clone,
 {
-    option
-        .map(|value| value.clone())
-        .ok_or(err)
+    option.cloned().ok_or(err)
 }
 
 #[allow(unused)]
@@ -375,15 +364,11 @@ impl Database for RedisDatabase {
         machine: &str,
         subscription: Option<&str>,
     ) -> Result<Vec<HeartbeatData>> {
-        let mut fields = HashMap::<RedisDomain, String>::from([
-            (RedisDomain::Machine, machine.to_string()),
-        ]);
-
-        let mut fields = HeartbeatFilter::default();
-
-        if let Some(subs) = subscription {
-            fields.subscription = Some(subs.to_string());
-        }
+        let mut fields = HeartbeatFilter{
+            subscription: subscription.map(String::from),
+            machine: Some(machine.to_string()),
+            ..Default::default()
+        };
         self.get_heartbeats_by_field(fields).await
     }
 
@@ -392,12 +377,10 @@ impl Database for RedisDatabase {
         ip: &str,
         subscription: Option<&str>,
     ) -> Result<Vec<HeartbeatData>> {
-        let mut fields = HeartbeatFilter::default();
-        fields.ip = Some(ip.to_string());
-
-        if let Some(subs) = subscription {
-            fields.subscription = Some(subs.to_string());
-        }
+        let mut fields = HeartbeatFilter{
+            ip: Some(ip.to_string()),
+            subscription: subscription.map(String::from),
+            ..Default::default()};
         self.get_heartbeats_by_field(fields).await
     }
 
@@ -410,8 +393,10 @@ impl Database for RedisDatabase {
         &self,
         subscription: &str,
     ) -> Result<Vec<HeartbeatData>> {
-        let mut fields = HeartbeatFilter::default();
-        fields.subscription = Some(subscription.to_string());
+        let mut fields = HeartbeatFilter{
+            subscription: Some(subscription.to_string()),
+            ..Default::default()
+        };
 
         self.get_heartbeats_by_field(fields).await
     }
@@ -600,8 +585,10 @@ impl Database for RedisDatabase {
         subscription: &str,
         start_time: i64,
     ) -> Result<SubscriptionStatsCounters> {
-        let mut fields = HeartbeatFilter::default();
-        fields.subscription = Some(subscription.to_string());
+        let mut fields = HeartbeatFilter{
+            subscription: Some(subscription.to_string()),
+            ..Default::default()
+        };
         let heartbeats = self.get_heartbeats_by_field(fields).await?;
 
         let total_machines_count = i64::try_from(heartbeats.len())?;
@@ -638,8 +625,10 @@ impl Database for RedisDatabase {
         start_time: i64,
         stat_type: Option<SubscriptionMachineState>,
     ) -> Result<Vec<SubscriptionMachine>> {
-        let mut fields = HeartbeatFilter::default();
-        fields.subscription = Some(subscription.to_string());
+        let mut fields = HeartbeatFilter{
+            subscription: Some(subscription.to_string()),
+            ..Default::default()
+        };
 
         let heartbeats = self.get_heartbeats_by_field(fields).await?;
         let mut result = Vec::<SubscriptionMachine>::new();
