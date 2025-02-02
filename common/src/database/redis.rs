@@ -445,7 +445,7 @@ impl Database for RedisDatabase {
 
             if let Some(subscription_redis_data) = subscription_redis_data {
                 match serde_json::from_str::<SubscriptionRedisData>(&subscription_redis_data) {
-                    Ok(subscription) => subscriptions.push(subscription.into_subscription_data()),
+                    Ok(subscription) => subscriptions.push(subscription.into()),
                     Err(err) => {
                         log::warn!("Failed to deserialize subscription data for key {}: {}", key, err);
                     }
@@ -475,7 +475,7 @@ impl Database for RedisDatabase {
             let result: Option<String> = conn.get(&filtered[0]).await.context("Failed to get subscription data")?;
             if result.is_some() {
                 let subscription_redis_data: SubscriptionRedisData = serde_json::from_str(&result.unwrap()).context("Failed to deserialize subscription data")?;
-                return Ok(Some(subscription_redis_data.into_subscription_data()));
+                return Ok(Some(subscription_redis_data.into()));
             }
         }
         Ok(None)
@@ -491,7 +491,7 @@ impl Database for RedisDatabase {
         }
 
 
-        let subscription_redis_data = SubscriptionRedisData::from_subscription_data(subscription);
+        let subscription_redis_data = SubscriptionRedisData::from(subscription);
 
         let key = format!("{}:{}:{}", RedisDomain::Subscription, subscription.uuid().to_string().to_uppercase(), subscription.name());
         let value = serde_json::to_string(&subscription_redis_data).context("Failed to serialize subscription data")?;

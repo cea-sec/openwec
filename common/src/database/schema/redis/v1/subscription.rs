@@ -43,3 +43,15 @@ impl SubscriptionRedisData {
         sd
     }
 }
+
+impl From<&SubscriptionData> for SubscriptionRedisData {
+    fn from(value: &SubscriptionData) -> Self {
+        SubscriptionRedisData::from_subscription_data(value)
+    }
+}
+
+impl From<SubscriptionRedisData> for SubscriptionData {
+    fn from(value: SubscriptionRedisData) -> Self {
+        value.into_subscription_data()
+    }
+}
