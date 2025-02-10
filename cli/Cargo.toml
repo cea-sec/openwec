@@ -21,4 +21,4 @@ roxmltree = "0.20.0"
 serde = { version = "1.0", features = ["derive"] }
 uuid = { version = "1.12.1", features = ["v4", "fast-rng"] }
 chrono = { version  = "0.4.26", default-features = false, features = ["clock"] }
-strum = { version = "0.26.1", features = ["derive"] }
+strum = { version = "0.27.0", features = ["derive"] }
