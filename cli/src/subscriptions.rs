@@ -970,6 +970,7 @@ async fn load(db: &Db, matches: &ArgMatches) -> Result<()> {
         .ok_or_else(|| anyhow!("Missing argument path"))?;
     let keep = matches.get_one::<bool>("keep").expect("Defaulted by clap");
     let yes = matches.get_one::<bool>("yes").expect("Defaulted by clap");
+    let allow_empty = matches.get_one::<bool>("allow-empty").expect("Defaulted by clap");
     let revision = matches.get_one::<String>("revision");
 
     let path_obj = Path::new(path);
@@ -985,7 +986,7 @@ async fn load(db: &Db, matches: &ArgMatches) -> Result<()> {
     let subscriptions =
         config::load_from_path(path, revision).context("Failed to load config files")?;
 
-    if subscriptions.is_empty() {
+    if subscriptions.is_empty() && !allow_empty {
         bail!("Could not find any subscriptions");
     }
 
