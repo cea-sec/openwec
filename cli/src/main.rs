@@ -254,6 +254,7 @@ async fn main() {
                     .arg(arg!(<path> "Directory of configuration files or a single configuration file"))
                     .arg(arg!(-k --keep "Do not delete subscriptions that are not present in the configuration"))
                     .arg(arg!(-y --yes "Do not prompt for confirmation when <path> is a configuration file and --keep is not used"))
+                    .arg(arg!(-e --"allow-empty" "Allow loading from empty directories"))
                     .arg(arg!(-r --revision <REVISION> "Revision name of the configuration. If present, it will be added by openwec as metadata of all events received using this subscription."))
                 )
                 .subcommand(
