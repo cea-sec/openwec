@@ -55,6 +55,51 @@ impl Response {
     }
 }
 
+fn create_subscription_body(
+    subscription: &Arc<Subscription>,
+    bookmark: Option<String>,
+    collector: &Collector,
+    auth_ctx: &AuthenticationContext
+) -> SubscriptionBody {
+    let public_version = subscription.public_version_string();
+    let identifier = subscription.uuid_string();
+    let subscription_data = subscription.data();
+
+    SubscriptionBody {
+        heartbeat_interval: subscription_data.heartbeat_interval() as u64,
+        identifier: identifier.clone(),
+        public_version: public_version.clone(),
+        revision: subscription_data.revision().cloned(),
+        bookmark,
+        query: subscription_data.query().to_owned(),
+        address: match auth_ctx {
+            AuthenticationContext::Kerberos(_) => format!(
+                "http://{}:{}/wsman/subscriptions/{}",
+                collector.hostname(),
+                collector.advertized_port(),
+                identifier
+            ),
+            AuthenticationContext::Tls(_, _) => format!(
+                "https://{}:{}/wsman/subscriptions/{}",
+                collector.hostname(),
+                collector.advertized_port(),
+                identifier
+            ),
+        },
+        connection_retry_count: subscription_data.connection_retry_count(),
+        connection_retry_interval: subscription_data.connection_retry_interval(),
+        max_time: subscription_data.max_time(),
+        max_elements: subscription_data.max_elements(),
+        max_envelope_size: subscription_data.max_envelope_size(),
+        thumbprint: match auth_ctx {
+            AuthenticationContext::Tls(_, thumbprint) => Some(thumbprint.clone()),
+            AuthenticationContext::Kerberos(_) => None,
+        },
+        locale: subscription_data.locale().cloned(),
+        data_locale: subscription_data.data_locale().cloned(),
+    }
+}
+
 async fn handle_enumerate(
     collector: &Collector,
     db: &Db,
@@ -187,45 +232,10 @@ async fn handle_enumerate(
             bookmark
         );
 
-        let public_version = subscription.public_version_string();
-        let identifier = subscription.uuid_string();
-
-        let body = SubscriptionBody {
-            heartbeat_interval: subscription_data.heartbeat_interval() as u64,
-            identifier: identifier.clone(),
-            public_version: public_version.clone(),
-            revision: subscription_data.revision().cloned(),
-            bookmark,
-            query: subscription_data.query().to_owned(),
-            address: match auth_ctx {
-                AuthenticationContext::Kerberos(_) => format!(
-                    "http://{}:{}/wsman/subscriptions/{}",
-                    collector.hostname(),
-                    collector.advertized_port(),
-                    identifier
-                ),
-                AuthenticationContext::Tls(_, _) => format!(
-                    "https://{}:{}/wsman/subscriptions/{}",
-                    collector.hostname(),
-                    collector.advertized_port(),
-                    identifier
-                ),
-            },
-            connection_retry_count: subscription_data.connection_retry_count(),
-            connection_retry_interval: subscription_data.connection_retry_interval(),
-            max_time: subscription_data.max_time(),
-            max_elements: subscription_data.max_elements(),
-            max_envelope_size: subscription_data.max_envelope_size(),
-            thumbprint: match auth_ctx {
-                AuthenticationContext::Tls(_, thumbprint) => Some(thumbprint.clone()),
-                AuthenticationContext::Kerberos(_) => None,
-            },
-            locale: subscription_data.locale().cloned(),
-            data_locale: subscription_data.data_locale().cloned(),
-        };
+        let body = create_subscription_body(&subscription, bookmark, collector, auth_ctx);
 
         res_subscriptions.push(SoapSubscription {
-            version: public_version,
+            version: subscription.public_version_string(),
             header,
             body,
         });
