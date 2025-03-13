@@ -72,7 +72,7 @@
 # [Optional]
 # Set server logging verbosity
 # This parameter is overwritten by --verbosity argument.
-# Default value is warn 
+# Default value is warn
 # Possible values are: error, warn, info, debug, trace
 # verbosity = "warn"
 
@@ -86,7 +86,7 @@
 
 # [Optional]
 # Server log formatting pattern
-# Pattern syntax is explained here: https://docs.rs/log4rs/latest/log4rs/encode/pattern 
+# Pattern syntax is explained here: https://docs.rs/log4rs/latest/log4rs/encode/pattern
 # Default value is None, meaning "{d} {l} {t} - {m}{n}"
 # server_logs_pattern = None
 
@@ -101,7 +101,7 @@
 
 # [Optional]
 # Access log formatting pattern
-# Pattern syntax is explained here: https://docs.rs/log4rs/latest/log4rs/encode/pattern 
+# Pattern syntax is explained here: https://docs.rs/log4rs/latest/log4rs/encode/pattern
 # Contextual information can be accessed using {X(<value>)}. Available values are:
 # - http_status
 # - http_method
@@ -143,7 +143,7 @@
 
 # [Required]
 # Postgres database port
-# port = 5432 
+# port = 5432
 
 # [Required]
 # Postgres database name. It must already exist and user <postgres.user> should
