@@ -191,9 +191,10 @@
 
 # This defines one collector
 [[collectors]]
-# [Required]
+# [Optional]
 # Local Hostname
 # Clients will contact this hostname to send their events
+# If unset, clients will send events to the same hostname that is configured in their "Subscription Manager"
 # hostname = "openwec.mydomain.local"
 
 # [Required]

@@ -45,7 +45,7 @@ impl Tls {
 #[derive(Debug, Deserialize, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct Collector {
-    hostname: String,
+    hostname: Option<String>,
     listen_address: String,
     listen_port: Option<u16>,
     max_content_length: Option<u64>,
@@ -55,8 +55,8 @@ pub struct Collector {
 }
 
 impl Collector {
-    pub fn hostname(&self) -> &str {
-        &self.hostname
+    pub fn hostname(&self) -> Option<&str> {
+        self.hostname.as_deref()
     }
 
     pub fn listen_address(&self) -> &str {
@@ -416,7 +416,7 @@ impl Monitoring {
         self.count_http_request_body_real_size_per_machine
             .unwrap_or(false)
     }
-    
+
     pub fn machines_refresh_interval(&self) -> u64 {
         self.machines_refresh_interval.unwrap_or(30)
     }
@@ -517,7 +517,7 @@ mod tests {
         let s = Settings::from_str(CONFIG_KERBEROS_SQLITE).unwrap();
         assert_eq!(s.collectors().len(), 1);
         let collector = &s.collectors()[0];
-        assert_eq!(collector.hostname(), "wec.windomain.local");
+        assert_eq!(collector.hostname().unwrap(), "wec.windomain.local");
         assert_eq!(collector.listen_address(), "0.0.0.0");
         assert_eq!(collector.listen_port(), 5986);
         assert_eq!(collector.max_content_length(), 1000);
@@ -587,7 +587,7 @@ mod tests {
         let s = Settings::from_str(CONFIG_TLS_POSTGRES).unwrap();
         assert_eq!(s.collectors().len(), 1);
         let collector = &s.collectors()[0];
-        assert_eq!(collector.hostname(), "wec.windomain.local");
+        assert_eq!(collector.hostname().unwrap(), "wec.windomain.local");
         assert_eq!(collector.listen_address(), "0.0.0.0");
         // Checks default values
         assert_eq!(collector.listen_port(), 5985);
@@ -804,7 +804,7 @@ mod tests {
 
         [collectors.authentication]
         type = "Kerberos"
-        service_principal_name = "http/wec.windomain.local@WINDOMAIN.LOCAL"   
+        service_principal_name = "http/wec.windomain.local@WINDOMAIN.LOCAL"
     "#;
 
     #[test]
@@ -812,7 +812,7 @@ mod tests {
         let s = Settings::from_str(GETTING_STARTED).unwrap();
         assert_eq!(s.collectors().len(), 1);
         let collector = &s.collectors()[0];
-        assert_eq!(collector.hostname(), "wec.windomain.local");
+        assert_eq!(collector.hostname().unwrap(), "wec.windomain.local");
         assert_eq!(collector.listen_address(), "0.0.0.0");
 
         let kerberos = match collector.authentication() {
