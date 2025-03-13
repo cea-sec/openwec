@@ -59,7 +59,8 @@ fn create_subscription_body(
     subscription: &Arc<Subscription>,
     bookmark: Option<String>,
     collector: &Collector,
-    auth_ctx: &AuthenticationContext
+    collector_hostname: &str,
+    auth_ctx: &AuthenticationContext,
 ) -> SubscriptionBody {
     let public_version = subscription.public_version_string();
     let identifier = subscription.uuid_string();
@@ -75,13 +76,13 @@ fn create_subscription_body(
         address: match auth_ctx {
             AuthenticationContext::Kerberos(_) => format!(
                 "http://{}:{}/wsman/subscriptions/{}",
-                collector.hostname(),
+                collector_hostname,
                 collector.advertized_port(),
                 identifier
             ),
             AuthenticationContext::Tls(_, _) => format!(
                 "https://{}:{}/wsman/subscriptions/{}",
-                collector.hostname(),
+                collector_hostname,
                 collector.advertized_port(),
                 identifier
             ),
@@ -106,6 +107,7 @@ async fn handle_enumerate(
     subscriptions: Subscriptions,
     request_data: &RequestData,
     auth_ctx: &AuthenticationContext,
+    message: &Message,
 ) -> Result<Response> {
     // Check that URI corresponds to an enumerate Request
     let uri = match request_data.category() {
@@ -123,6 +125,25 @@ async fn handle_enumerate(
         request_data.principal(),
         uri
     );
+
+    let collector_hostname = if let Some(hostname) = collector.hostname() {
+        hostname.to_owned()
+    } else {
+        let hostname_from_message = message.header().to().and_then(|to| {
+            let url = url::Url::parse(to).ok()?;
+            url.host_str().map(|s| s.to_owned())
+        });
+
+        let Some(hostname) = hostname_from_message else {
+            warn!(
+                "Collector hostname cannot be extracted from To header ({:?}), rejecting Enumerate request",
+                message.header().to()
+            );
+            return Ok(Response::err(StatusCode::BAD_REQUEST));
+        };
+
+        hostname
+    };
 
     // Clone subscriptions references into a new vec
     let current_subscriptions = {
@@ -232,7 +253,7 @@ async fn handle_enumerate(
             bookmark
         );
 
-        let body = create_subscription_body(&subscription, bookmark, collector, auth_ctx);
+        let body = create_subscription_body(&subscription, bookmark, collector, &collector_hostname, auth_ctx,);
 
         res_subscriptions.push(SoapSubscription {
             version: subscription.public_version_string(),
@@ -630,7 +651,7 @@ pub async fn handle_message(
     debug!("Received {} request", action);
 
     if action == ACTION_ENUMERATE {
-        handle_enumerate(collector, &db, subscriptions, request_data, auth_ctx)
+        handle_enumerate(collector, &db, subscriptions, request_data, auth_ctx, message)
             .await
             .context("Failed to handle Enumerate action")
     } else if action == ACTION_END || action == ACTION_SUBSCRIPTION_END {
