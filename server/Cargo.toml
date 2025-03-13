@@ -54,3 +54,4 @@ strum = { version = "0.26.1", features = ["derive"] }
 leon = "3.0.1"
 metrics = "0.24.0"
 metrics-exporter-prometheus = { version = "0.16.0", features = ["http-listener"] }
+url = "2.5.4"
