@@ -15,9 +15,9 @@ impl SQLiteMigration for AlterClientFilterInSubscriptionsTable {
     fn up(&self, conn: &Connection) -> Result<()> {
         conn.execute("ALTER TABLE subscriptions RENAME COLUMN princs_filter_op TO client_filter_op", [])
             .map_err(|err| anyhow!("SQLiteError: {}", err))?;
-        conn.execute("ALTER TABLE subscriptions RENAME COLUMN princs_filter_value TO client_filter_value", [])
+        conn.execute("ALTER TABLE subscriptions RENAME COLUMN princs_filter_value TO client_filter_targets", [])
             .map_err(|err| anyhow!("SQLiteError: {}", err))?;
-        conn.execute("ALTER TABLE subscriptions ADD COLUMN client_filter_type TEXT", [])
+        conn.execute("ALTER TABLE subscriptions ADD COLUMN client_filter_kind TEXT", [])
             .map_err(|err| anyhow!("SQLiteError: {}", err))?;
         conn.execute("ALTER TABLE subscriptions ADD COLUMN client_filter_flags TEXT", [])
             .map_err(|err| anyhow!("SQLiteError: {}", err))?;
@@ -27,9 +27,9 @@ impl SQLiteMigration for AlterClientFilterInSubscriptionsTable {
     fn down(&self, conn: &Connection) -> Result<()> {
         conn.execute("ALTER TABLE subscriptions RENAME COLUMN client_filter_op TO princs_filter_op", [])
             .map_err(|err| anyhow!("SQLiteError: {}", err))?;
-        conn.execute("ALTER TABLE subscriptions RENAME COLUMN client_filter_value TO princs_filter_value", [])
+        conn.execute("ALTER TABLE subscriptions RENAME COLUMN client_filter_targets TO princs_filter_value", [])
             .map_err(|err| anyhow!("SQLiteError: {}", err))?;
-        conn.execute("ALTER TABLE subscriptions DROP COLUMN client_filter_type", [])
+        conn.execute("ALTER TABLE subscriptions DROP COLUMN client_filter_kind", [])
             .map_err(|err| anyhow!("SQLiteError: {}", err))?;
         conn.execute("ALTER TABLE subscriptions DROP COLUMN client_filter_flags", [])
             .map_err(|err| anyhow!("SQLiteError: {}", err))?;
