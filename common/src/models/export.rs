@@ -16,10 +16,11 @@ use anyhow::{Context, Result};
 enum ImportExport {
     V1(v1::Subscriptions),
     V2(v2::Subscriptions),
+    V3(v3::Subscriptions),
 }
 
 pub fn serialize(subscriptions: &[crate::subscription::SubscriptionData]) -> Result<String> {
-    let export = ImportExport::V2(subscriptions.into());
+    let export = ImportExport::V3(subscriptions.into());
     Ok(serde_json::to_string(&export)?)
 }
 
@@ -30,6 +31,9 @@ pub fn parse(content: &str) -> Result<Vec<crate::subscription::SubscriptionData>
             .try_into()
             .context("Invalid subscription data")?,
         ImportExport::V2(subscriptions) => subscriptions
+            .try_into()
+            .context("Invalid subscription data")?,
+        ImportExport::V3(subscriptions) => subscriptions
             .try_into()
             .context("Invalid subscription data")?,
     };
@@ -706,6 +710,514 @@ pub mod v2 {
                 locale: value.locale().cloned(),
                 data_locale: value.data_locale().cloned(),
                 filter: value.client_filter().cloned().into(),
+                outputs: value.outputs().iter().map(|o| o.clone().into()).collect(),
+            }
+        }
+    }
+
+    #[derive(Debug, PartialEq, Clone, Eq, Deserialize, Serialize)]
+    pub(super) struct Subscriptions {
+        pub subscriptions: Vec<SubscriptionData>,
+    }
+
+    impl TryFrom<Subscriptions> for Vec<crate::subscription::SubscriptionData> {
+        type Error = anyhow::Error;
+
+        fn try_from(value: Subscriptions) -> Result<Self, Self::Error> {
+            let subscriptions: Result<Vec<crate::subscription::SubscriptionData>, _> = value
+                .subscriptions
+                .iter()
+                .map(|s| s.clone().try_into())
+                .collect();
+            subscriptions
+        }
+    }
+
+    impl From<&[crate::subscription::SubscriptionData]> for Subscriptions {
+        fn from(value: &[crate::subscription::SubscriptionData]) -> Self {
+            Self {
+                subscriptions: value.iter().map(|s| s.clone().into()).collect(),
+            }
+        }
+    }
+}
+
+pub mod v3 {
+    use serde::{Deserialize, Serialize};
+    use std::collections::{HashMap, HashSet};
+    use uuid::Uuid;
+    use strum::{Display, AsRefStr, EnumString};
+    use bitflags::bitflags;
+    use std::fmt::{Display, Formatter};
+
+    #[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize)]
+    pub(super) struct KafkaConfiguration {
+        pub topic: String,
+        pub options: HashMap<String, String>,
+    }
+
+    // Used for import
+    impl From<KafkaConfiguration> for crate::subscription::KafkaConfiguration {
+        fn from(value: KafkaConfiguration) -> Self {
+            crate::subscription::KafkaConfiguration::new(value.topic, value.options)
+        }
+    }
+
+    // Used for export
+    impl From<crate::subscription::KafkaConfiguration> for KafkaConfiguration {
+        fn from(value: crate::subscription::KafkaConfiguration) -> Self {
+            Self {
+                topic: value.topic().to_string(),
+                options: value.options().clone(),
+            }
+        }
+    }
+
+    #[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize)]
+    pub(super) struct RedisConfiguration {
+        pub addr: String,
+        pub list: String,
+    }
+
+    impl From<RedisConfiguration> for crate::subscription::RedisConfiguration {
+        fn from(value: RedisConfiguration) -> Self {
+            crate::subscription::RedisConfiguration::new(value.addr, value.list)
+        }
+    }
+
+    impl From<crate::subscription::RedisConfiguration> for RedisConfiguration {
+        fn from(value: crate::subscription::RedisConfiguration) -> Self {
+            Self {
+                addr: value.addr().to_string(),
+                list: value.list().to_string(),
+            }
+        }
+    }
+
+    #[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize)]
+    pub(super) struct TcpConfiguration {
+        pub addr: String,
+        pub port: u16,
+        pub tls_enabled: Option<bool>,
+        #[serde(default)]
+        pub tls_certificate_authorities: Vec<String>,
+        pub tls_certificate: Option<String>,
+        pub tls_key: Option<String>,
+    }
+
+    impl TryFrom<TcpConfiguration> for crate::subscription::TcpConfiguration {
+        type Error = anyhow::Error;
+
+        fn try_from(value: TcpConfiguration) -> Result<Self, Self::Error> {
+            crate::subscription::TcpConfiguration::new(
+                value.addr,
+                value.port,
+                value.tls_enabled.unwrap_or(false),
+                value.tls_certificate_authorities,
+                value.tls_certificate,
+                value.tls_key,
+            )
+        }
+    }
+
+    impl From<crate::subscription::TcpConfiguration> for TcpConfiguration {
+        fn from(value: crate::subscription::TcpConfiguration) -> Self {
+            Self {
+                addr: value.host().to_string(),
+                port: value.port(),
+                tls_enabled: Some(value.tls_enabled()),
+                tls_certificate_authorities: value.tls_certificate_authorities().to_owned(),
+                tls_certificate: value.tls_certificate().cloned(),
+                tls_key: value.tls_key().cloned(),
+            }
+        }
+    }
+
+    #[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize)]
+    pub(super) struct FilesConfiguration {
+        pub path: String,
+    }
+
+    impl From<FilesConfiguration> for crate::subscription::FilesConfiguration {
+        fn from(value: FilesConfiguration) -> Self {
+            crate::subscription::FilesConfiguration::new(value.path)
+        }
+    }
+
+    impl From<crate::subscription::FilesConfiguration> for FilesConfiguration {
+        fn from(value: crate::subscription::FilesConfiguration) -> Self {
+            Self {
+                path: value.path().to_owned(),
+            }
+        }
+    }
+
+    #[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize)]
+    pub(super) struct UnixDatagramConfiguration {
+        pub path: String,
+    }
+
+    impl From<UnixDatagramConfiguration> for crate::subscription::UnixDatagramConfiguration {
+        fn from(value: UnixDatagramConfiguration) -> Self {
+            crate::subscription::UnixDatagramConfiguration::new(value.path)
+        }
+    }
+
+    impl From<crate::subscription::UnixDatagramConfiguration> for UnixDatagramConfiguration {
+        fn from(value: crate::subscription::UnixDatagramConfiguration) -> Self {
+            Self {
+                path: value.path().to_string(),
+            }
+        }
+    }
+
+    #[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize)]
+    pub(super) enum SubscriptionOutputDriver {
+        Files(FilesConfiguration),
+        Kafka(KafkaConfiguration),
+        Tcp(TcpConfiguration),
+        Redis(RedisConfiguration),
+        UnixDatagram(UnixDatagramConfiguration),
+    }
+
+    impl TryFrom<SubscriptionOutputDriver> for crate::subscription::SubscriptionOutputDriver {
+        type Error = anyhow::Error;
+
+        fn try_from(value: SubscriptionOutputDriver) -> Result<Self, Self::Error> {
+            Ok(match value {
+                SubscriptionOutputDriver::Files(config) => {
+                    crate::subscription::SubscriptionOutputDriver::Files(config.into())
+                }
+                SubscriptionOutputDriver::Kafka(config) => {
+                    crate::subscription::SubscriptionOutputDriver::Kafka(config.into())
+                }
+                SubscriptionOutputDriver::Tcp(config) => {
+                    crate::subscription::SubscriptionOutputDriver::Tcp(config.try_into()?)
+                }
+                SubscriptionOutputDriver::Redis(config) => {
+                    crate::subscription::SubscriptionOutputDriver::Redis(config.into())
+                }
+                SubscriptionOutputDriver::UnixDatagram(config) => {
+                    crate::subscription::SubscriptionOutputDriver::UnixDatagram(config.into())
+                }
+            })
+        }
+    }
+
+    impl From<crate::subscription::SubscriptionOutputDriver> for SubscriptionOutputDriver {
+        fn from(value: crate::subscription::SubscriptionOutputDriver) -> Self {
+            match value {
+                crate::subscription::SubscriptionOutputDriver::Files(config) => {
+                    SubscriptionOutputDriver::Files(config.into())
+                }
+                crate::subscription::SubscriptionOutputDriver::Kafka(config) => {
+                    SubscriptionOutputDriver::Kafka(config.into())
+                }
+                crate::subscription::SubscriptionOutputDriver::Tcp(config) => {
+                    SubscriptionOutputDriver::Tcp(config.into())
+                }
+                crate::subscription::SubscriptionOutputDriver::Redis(config) => {
+                    SubscriptionOutputDriver::Redis(config.into())
+                }
+                crate::subscription::SubscriptionOutputDriver::UnixDatagram(config) => {
+                    SubscriptionOutputDriver::UnixDatagram(config.into())
+                }
+            }
+        }
+    }
+
+    #[derive(Debug, Clone, Eq, PartialEq, Deserialize, Serialize)]
+    pub(super) enum SubscriptionOutputFormat {
+        Json,
+        Raw,
+        RawJson,
+        Nxlog,
+    }
+
+    impl From<SubscriptionOutputFormat> for crate::subscription::SubscriptionOutputFormat {
+        fn from(value: SubscriptionOutputFormat) -> Self {
+            match value {
+                SubscriptionOutputFormat::Json => {
+                    crate::subscription::SubscriptionOutputFormat::Json
+                }
+                SubscriptionOutputFormat::Raw => crate::subscription::SubscriptionOutputFormat::Raw,
+                SubscriptionOutputFormat::RawJson => {
+                    crate::subscription::SubscriptionOutputFormat::RawJson
+                }
+                SubscriptionOutputFormat::Nxlog => {
+                    crate::subscription::SubscriptionOutputFormat::Nxlog
+                }
+            }
+        }
+    }
+
+    impl From<crate::subscription::SubscriptionOutputFormat> for SubscriptionOutputFormat {
+        fn from(value: crate::subscription::SubscriptionOutputFormat) -> Self {
+            match value {
+                crate::subscription::SubscriptionOutputFormat::Json => {
+                    SubscriptionOutputFormat::Json
+                }
+                crate::subscription::SubscriptionOutputFormat::Raw => SubscriptionOutputFormat::Raw,
+                crate::subscription::SubscriptionOutputFormat::RawJson => {
+                    SubscriptionOutputFormat::RawJson
+                }
+                crate::subscription::SubscriptionOutputFormat::Nxlog => {
+                    SubscriptionOutputFormat::Nxlog
+                }
+            }
+        }
+    }
+
+    #[derive(Deserialize, Debug, Clone, Eq, PartialEq, Serialize)]
+    pub(super) struct SubscriptionOutput {
+        pub format: SubscriptionOutputFormat,
+        pub driver: SubscriptionOutputDriver,
+        pub enabled: bool,
+    }
+
+    impl TryFrom<SubscriptionOutput> for crate::subscription::SubscriptionOutput {
+        type Error = anyhow::Error;
+
+        fn try_from(value: SubscriptionOutput) -> Result<Self, Self::Error> {
+            Ok(crate::subscription::SubscriptionOutput::new(
+                value.format.into(),
+                value.driver.try_into()?,
+                value.enabled,
+            ))
+        }
+    }
+
+    impl From<crate::subscription::SubscriptionOutput> for SubscriptionOutput {
+        fn from(value: crate::subscription::SubscriptionOutput) -> Self {
+            Self {
+                format: value.format().clone().into(),
+                driver: value.driver().clone().into(),
+                enabled: value.enabled(),
+            }
+        }
+    }
+
+    #[derive(Debug, Clone, Eq, PartialEq, Display, Serialize, Deserialize, EnumString)]
+    #[strum(serialize_all = "PascalCase", ascii_case_insensitive)]
+    pub(super) enum ClientFilterOperation {
+        Only,
+        Except,
+    }
+
+    impl From<ClientFilterOperation> for crate::subscription::ClientFilterOperation {
+        fn from(value: ClientFilterOperation) -> Self {
+            match value {
+                ClientFilterOperation::Except => crate::subscription::ClientFilterOperation::Except,
+                ClientFilterOperation::Only => crate::subscription::ClientFilterOperation::Only,
+            }
+        }
+    }
+
+    impl From<crate::subscription::ClientFilterOperation> for ClientFilterOperation  {
+        fn from(value: crate::subscription::ClientFilterOperation) -> Self {
+            match value {
+                crate::subscription::ClientFilterOperation::Except => ClientFilterOperation::Except,
+                crate::subscription::ClientFilterOperation::Only => ClientFilterOperation::Only,
+            }
+        }
+    }
+
+
+    #[derive(Default, Debug, Clone, Eq, PartialEq, Serialize, Deserialize, Display, AsRefStr, EnumString)]
+    #[strum(ascii_case_insensitive)]
+    pub(super) enum ClientFilterType {
+        #[default]
+        KerberosPrinc,
+        TLSCertSubject,
+        MachineID,
+    }
+
+    impl From<ClientFilterType> for crate::subscription::ClientFilterType {
+        fn from(value: ClientFilterType) -> Self {
+            match value {
+                ClientFilterType::KerberosPrinc => crate::subscription::ClientFilterType::KerberosPrinc,
+                ClientFilterType::TLSCertSubject => crate::subscription::ClientFilterType::TLSCertSubject,
+                ClientFilterType::MachineID => crate::subscription::ClientFilterType::MachineID,
+            }
+        }
+    }
+
+    impl From<crate::subscription::ClientFilterType> for ClientFilterType {
+        fn from(value: crate::subscription::ClientFilterType) -> Self {
+            match value {
+                crate::subscription::ClientFilterType::KerberosPrinc => ClientFilterType::KerberosPrinc,
+                crate::subscription::ClientFilterType::TLSCertSubject => ClientFilterType::TLSCertSubject,
+                crate::subscription::ClientFilterType::MachineID => ClientFilterType::MachineID,
+            }
+        }
+    }
+
+    bitflags! {
+        #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
+        pub(super) struct ClientFilterFlags: u32 {
+            const CaseInsensitive = 1 << 0;
+            const GlobPattern = 1 << 1;
+        }
+    }
+
+    impl From<ClientFilterFlags> for crate::subscription::ClientFilterFlags {
+        fn from(value: ClientFilterFlags) -> Self {
+            crate::subscription::ClientFilterFlags::from_bits(value.bits()).unwrap()
+        }
+    }
+
+    impl From<crate::subscription::ClientFilterFlags> for ClientFilterFlags {
+        fn from(value: crate::subscription::ClientFilterFlags) -> Self {
+            ClientFilterFlags::from_bits(value.bits()).unwrap()
+        }
+    }
+
+    impl Display for ClientFilterFlags {
+        fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+            bitflags::parser::to_writer_strict(self, f)
+        }
+    }
+
+    impl Default for ClientFilterFlags {
+        fn default() -> Self {
+            Self::empty()
+        }
+    }
+
+    #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub(super) struct ClientFilter {
+        pub operation: ClientFilterOperation,
+        #[serde(rename = "type", default)]
+        pub kind: ClientFilterType,
+        #[serde(default)]
+        pub flags: ClientFilterFlags,
+        #[serde(alias = "cert_subjects", alias = "princs")]
+        pub targets: HashSet<String>,
+    }
+
+    impl TryFrom<ClientFilter> for crate::subscription::ClientFilter {
+        type Error = anyhow::Error;
+
+        fn try_from(value: ClientFilter) -> std::prelude::v1::Result<Self, Self::Error> {
+            crate::subscription::ClientFilter::try_new(value.operation.into(), value.kind.into(), value.flags.into(), value.targets)
+        }
+    }
+
+    impl From<crate::subscription::ClientFilter> for ClientFilter {
+        fn from(value: crate::subscription::ClientFilter) -> Self {
+            Self {
+                operation: value.operation().clone().into(),
+                kind: value.kind().clone().into(),
+                flags: value.flags().clone().into(),
+                targets: value.targets().iter().cloned().map(String::from).collect(),
+            }
+        }
+    }
+
+    #[derive(Debug, Clone, Eq, PartialEq, Deserialize, Serialize)]
+    pub(super) enum ContentFormat {
+        Raw,
+        RenderedText,
+    }
+
+    impl From<ContentFormat> for crate::subscription::ContentFormat {
+        fn from(value: ContentFormat) -> Self {
+            match value {
+                ContentFormat::Raw => crate::subscription::ContentFormat::Raw,
+                ContentFormat::RenderedText => crate::subscription::ContentFormat::RenderedText,
+            }
+        }
+    }
+
+    impl From<crate::subscription::ContentFormat> for ContentFormat {
+        fn from(value: crate::subscription::ContentFormat) -> Self {
+            match value {
+                crate::subscription::ContentFormat::Raw => ContentFormat::Raw,
+                crate::subscription::ContentFormat::RenderedText => ContentFormat::RenderedText,
+            }
+        }
+    }
+
+    #[derive(Debug, PartialEq, Clone, Eq, Deserialize, Serialize)]
+    pub(super) struct SubscriptionData {
+        pub uuid: Uuid,
+        pub revision: Option<String>,
+        pub name: String,
+        pub uri: Option<String>,
+        pub query: String,
+        pub heartbeat_interval: u32,
+        pub connection_retry_count: u16,
+        pub connection_retry_interval: u32,
+        pub max_time: u32,
+        pub max_elements: Option<u32>,
+        pub max_envelope_size: u32,
+        pub enabled: bool,
+        pub read_existing_events: bool,
+        pub content_format: ContentFormat,
+        pub ignore_channel_error: bool,
+        pub locale: Option<String>,
+        pub data_locale: Option<String>,
+        pub filter: Option<ClientFilter>,
+        pub outputs: Vec<SubscriptionOutput>,
+    }
+
+    impl TryFrom<SubscriptionData> for crate::subscription::SubscriptionData {
+        type Error = anyhow::Error;
+
+        fn try_from(value: SubscriptionData) -> Result<Self, Self::Error> {
+            let mut data = crate::subscription::SubscriptionData::new(&value.name, &value.query);
+            let outputs: Result<Vec<crate::subscription::SubscriptionOutput>, _> =
+                value.outputs.iter().map(|s| s.clone().try_into()).collect();
+
+            data.set_uuid(crate::subscription::SubscriptionUuid(value.uuid))
+                .set_uri(value.uri)
+                .set_heartbeat_interval(value.heartbeat_interval)
+                .set_connection_retry_count(value.connection_retry_count)
+                .set_connection_retry_interval(value.connection_retry_interval)
+                .set_max_time(value.max_time)
+                .set_max_elements(value.max_elements)
+                .set_max_envelope_size(value.max_envelope_size)
+                .set_enabled(value.enabled)
+                .set_read_existing_events(value.read_existing_events)
+                .set_content_format(value.content_format.into())
+                .set_ignore_channel_error(value.ignore_channel_error)
+                .set_locale(value.locale)
+                .set_data_locale(value.data_locale)
+                .set_outputs(outputs?)
+                .set_revision(value.revision);
+
+            if let Some(filter) = value.filter {
+                data.set_client_filter(Some(filter.try_into()?));
+            }
+
+            // Note: internal version is not exported nor set
+            Ok(data)
+        }
+    }
+
+    impl From<crate::subscription::SubscriptionData> for SubscriptionData {
+        fn from(value: crate::subscription::SubscriptionData) -> Self {
+            // Note: internal version is not exported nor set
+            Self {
+                uuid: value.uuid().0,
+                name: value.name().to_string(),
+                uri: value.uri().cloned(),
+                revision: value.revision().cloned(),
+                query: value.query().to_string(),
+                heartbeat_interval: value.heartbeat_interval(),
+                connection_retry_count: value.connection_retry_count(),
+                connection_retry_interval: value.connection_retry_interval(),
+                max_time: value.max_time(),
+                max_elements: value.max_elements(),
+                max_envelope_size: value.max_envelope_size(),
+                enabled: value.enabled(),
+                read_existing_events: value.read_existing_events(),
+                content_format: value.content_format().to_owned().into(),
+                ignore_channel_error: value.ignore_channel_error(),
+                locale: value.locale().cloned(),
+                data_locale: value.data_locale().cloned(),
+                filter: value.client_filter().cloned().map(Into::into),
                 outputs: value.outputs().iter().map(|o| o.clone().into()).collect(),
             }
         }
