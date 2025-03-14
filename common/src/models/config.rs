@@ -1,8 +1,11 @@
 use std::collections::{HashMap, HashSet};
 
 use anyhow::{bail, Context, Result};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
+use strum::{Display, AsRefStr, EnumString};
+use bitflags::bitflags;
+use std::fmt::{Display, Formatter};
 
 use crate::{
     subscription::{SubscriptionData, DEFAULT_OUTPUT_ENABLED},
@@ -214,14 +217,59 @@ impl From<ClientFilterOperation> for crate::subscription::ClientFilterOperation 
     }
 }
 
+#[derive(Default, Debug, Clone, Eq, PartialEq, Serialize, Deserialize, Display, AsRefStr, EnumString)]
+#[strum(ascii_case_insensitive)]
+pub enum ClientFilterType {
+    #[default]
+    KerberosPrinc,
+    TLSCertSubject,
+    MachineID,
+}
+
+impl From<ClientFilterType> for crate::subscription::ClientFilterType {
+    fn from(value: ClientFilterType) -> Self {
+        match value {
+            ClientFilterType::KerberosPrinc => crate::subscription::ClientFilterType::KerberosPrinc,
+            ClientFilterType::TLSCertSubject => crate::subscription::ClientFilterType::TLSCertSubject,
+            ClientFilterType::MachineID => crate::subscription::ClientFilterType::MachineID,
+        }
+    }
+}
+
+bitflags! {
+    #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
+    pub struct ClientFilterFlags: u32 {
+        const CaseInsensitive = 1 << 0;
+        const GlobPattern = 1 << 1;
+    }
+}
+
+impl From<ClientFilterFlags> for crate::subscription::ClientFilterFlags {
+    fn from(value: ClientFilterFlags) -> Self {
+        crate::subscription::ClientFilterFlags::from_bits(value.bits()).unwrap()
+    }
+}
+
+impl Display for ClientFilterFlags {
+    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+        bitflags::parser::to_writer_strict(self, f)
+    }
+}
+
+impl Default for ClientFilterFlags {
+    fn default() -> Self {
+        Self::empty()
+    }
+}
+
 #[derive(Debug, Clone, Eq, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ClientFilter {
     pub operation: ClientFilterOperation,
     #[serde(rename = "type", default)]
-    pub kind: crate::subscription::ClientFilterType,
+    pub kind: ClientFilterType,
     #[serde(default)]
-    pub flags: crate::subscription::ClientFilterFlags,
+    pub flags: ClientFilterFlags,
     #[serde(alias = "cert_subjects", alias = "princs")]
     pub targets: HashSet<String>,
 }
@@ -230,7 +278,7 @@ impl TryFrom<ClientFilter> for crate::subscription::ClientFilter {
     type Error = anyhow::Error;
 
     fn try_from(value: ClientFilter) -> std::prelude::v1::Result<Self, Self::Error> {
-        crate::subscription::ClientFilter::try_new(value.operation.into(), value.kind, value.flags, value.targets)
+        crate::subscription::ClientFilter::try_new(value.operation.into(), value.kind.into(), value.flags.into(), value.targets)
     }
 }
 
