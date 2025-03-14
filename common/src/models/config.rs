@@ -945,4 +945,67 @@ config = { topic = "my-kafka-topic", options = { "bootstrap.servers" = "localhos
         assert_eq!(data, expected);
         Ok(())
     }
+
+    const CLIENT_FILTER_CONF: &str = r#"
+uuid = "28fcc206-1336-4e4a-b76b-18b0ab46e585"
+name = "my-test-subscription"
+query = "<QueryList></QueryList>"
+
+[[outputs]]
+driver = "Files"
+format = "Raw"
+config = { path = "/data/logs/{ip}/{principal}/messages" }
+
+[filter]
+operation = "Only"
+type = "KerberosPrinc"
+flags = "GlobPattern | CaseInsensitive"
+targets = ["radis*@REALM"]
+
+    "#;
+
+    #[test]
+    fn test_client_filter() -> Result<()> {
+        let mut data = parse(CLIENT_FILTER_CONF, None)?;
+
+        let mut expected = crate::subscription::SubscriptionData::new(
+            "my-test-subscription",
+            "<QueryList></QueryList>",
+        );
+        expected.set_uuid(crate::subscription::SubscriptionUuid(Uuid::from_str(
+            "28fcc206-1336-4e4a-b76b-18b0ab46e585",
+        )?));
+
+        let outputs = vec![
+            crate::subscription::SubscriptionOutput::new(
+                crate::subscription::SubscriptionOutputFormat::Raw,
+                crate::subscription::SubscriptionOutputDriver::Files(
+                    crate::subscription::FilesConfiguration::new(
+                        "/data/logs/{ip}/{principal}/messages".to_string(),
+                    ),
+                ),
+                true,
+            ),
+        ];
+
+        expected.set_outputs(outputs);
+
+        let operation = crate::subscription::ClientFilterOperation::Only;
+        let kind = crate::subscription::ClientFilterType::KerberosPrinc;
+        let flags = crate::subscription::ClientFilterFlags::GlobPattern | crate::subscription::ClientFilterFlags::CaseInsensitive;
+
+        let mut targets = HashSet::new();
+        targets.insert("radis*@REALM".to_string());
+
+        let filter = crate::subscription::ClientFilter::try_new(operation, kind, flags, targets)?;
+        expected.set_client_filter(Some(filter));
+
+        let version = Uuid::new_v4();
+        // Must be done last
+        expected.set_internal_version(crate::subscription::InternalVersion(version.clone()));
+        data.set_internal_version(crate::subscription::InternalVersion(version.clone()));
+
+        assert_eq!(data, expected);
+        Ok(())
+    }
 }
