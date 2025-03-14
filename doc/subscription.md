@@ -69,19 +69,30 @@ In its configuration UI, Microsoft WEC enables users to choose between three eve
 
 In its documentation, Microsoft states that Normal mode uses a Pull delivery mode (meaning that its the collector who connects to Windows machines and retrieve their event logs). It seems to be a mistake, as the exported configuration of a subscription configured in Normal mode clearly specifies that it is SourceInitiated in Push mode.
 
-## Principals filter
+## Client filter
 
-It is possible to filter the client Kerberos principals that can see a subscription. The comparison is **case-sensitive**.
+It is possible to filter the clients that can see a subscription.
 
-There are three filtering modes:
-* `None` (default): no filtering based on Kerberos principal
-* `Only [princ, ...]`: the subscription will only be shown to the listed principals
-* `Except [princ, ...]`: the subscription will be shown to everyone except the listed principals
+### Filtering modes:
+* `Only`: the subscription will only be shown to the listed clients
+* `Except`: the subscription will be shown to everyone except the listed clients
 
-The principals filter can be configured using openwec cli:
-*  `openwec subscriptions edit <subscription> filter set <mode> [princ, ...]` configures the principals filter.
-*  `openwec subscriptions edit <subscription> filter princs {add,delete,set} [princ, ...]` manages the principals in the filter.
+### Filtering types:
+* `KerberosPrinc`: the filter will be evaluated on the Kerberos principal
+* `TLSCertSubject`: the filter will be evaluated on the TLS certificate's subject field
+* `MachineID`: the filtering is done based on the name of the computer
 
+The default is either `KerberosPrinc` or `TLSCertSubject`, depending on how server authentication is configured.
+
+Warning: `MachineID` is not cryptographically authenticated information, it can be spoofed.
+For more info, see [Hunting rogue Windows Event Forwarder](issues.md#hunting-rogue-windows-event-forwarder).
+
+### Filtering flags:
+* `GlobPattern`: Glob patterns like `*` and `?` can be used in `targets`
+* `CaseInsensitive`: Filter matching will be case-insensitive
+
+Flags are composable using the `|` operator.
+The comparison is **case-sensitive** by default.
 
 ## Configuration
 
@@ -238,7 +249,7 @@ Subscription my-super-subscription
 	ReadExistingEvents: false
 	ContentFormat: Raw
 	IgnoreChannelError: true
-	Principal filter: Not configured
+	Client filter: Not configured
 	Outputs: Not configured
 	Enabled: false
 
@@ -285,7 +296,7 @@ Subscription this-is-a-clone
 	ReadExistingEvents: false
 	ContentFormat: Raw
 	IgnoreChannelError: true
-	Principal filter: Not configured
+	Client filter: Not configured
 	Outputs: None
 	Enabled: false
 
