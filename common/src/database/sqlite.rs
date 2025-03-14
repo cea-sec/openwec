@@ -170,9 +170,9 @@ fn row_to_subscription(row: &Row) -> Result<SubscriptionData> {
 
     let client_filter = match client_filter_op {
         Some(op) =>  {
-            let client_filter_type: Option<_> = row.get("client_filter_type")?;
-            let client_filter_type = client_filter_type.unwrap_or("KerberosPrinc".to_owned());
-            Some(ClientFilter::from(op, client_filter_type, row.get("client_filter_flags")?, row.get("client_filter_value")?)?)
+            let client_filter_kind: Option<_> = row.get("client_filter_kind")?;
+            let client_filter_kind = client_filter_kind.unwrap_or("KerberosPrinc".to_owned());
+            Some(ClientFilter::from(op, client_filter_kind, row.get("client_filter_flags")?, row.get("client_filter_targets")?)?)
         },
         None => None
     };
@@ -557,9 +557,9 @@ impl Database for SQLiteDatabase {
     async fn store_subscription(&self, subscription: &SubscriptionData) -> Result<()> {
         let subscription = subscription.clone();
         let client_filter_op: Option<String> = subscription.client_filter().map(|f| f.operation().to_string());
-        let client_filter_type = subscription.client_filter().map(|f| f.kind().to_string());
+        let client_filter_kind = subscription.client_filter().map(|f| f.kind().to_string());
         let client_filter_flags = subscription.client_filter().map(|f| f.flags().to_string());
-        let client_filter_value = subscription.client_filter().and_then(|f| f.targets_to_opt_string());
+        let client_filter_targets = subscription.client_filter().and_then(|f| f.targets_to_opt_string());
 
         let count = self
             .pool
@@ -570,12 +570,12 @@ impl Database for SQLiteDatabase {
                     r#"INSERT INTO subscriptions (uuid, version, revision, name, uri, query,
                     heartbeat_interval, connection_retry_count, connection_retry_interval,
                     max_time, max_elements, max_envelope_size, enabled, read_existing_events, content_format,
-                    ignore_channel_error, client_filter_op, client_filter_type, client_filter_flags, client_filter_value, outputs, locale,
+                    ignore_channel_error, client_filter_op, client_filter_kind, client_filter_flags, client_filter_targets, outputs, locale,
                     data_locale)
                     VALUES (:uuid, :version, :revision, :name, :uri, :query,
                         :heartbeat_interval, :connection_retry_count, :connection_retry_interval,
                         :max_time, :max_elements, :max_envelope_size, :enabled, :read_existing_events, :content_format,
-                        :ignore_channel_error, :client_filter_op, :client_filter_type, :client_filter_flags, :client_filter_value, :outputs,
+                        :ignore_channel_error, :client_filter_op, :client_filter_kind, :client_filter_flags, :client_filter_targets, :outputs,
                         :locale, :data_locale)
                     ON CONFLICT (uuid) DO UPDATE SET
                         version = excluded.version,
@@ -594,9 +594,9 @@ impl Database for SQLiteDatabase {
                         content_format = excluded.content_format,
                         ignore_channel_error = excluded.ignore_channel_error,
                         client_filter_op = excluded.client_filter_op,
-                        client_filter_type = excluded.client_filter_type,
+                        client_filter_kind = excluded.client_filter_kind,
                         client_filter_flags = excluded.client_filter_flags,
-                        client_filter_value = excluded.client_filter_value,
+                        client_filter_targets = excluded.client_filter_targets,
                         outputs = excluded.outputs,
                         locale = excluded.locale,
                         data_locale = excluded.data_locale"#,
@@ -618,9 +618,9 @@ impl Database for SQLiteDatabase {
                         ":content_format": subscription.content_format().to_string(),
                         ":ignore_channel_error": subscription.ignore_channel_error(),
                         ":client_filter_op": client_filter_op,
-                        ":client_filter_type": client_filter_type,
+                        ":client_filter_kind": client_filter_kind,
                         ":client_filter_flags": client_filter_flags,
-                        ":client_filter_value": client_filter_value,
+                        ":client_filter_targets": client_filter_targets,
                         ":outputs": serde_json::to_string(subscription.outputs())?,
                         ":locale": subscription.locale(),
                         ":data_locale": subscription.data_locale(),
