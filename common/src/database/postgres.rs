@@ -217,9 +217,8 @@ fn row_to_subscription(row: &Row) -> Result<SubscriptionData> {
 
     let client_filter = match client_filter_op {
         Some(op) =>  {
-            let client_filter_kind: Option<_> = row.try_get("client_filter_kind").unwrap();
-            let client_filter_kind = client_filter_kind.unwrap_or("KerberosPrinc".to_owned());
-            Some(ClientFilter::from(op, client_filter_kind, row.try_get("client_filter_flags")?, row.try_get("client_filter_targets")?)?)
+            let client_filter_kind: Option<String> = row.try_get("client_filter_kind")?;
+            Some(ClientFilter::from(op, client_filter_kind.unwrap(), row.try_get("client_filter_flags")?, row.try_get("client_filter_targets")?)?)
         },
         None => None
     };

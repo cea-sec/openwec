@@ -17,8 +17,12 @@ impl SQLiteMigration for AlterClientFilterInSubscriptionsTable {
             .map_err(|err| anyhow!("SQLiteError: {}", err))?;
         conn.execute("ALTER TABLE subscriptions RENAME COLUMN princs_filter_value TO client_filter_targets", [])
             .map_err(|err| anyhow!("SQLiteError: {}", err))?;
+
         conn.execute("ALTER TABLE subscriptions ADD COLUMN client_filter_kind TEXT", [])
             .map_err(|err| anyhow!("SQLiteError: {}", err))?;
+        conn.execute("UPDATE subscriptions SET client_filter_kind = 'KerberosPrinc' WHERE client_filter_op IS NOT NULL", [])
+            .map_err(|err| anyhow!("SQLiteError: {}", err))?;
+
         conn.execute("ALTER TABLE subscriptions ADD COLUMN client_filter_flags TEXT", [])
             .map_err(|err| anyhow!("SQLiteError: {}", err))?;
         Ok(())
