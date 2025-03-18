@@ -1112,3 +1112,101 @@ impl SubscriptionMachine {
         self.ip.as_ref()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_client_filter_operation() {
+        let mut targets = HashSet::new();
+        targets.insert("expected_target".to_string());
+        targets.insert("another".to_string());
+
+        let filter = ClientFilter::try_new(
+            ClientFilterOperation::Only, ClientFilterType::default(), ClientFilterFlags::default(), targets.clone()
+        ).expect("couldn't construct client filter");
+
+        assert_eq!(*filter.operation(), ClientFilterOperation::Only);
+        assert!(!filter.eval("expected_target_similar", None));
+        assert!(filter.eval("expected_target", None));
+        assert!(filter.eval("another", None));
+
+        let filter = ClientFilter::try_new(
+            ClientFilterOperation::Except, ClientFilterType::default(), ClientFilterFlags::default(), targets.clone()
+        ).expect("couldn't construct client filter");
+
+        assert_eq!(*filter.operation(), ClientFilterOperation::Except);
+        assert!(filter.eval("different_target", None));
+        assert!(!filter.eval("expected_target", None));
+        assert!(!filter.eval("another", None));
+    }
+
+    #[test]
+    fn test_client_filter_types() {
+        let mut targets = HashSet::new();
+        targets.insert("expected_machine".to_string());
+
+        let filter = ClientFilter::try_new(
+            ClientFilterOperation::Only, ClientFilterType::MachineID, ClientFilterFlags::default(), targets.clone()
+        ).expect("couldn't construct client filter");
+
+        assert!(!filter.eval("expected_machine", None));
+        assert!(!filter.eval("client", Some("unexpected_machine")));
+        assert!(filter.eval("client", Some("expected_machine")));
+    }
+
+    #[test]
+    fn test_client_filter_flags() {
+        let mut targets = HashSet::new();
+        targets.insert("eXPected_*".to_string());
+        targets.insert("aNother?_target".to_string());
+
+        let filter = ClientFilter::try_new(
+            ClientFilterOperation::Only, ClientFilterType::default(), ClientFilterFlags::GlobPattern, targets
+        ).expect("couldn't construct client filter");
+
+        assert!(!filter.eval("expected_target", None));
+        assert!(filter.eval("eXPected_", None));
+        assert!(filter.eval("eXPected_target", None));
+        assert!(!filter.eval("aNother_target", None));
+        assert!(!filter.eval("aNother11_target", None));
+        assert!(filter.eval("aNother1_target", None));
+        assert!(filter.eval("aNother2_target", None));
+
+        let mut targets = HashSet::new();
+        targets.insert("eXPected_*".to_string());
+        targets.insert("aNother?_target".to_string());
+
+        let filter = ClientFilter::try_new(
+            ClientFilterOperation::Only, ClientFilterType::default(),
+            ClientFilterFlags::GlobPattern | ClientFilterFlags::CaseInsensitive,
+            targets
+        ).expect("couldn't construct client filter");
+
+        assert!(filter.eval("expected_target", None));
+        assert!(filter.eval("expected_", None));
+        assert!(filter.eval("ExpecteD_target", None));
+        assert!(!filter.eval("aNother_target", None));
+        assert!(!filter.eval("aNother11_target", None));
+        assert!(filter.eval("Another1_target", None));
+        assert!(filter.eval("another2_target", None));
+    }
+
+    #[test]
+    fn test_client_filter_from() {
+        let mut expected_targets = HashSet::new();
+        expected_targets.insert("target1");
+        expected_targets.insert("target2");
+
+        let filter = ClientFilter::from(
+            "only".to_string(), "TLSCertSubject".to_string(),
+            Some("GlobPattern | CaseInsensitive".to_string()), Some("target1,target2".to_string())
+        ).expect("couldn't construct client filter");
+
+        assert_eq!(*filter.operation(), ClientFilterOperation::Only);
+        assert_eq!(*filter.kind(), ClientFilterType::TLSCertSubject);
+        assert_eq!(*filter.flags(), ClientFilterFlags::GlobPattern | ClientFilterFlags::CaseInsensitive);
+        assert_eq!(filter.targets(), expected_targets);
+    }
+}
