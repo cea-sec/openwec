@@ -6,7 +6,7 @@ use std::{
     str::FromStr,
 };
 
-use anyhow::{anyhow, bail, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use log::{info, warn};
 use serde::{Deserialize, Serialize};
 use strum::{Display, AsRefStr, EnumString, IntoStaticStr, VariantNames};
@@ -340,8 +340,9 @@ impl ClientFilter {
         Ok(Self { operation, kind, flags, targets })
     }
 
-    pub fn from(operation: String, kind: String, flags: Option<String>, targets: Option<String>) -> Result<Self> {
-        let flags: ClientFilterFlags = bitflags::parser::from_str_strict(flags.unwrap_or_default().as_str()).map_err(|e| anyhow!("{:?}", e))?;
+    pub fn from(operation: String, kind: String, flags: Option<u32>, targets: Option<String>) -> Result<Self> {
+        let flags = flags.unwrap_or_default();
+        let flags = ClientFilterFlags::from_bits(flags).context("unknown bits are set in client filter flags")?;
 
         let mut clients = if flags.contains(ClientFilterFlags::GlobPattern) {
             ClientFilterTargets::Glob(Vec::new())
@@ -1201,7 +1202,7 @@ mod tests {
 
         let filter = ClientFilter::from(
             "only".to_string(), "TLSCertSubject".to_string(),
-            Some("GlobPattern | CaseInsensitive".to_string()), Some("target1,target2".to_string())
+            Some(0b11), Some("target1,target2".to_string())
         ).expect("couldn't construct client filter");
 
         assert_eq!(*filter.operation(), ClientFilterOperation::Only);

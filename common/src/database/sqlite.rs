@@ -557,7 +557,7 @@ impl Database for SQLiteDatabase {
         let subscription = subscription.clone();
         let client_filter_op: Option<String> = subscription.client_filter().map(|f| f.operation().to_string());
         let client_filter_kind = subscription.client_filter().map(|f| f.kind().to_string());
-        let client_filter_flags = subscription.client_filter().map(|f| f.flags().to_string());
+        let client_filter_flags = subscription.client_filter().map(|f| f.flags().bits());
         let client_filter_targets = subscription.client_filter().and_then(|f| f.targets_to_opt_string());
 
         let count = self

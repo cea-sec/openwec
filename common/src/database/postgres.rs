@@ -218,7 +218,11 @@ fn row_to_subscription(row: &Row) -> Result<SubscriptionData> {
     let client_filter = match client_filter_op {
         Some(op) =>  {
             let client_filter_kind: Option<String> = row.try_get("client_filter_kind")?;
-            Some(ClientFilter::from(op, client_filter_kind.unwrap(), row.try_get("client_filter_flags")?, row.try_get("client_filter_targets")?)?)
+            let client_filter_flags: Option<i32> = row.try_get("client_filter_flags")?;
+            Some(
+                ClientFilter::from(op, client_filter_kind.unwrap(),
+                client_filter_flags.map(|c| c.try_into()).transpose()?, row.try_get("client_filter_targets")?)?
+            )
         },
         None => None
     };
@@ -632,7 +636,7 @@ impl Database for PostgresDatabase {
         let max_envelope_size: i32 = subscription.max_envelope_size().try_into()?;
         let client_filter_op: Option<String> = subscription.client_filter().map(|f| f.operation().to_string());
         let client_filter_kind = subscription.client_filter().map(|f| f.kind().to_string());
-        let client_filter_flags = subscription.client_filter().map(|f| f.flags().to_string());
+        let client_filter_flags: Option<i32> = subscription.client_filter().map(|f| f.flags().bits().try_into()).transpose()?;
         let client_filter_targets = subscription.client_filter().and_then(|f| f.targets_to_opt_string());
 
         let count = self
