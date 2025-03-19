@@ -425,6 +425,10 @@ impl Header {
     pub fn revision(&self) -> Option<&String> {
         self.revision.as_ref()
     }
+
+    pub fn machine_id(&self) -> Option<&String> {
+        self.machine_id.as_ref()
+    }
 }
 
 impl Serializable for Header {
