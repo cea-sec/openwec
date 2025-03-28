@@ -409,6 +409,10 @@ impl Header {
         }
     }
 
+    pub fn to(&self) -> Option<&String> {
+        self.to.as_ref()
+    }
+
     /// Get a reference to the header's bookmarks.
     pub fn bookmarks(&self) -> Option<&String> {
         self.bookmarks.as_ref()

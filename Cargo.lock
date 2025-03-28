@@ -2449,6 +2449,7 @@ dependencies = [
  "tokio",
  "tokio-rustls",
  "tokio-util",
+ "url",
  "uuid",
  "x509-parser",
  "xmlparser",
