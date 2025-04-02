@@ -1,0 +1,865 @@
+// Some of the following code is inspired from
+// https://github.com/SkylerLipthay/schemamama_postgres. As stated by its
+// license (MIT), we include below its copyright notice and permission notice:
+//
+//       The MIT License (MIT)
+//
+//       Copyright (c) 2024 Axoflow
+//
+//       Permission is hereby granted, free of charge, to any person obtaining a copy
+//       of this software and associated documentation files (the "Software"), to deal
+//       in the Software without restriction, including without limitation the rights
+//       to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+//       copies of the Software, and to permit persons to whom the Software is
+//       furnished to do so, subject to the following conditions:
+//
+//       The above copyright notice and this permission notice shall be included in all
+//       copies or substantial portions of the Software.
+//
+//       THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+//       IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+//       FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+//       AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+//       LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+//       OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+//       SOFTWARE.
+//
+//
+use anyhow::{anyhow, Context, Result};
+use async_trait::async_trait;
+use deadpool_redis::redis::AsyncCommands;
+use deadpool_redis::{Config, Connection, Pool, Runtime};
+use log::warn;
+use std::collections::btree_map::Entry::Vacant;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::sync::Arc;
+use std::time::SystemTime;
+
+use crate::bookmark::BookmarkData;
+use crate::database::Database;
+use crate::heartbeat::{HeartbeatData, HeartbeatKey, HeartbeatValue, HeartbeatsCache};
+use crate::subscription::{
+    SubscriptionData, SubscriptionMachine, SubscriptionMachineState, SubscriptionStatsCounters
+};
+use crate::database::schema::redis::v1::subscription::*;
+use futures_util::stream::StreamExt;
+
+use super::schema::{Migration, MigrationBase, Version};
+
+
+use deadpool_redis::redis::{self, ToRedisArgs};
+use strum::{Display, EnumString};
+
+#[derive(Debug, Eq, Hash, PartialEq, EnumString, Display)]
+pub enum RedisDomain {
+    Users,
+    Subscription,
+    Machine,
+    Heartbeat,
+    BookMark,
+    Ip,
+    FirstSeen,
+    LastSeen,
+    LastEventSeen,
+    #[strum(serialize = "*")]
+    Any,
+}
+
+impl ToRedisArgs for RedisDomain {
+    fn write_redis_args<W: ?Sized + redis::RedisWrite>(&self, out: &mut W) {
+        out.write_arg(self.as_str().as_bytes());
+    }
+}
+
+impl RedisDomain {
+    pub fn as_str(&self) -> &str {
+        match self {
+            RedisDomain::Users => "users",
+            RedisDomain::Subscription => "subscription",
+            RedisDomain::Machine => "machine",
+            RedisDomain::Heartbeat => "heartbeat",
+            RedisDomain::BookMark => "bookmark",
+            RedisDomain::Ip => "ip",
+            RedisDomain::FirstSeen => "first_seen",
+            RedisDomain::LastSeen => "last_seen",
+            RedisDomain::LastEventSeen => "last_event_seen",
+            RedisDomain::Any => "*",
+        }
+    }
+}
+
+const MIGRATION_TABLE_NAME: &str = "__schema_migrations";
+
+#[async_trait]
+pub trait RedisMigration: Migration {
+    /// Called when this migration is to be executed.
+    async fn up(&self, conn: &mut Connection) -> Result<()>;
+
+    /// Called when this migration is to be reversed.
+    async fn down(&self, conn: &mut Connection) -> Result<()>;
+
+    fn to_base(&self) -> Arc<dyn Migration + Send + Sync> {
+        Arc::new(MigrationBase::new(self.version(), self.description()))
+    }
+}
+
+enum MachineStatusFilter {
+    Alive,
+    Active,
+    Dead,
+}
+
+impl MachineStatusFilter {
+    fn is_match(&self, last_seen: &i64, last_event_seen: &Option<i64>, start_time: i64) -> bool {
+        match self {
+            MachineStatusFilter::Alive => {
+                *last_seen > start_time && last_event_seen.map_or(true, |event_time| event_time <= start_time)
+            },
+            MachineStatusFilter::Active => {
+                last_event_seen.map_or(false, |event_time| event_time > start_time)
+            },
+            MachineStatusFilter::Dead => {
+                *last_seen <= start_time && last_event_seen.map_or(true, |event_time| event_time <= start_time)
+            }
+        }
+    }
+}
+
+pub struct RedisDatabase {
+    pool: Pool,
+    migrations: BTreeMap<Version, Arc<dyn RedisMigration + Send + Sync>>,
+}
+
+#[derive(Default)]
+struct HeartbeatFilter {
+    subscription: Option<String>,
+    machine: Option<String>,
+    ip: Option<String>,
+}
+
+impl RedisDatabase {
+    pub async fn new(connection_url: &str) -> Result<RedisDatabase> {
+        let config = Config::from_url(connection_url);
+        let pool = config.create_pool(Some(Runtime::Tokio1))?;
+        let db = RedisDatabase {
+            pool,
+            migrations: BTreeMap::new(),
+        };
+
+        Ok(db)
+    }
+
+    /// Register a migration. If a migration with the same version is already registered, a warning
+    /// is logged and the registration fails.
+    pub fn register_migration(&mut self, migration: Arc<dyn RedisMigration + Send + Sync>) {
+        let version = migration.version();
+        if let Vacant(e) = self.migrations.entry(version) {
+            e.insert(migration);
+        } else {
+            warn!("Migration with version {:?} is already registered", version);
+        }
+    }
+
+    async fn get_heartbeats_by_field(
+        &self,
+        fields: HeartbeatFilter
+    ) -> Result<Vec<HeartbeatData>> {
+
+        let mut conn = self.pool.get().await.context("Failed to get Redis connection")?;
+
+        let key = format!("{}:{}:{}", RedisDomain::Heartbeat,
+        fields.subscription.unwrap_or_else(|| RedisDomain::Any.to_string()),
+        fields.machine.unwrap_or_else(|| RedisDomain::Any.to_string()));
+
+        let keys = list_keys(&mut conn, &key).await?;
+        let mut heartbeats = Vec::<HeartbeatData>::new();
+
+        for key in keys {
+            let heartbeat_data : HashMap<String,String> = conn.hgetall(&key).await.context("Failed to get heartbeat data")?;
+            if !heartbeat_data.is_empty() {
+
+                // cache subs
+                let subscription_uuid = option_to_result(
+                    heartbeat_data.get(RedisDomain::Subscription.as_str()),
+                    anyhow!("RedisError: No Heartbea/{} present!", RedisDomain::Subscription.as_str()))?;
+
+                let subscription_data_opt = self.get_subscription_by_identifier(&subscription_uuid).await?;
+
+                if subscription_data_opt.is_none() {
+                    continue;
+                }
+
+                let subscription_data = subscription_data_opt.ok_or_else(|| {
+                    anyhow::anyhow!("Subscription data not found for UUID: {}", subscription_uuid)
+                })?;
+
+                if fields.ip.is_some() && heartbeat_data.get(RedisDomain::Ip.as_str()) != fields.ip.as_ref() {
+                    continue;
+                }
+
+                let hb = HeartbeatData::new(
+                    option_to_result(
+                        heartbeat_data.get(RedisDomain::Machine.as_str()),
+                        anyhow!("RedisError: No Heartbea/{} present!", RedisDomain::Machine.as_str()))?,
+                    option_to_result(
+                        heartbeat_data.get(RedisDomain::Ip.as_str()),
+                        anyhow!("RedisError: No Heartbea/{} present!", RedisDomain::Ip.as_str()))?,
+                    subscription_data,
+                    heartbeat_data.get(RedisDomain::FirstSeen.as_str())
+                        .and_then(|value| value.parse::<i64>().ok())
+                        .with_context(|| format!("Failed to parse integer for field '{}'", RedisDomain::FirstSeen))?,
+                    heartbeat_data.get(RedisDomain::LastSeen.as_str())
+                    .and_then(|value| value.parse::<i64>().ok())
+                    .with_context(|| format!("Failed to parse integer for field '{}'", RedisDomain::LastSeen))?,
+                    heartbeat_data.get(RedisDomain::LastEventSeen.as_str())
+                    .and_then(|value| value.parse::<i64>().ok()),
+                );
+                heartbeats.push(hb);
+            } else {
+                log::warn!("No bookmard found for key: {}", key);
+            }
+        }
+
+        Ok(heartbeats)
+    }
+
+}
+
+async fn list_keys(con: &mut Connection, key: &str) -> Result<Vec<String>> {
+    let mut res = Vec::new();
+    let mut iter = con.scan_match::<&str, String>(key).await.context("Unable to list keys")?;
+
+    while let Some(key) = iter.next().await {
+        res.push(key);
+    }
+
+    Ok(res)
+}
+
+async fn set_heartbeat_inner(conn: &mut Connection, subscription: &str, machine: &str, value: HeartbeatValue) -> Result<()> {
+    let redis_key = format!("{}:{}:{}", RedisDomain::Heartbeat, subscription.to_uppercase(), machine);
+    let key_exists = conn.exists(&redis_key).await.unwrap_or(true);
+
+    let mut items:Vec<(RedisDomain, String)> = vec![
+        (RedisDomain::Subscription, subscription.to_uppercase()),
+        (RedisDomain::Machine, machine.to_string()),
+        (RedisDomain::Ip, value.ip),
+        (RedisDomain::LastSeen, value.last_seen.to_string()),
+    ];
+
+    if !key_exists {
+        items.push((RedisDomain::FirstSeen, value.last_seen.to_string()));
+    }
+    if let Some(last_event_seen) = value.last_event_seen {
+        items.push((RedisDomain::LastEventSeen, last_event_seen.to_string()));
+    }
+
+    let _: () = conn.hset_multiple(&redis_key, &items).await.context("Failed to store bookmark data")?;
+
+    Ok(())
+}
+
+async fn set_heartbeat(conn: &mut Connection, key: &HeartbeatKey, value: &HeartbeatValue) -> Result<()> {
+    set_heartbeat_inner(conn, &key.subscription, &key.machine, value.to_owned()).await
+}
+
+fn option_to_result<T, E>(option: Option<&T>, err: E) -> Result<T, E>
+where
+    T: Clone,
+{
+    option.cloned().ok_or(err)
+}
+
+#[allow(unused)]
+#[async_trait]
+impl Database for RedisDatabase {
+    async fn get_bookmark(&self, machine: &str, subscription: &str) -> Result<Option<String>> {
+        let mut conn = self.pool.get().await.context("Failed to get Redis connection")?;
+        let key = format!("{}:{}:{}", RedisDomain::BookMark, subscription.to_uppercase(), machine);
+        Ok(conn.hget(&key, RedisDomain::BookMark.as_str()).await.context("Failed to get bookmark data")?)
+    }
+
+    async fn get_bookmarks(&self, subscription: &str) -> Result<Vec<BookmarkData>> {
+        let mut conn = self.pool.get().await.context("Failed to get Redis connection")?;
+        let key = format!("{}:{}:{}", RedisDomain::BookMark, subscription.to_uppercase(), RedisDomain::Any);
+        let keys = list_keys(&mut conn, &key).await?;
+        let mut bookmarks = Vec::<BookmarkData>::new();
+
+        for key in keys {
+            let bookmark_data : HashMap<String,String> = conn.hgetall(&key).await.context("Failed to get bookmark data")?;
+            if !bookmark_data.is_empty() {
+                bookmarks.push(BookmarkData {
+                    subscription: option_to_result(
+                        bookmark_data.get(RedisDomain::Subscription.as_str()),
+                        anyhow!("RedisError: No Bookmark/{} present!", RedisDomain::Subscription.as_str()))?.clone(),
+                    machine: option_to_result(
+                        bookmark_data.get(RedisDomain::Machine.as_str()),
+                        anyhow!("RedisError: No Bookmark/{} present!", RedisDomain::Machine.as_str()))?.clone(),
+                    bookmark: option_to_result(
+                        bookmark_data.get(RedisDomain::BookMark.as_str()),
+                        anyhow!("RedisError: No Bookmark/{} present!", RedisDomain::BookMark.as_str()))?.clone(),
+                });
+            } else {
+                log::warn!("No bookmard found for key: {}", key);
+            }
+        }
+
+        Ok(bookmarks)
+    }
+
+    async fn store_bookmark(
+        &self,
+        machine: &str,
+        subscription: &str,
+        bookmark: &str,
+    ) -> Result<()> {
+        let mut conn = self.pool.get().await.context("Failed to get Redis connection")?;
+        let key = format!("{}:{}:{}", RedisDomain::BookMark, subscription.to_uppercase(), machine);
+
+        let items:Vec<(RedisDomain, String)> = vec![
+            (RedisDomain::Subscription, subscription.to_uppercase()),
+            (RedisDomain::Machine, machine.to_string()),
+            (RedisDomain::BookMark, bookmark.to_string()),
+        ];
+
+        let _: () = conn.hset_multiple(&key, &items).await.context("Failed to store bookmark data")?;
+
+        Ok(())
+    }
+
+    async fn delete_bookmarks(
+        &self,
+        machine: Option<&str>,
+        subscription: Option<&str>,
+    ) -> Result<()> {
+        let mut conn = self.pool.get().await.context("Failed to get Redis connection")?;
+        let compose_key = |subscription: &str, machine: &str| -> String {
+            format!("{}:{}:{}", RedisDomain::BookMark, subscription.to_uppercase(), machine)
+        };
+        let key : String = match (subscription, machine) {
+            (Some(subscription), Some(machine)) => {
+                compose_key(subscription, machine)
+            },
+            (Some(subscription), None) => {
+                compose_key(subscription, RedisDomain::Any.as_str())
+            },
+            (None, Some(machine)) => {
+                compose_key(RedisDomain::Any.as_str(), machine)
+            },
+            (None, None) => {
+                compose_key(RedisDomain::Any.as_str(), RedisDomain::Any.as_str())
+            }
+        };
+
+        let keys = list_keys(&mut conn, &key).await?;
+        if (!keys.is_empty())
+        {
+            let _ : usize = conn.del(keys.as_slice()).await.context("Failed to delete bookmark data")?;
+        }
+
+        Ok(())
+    }
+
+    async fn get_heartbeats_by_machine(
+        &self,
+        machine: &str,
+        subscription: Option<&str>,
+    ) -> Result<Vec<HeartbeatData>> {
+        let mut fields = HeartbeatFilter{
+            subscription: subscription.map(String::from),
+            machine: Some(machine.to_string()),
+            ..Default::default()
+        };
+        self.get_heartbeats_by_field(fields).await
+    }
+
+    async fn get_heartbeats_by_ip(
+        &self,
+        ip: &str,
+        subscription: Option<&str>,
+    ) -> Result<Vec<HeartbeatData>> {
+        let mut fields = HeartbeatFilter{
+            ip: Some(ip.to_string()),
+            subscription: subscription.map(String::from),
+            ..Default::default()};
+        self.get_heartbeats_by_field(fields).await
+    }
+
+    async fn get_heartbeats(&self) -> Result<Vec<HeartbeatData>> {
+        let fields = HeartbeatFilter::default();
+        self.get_heartbeats_by_field(fields).await
+    }
+
+    async fn get_heartbeats_by_subscription(
+        &self,
+        subscription: &str,
+    ) -> Result<Vec<HeartbeatData>> {
+        let mut fields = HeartbeatFilter{
+            subscription: Some(subscription.to_string()),
+            ..Default::default()
+        };
+
+        self.get_heartbeats_by_field(fields).await
+    }
+
+    async fn store_heartbeat(
+        &self,
+        machine: &str,
+        ip: String,
+        subscription: &str,
+        is_event: bool,
+    ) -> Result<()> {
+        let mut conn = self.pool.get().await.context("Failed to get Redis connection")?;
+        let now = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)?
+            .as_secs();
+
+        let hbv = HeartbeatValue{
+            ip,
+            last_seen: now,
+            last_event_seen: if is_event { Some(now) } else { None },
+        };
+
+        set_heartbeat_inner(&mut conn, subscription, machine, hbv).await
+    }
+
+    async fn store_heartbeats(&self, heartbeats: &HeartbeatsCache) -> Result<()> {
+        let mut conn = self.pool.get().await.context("Failed to get Redis connection")?;
+        for (key, value) in heartbeats.iter() {
+            set_heartbeat(&mut conn, key, value).await?;
+        }
+        Ok(())
+    }
+
+    async fn get_subscriptions(&self) -> Result<Vec<SubscriptionData>> {
+        let mut conn = self.pool.get().await.context("Failed to get Redis connection")?;
+
+        let key = format!("{}:{}:{}", RedisDomain::Subscription, RedisDomain::Any, RedisDomain::Any);
+
+        let keys = list_keys(&mut conn, &key).await?;
+
+        let mut subscriptions = Vec::new();
+
+        for key in keys {
+            let subscription_redis_data: Option<String> = conn.get(&key).await.context("Failed to get subscription data")?;
+
+            if let Some(subscription_redis_data) = subscription_redis_data {
+                match serde_json::from_str::<SubscriptionRedisData>(&subscription_redis_data) {
+                    Ok(subscription) => subscriptions.push(subscription.into()),
+                    Err(err) => {
+                        log::warn!("Failed to deserialize subscription data for key {}: {}", key, err);
+                    }
+                }
+            } else {
+                log::warn!("No subscription found for key: {}", key);
+            }
+        }
+
+        Ok(subscriptions)
+    }
+
+    async fn get_subscription_by_identifier(
+        &self,
+        identifier: &str,
+    ) -> Result<Option<SubscriptionData>> {
+        let mut conn = self.pool.get().await.context("Failed to get Redis connection")?;
+        let key = format!("{}:{}:{}", RedisDomain::Subscription, RedisDomain::Any, RedisDomain::Any);
+
+        let keys = list_keys(&mut conn, &key).await?;
+
+        let filtered: Vec<String> = keys.into_iter()
+        .filter(|key| key.split(':').skip(1).any(|elt| elt == identifier))
+        .collect();
+
+        if !filtered.is_empty() {
+            let result: Option<String> = conn.get(&filtered[0]).await.context("Failed to get subscription data")?;
+            if result.is_some() {
+                let subscription_redis_data: SubscriptionRedisData = serde_json::from_str(&result.unwrap()).context("Failed to deserialize subscription data")?;
+                return Ok(Some(subscription_redis_data.into()));
+            }
+        }
+        Ok(None)
+    }
+
+    async fn store_subscription(&self, subscription: &SubscriptionData) -> Result<()> {
+        let mut conn = self.pool.get().await.context("Failed to get Redis connection")?;
+
+        let key_filter = format!("{}:{}:{}",RedisDomain::Subscription, subscription.uuid().to_string().to_uppercase(), RedisDomain::Any);
+        let keys = list_keys(&mut conn, &key_filter).await?;
+        if (!keys.is_empty()) {
+            let _:() = conn.del(keys).await?;
+        }
+
+
+        let subscription_redis_data = SubscriptionRedisData::from(subscription);
+
+        let key = format!("{}:{}:{}", RedisDomain::Subscription, subscription.uuid().to_string().to_uppercase(), subscription.name());
+        let value = serde_json::to_string(&subscription_redis_data).context("Failed to serialize subscription data")?;
+        let _ : String = conn.set(key, value).await.context("Failed to store subscription data")?;
+        Ok(())
+    }
+
+    async fn delete_subscription(&self, uuid: &str) -> Result<()> {
+        let mut conn = self.pool.get().await.context("Failed to get Redis connection")?;
+        let key = format!("{}:{}:{}", RedisDomain::Subscription, uuid.to_uppercase(), RedisDomain::Any);
+
+        let keys = list_keys(&mut conn, &key).await?;
+
+        self.delete_bookmarks(None, Some(uuid)).await.context("Failed to delete subscription releated bookmark data")?;
+        if !keys.is_empty() {
+            let _: () = conn.del(keys).await.context("Failed to delete subscription data")?;
+        }
+        Ok(())
+    }
+
+    /// Fails if `setup_schema` hasn't previously been called or if the query otherwise fails.
+    async fn current_version(&self) -> Result<Option<Version>> {
+        let mut conn = self.pool.get().await.context("Failed to get Redis connection")?;
+        let key = MIGRATION_TABLE_NAME;
+        let versions:Vec<String> = conn.zrange(key, -1, -1).await.context("There is no version info stored in DB.")?;
+        let last_version = versions.last().and_then(|v| v.parse::<i64>().ok());
+        Ok(last_version)
+    }
+
+    /// Fails if `setup_schema` hasn't previously been called or if the query otherwise fails.
+    async fn migrated_versions(&self) -> Result<BTreeSet<Version>> {
+        let mut conn = self.pool.get().await.context("Failed to get Redis connection")?;
+        let key = MIGRATION_TABLE_NAME;
+        let versions:Vec<String> = conn.zrange(key, 0, -1).await.context("There is no version info stored in DB.")?;
+        let result : BTreeSet<i64> = versions.into_iter().map(|v| v.parse::<i64>().with_context(|| format!("Failed to parse version: {}", v))).collect::<Result<_>>()?;
+        Ok(result)
+    }
+
+    /// Fails if `setup_schema` hasn't previously been called or if the migration otherwise fails.
+    async fn apply_migration(&self, version: Version) -> Result<()> {
+        let migration = self
+            .migrations
+            .get(&version)
+            .ok_or_else(|| anyhow!("Could not retrieve migration with version {}", version))?
+            .clone();
+        let mut conn = self.pool.get().await.context("Failed to get Redis connection")?;
+        migration.up(&mut conn).await?;
+        let key = MIGRATION_TABLE_NAME;
+        let version = migration.version();
+        let added_count: i64 = conn.zadd(key, version, version).await.with_context(|| format!("Unable to add version: {}", version))?;
+        if added_count > 0 {
+            println!("Successfully added version {} to sorted set", version);
+        } else {
+            println!("Version {} was not added (it may already exist)", version);
+        }
+        Ok(())
+    }
+
+    /// Fails if `setup_schema` hasn't previously been called or if the migration otherwise fails.
+    async fn revert_migration(&self, version: Version) -> Result<()> {
+        let migration = self
+            .migrations
+            .get(&version)
+            .ok_or_else(|| anyhow!("Could not retrieve migration with version {}", version))?
+            .clone();
+        let mut conn = self.pool.get().await.context("Failed to get Redis connection")?;
+        migration.down(&mut conn).await?;
+        let key = MIGRATION_TABLE_NAME;
+        let version = migration.version();
+        let removed_count: i64 = conn.zrem(key, version).await.context("Failed to remove version")?;
+        if removed_count > 0 {
+            println!("Successfully removed version: {}", version);
+        } else {
+            println!("Version {} not found in the sorted set.", version);
+        }
+        Ok(())
+    }
+
+    /// Create the tables required to keep track of schema state. If the tables already
+    /// exist, this function has no operation.
+    async fn setup_schema(&self) -> Result<()> {
+        Ok(())
+    }
+
+    async fn migrations(&self) -> BTreeMap<Version, Arc<dyn Migration + Send + Sync>> {
+        let mut base_migrations = BTreeMap::new();
+        for (version, migration) in self.migrations.iter() {
+            base_migrations.insert(*version, migration.to_base());
+        }
+        base_migrations
+    }
+
+    async fn get_stats(
+        &self,
+        subscription: &str,
+        start_time: i64,
+    ) -> Result<SubscriptionStatsCounters> {
+        let mut fields = HeartbeatFilter{
+            subscription: Some(subscription.to_string()),
+            ..Default::default()
+        };
+        let heartbeats = self.get_heartbeats_by_field(fields).await?;
+
+        let total_machines_count = i64::try_from(heartbeats.len())?;
+        let mut alive_machines_count = 0;
+        let mut active_machines_count = 0;
+        let mut dead_machines_count = 0;
+
+        for hb in heartbeats.iter() {
+            match hb {
+                HeartbeatData{last_seen, last_event_seen, ..} if MachineStatusFilter::Alive.is_match(last_seen, last_event_seen, start_time) => {
+                    alive_machines_count += 1;
+                },
+                HeartbeatData{last_seen, last_event_seen, ..} if MachineStatusFilter::Active.is_match(last_seen, last_event_seen, start_time) => {
+                    active_machines_count += 1;
+                },
+                HeartbeatData{last_seen, last_event_seen, ..} if MachineStatusFilter::Dead.is_match(last_seen, last_event_seen, start_time) => {
+                    dead_machines_count += 1;
+                },
+                _ => {},
+            };
+        }
+
+        Ok(SubscriptionStatsCounters::new(
+            total_machines_count,
+            alive_machines_count,
+            active_machines_count,
+            dead_machines_count,
+        ))
+    }
+
+    async fn get_machines(
+        &self,
+        subscription: &str,
+        start_time: i64,
+        stat_type: Option<SubscriptionMachineState>,
+    ) -> Result<Vec<SubscriptionMachine>> {
+        let mut fields = HeartbeatFilter{
+            subscription: Some(subscription.to_string()),
+            ..Default::default()
+        };
+
+        let heartbeats = self.get_heartbeats_by_field(fields).await?;
+        let mut result = Vec::<SubscriptionMachine>::new();
+
+        for hb in heartbeats.iter() {
+
+            match stat_type {
+                None => {},
+                Some(SubscriptionMachineState::Active) => {
+                    if !MachineStatusFilter::Active.is_match(&hb.last_seen, &hb.last_event_seen, start_time) {
+                        continue;
+                    }
+                },
+                Some(SubscriptionMachineState::Alive) => {
+                    if !MachineStatusFilter::Alive.is_match(&hb.last_seen, &hb.last_event_seen, start_time) {
+                        continue;
+                    }
+                },
+                Some(SubscriptionMachineState::Dead) => {
+                    if !MachineStatusFilter::Dead.is_match(&hb.last_seen, &hb.last_event_seen, start_time) {
+                        continue;
+                    }
+                },
+            }
+            result.push(SubscriptionMachine::new(hb.machine().to_string(), hb.ip().to_string()));
+        }
+
+        Ok(result)
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+
+    use std::{env, str::FromStr};
+    use uuid::Uuid;
+
+    use crate::{
+        database::schema::{self, Migrator}, migration, subscription::SubscriptionUuid
+    };
+
+    use super::*;
+    use anyhow::Ok;
+    use serial_test::serial;
+
+    #[allow(unused)]
+    async fn cleanup_db(db: &RedisDatabase) -> Result<()> {
+        let mut con = db.pool.get().await?;
+        let _ : () = deadpool_redis::redis::cmd("FLUSHALL").query_async(&mut con).await?;
+        Ok(())
+    }
+
+    async fn drop_migrations_table(db: &RedisDatabase) -> Result<()> {
+        let mut conn = db.pool.get().await.context("Failed to get Redis connection")?;
+        let key = MIGRATION_TABLE_NAME;
+        let _:() = conn.del(key).await?;
+        Ok(())
+    }
+
+    async fn redis_db() -> Result<RedisDatabase> {
+        let connection_string = env::var("REDIS_URL").unwrap_or("redis://127.0.0.1:6379".to_string());
+        RedisDatabase::new(connection_string.as_str()).await
+    }
+
+    async fn db_with_migrations() -> Result<Arc<dyn Database>> {
+        let mut db = redis_db().await?;
+        schema::redis::register_migrations(&mut db);
+        cleanup_db(&db).await?;
+        drop_migrations_table(&db).await?;
+        Ok(Arc::new(db))
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_open_and_close() -> Result<()> {
+            redis_db()
+            .await
+            .expect("Could not connect to database");
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_bookmarks() -> Result<()> {
+        crate::database::tests::test_bookmarks(db_with_migrations().await?).await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_heartbeats() -> Result<()> {
+        crate::database::tests::test_heartbeats(db_with_migrations().await?).await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_heartbeats_cache() -> Result<()> {
+        crate::database::tests::test_heartbeats_cache(db_with_migrations().await?).await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_subscriptions() -> Result<()> {
+        crate::database::tests::test_subscriptions(db_with_migrations().await?).await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_stats() -> Result<()> {
+        crate::database::tests::test_stats_and_machines(db_with_migrations().await?).await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_current_version_empty() -> Result<()> {
+        let db = db_with_migrations().await?;
+        let res = db.current_version().await?;
+        assert_eq!(res, None);
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_current_version() -> Result<()> {
+        let db = redis_db().await?;
+        let mut con = db.pool.get().await?;
+        let members = vec![(1.0, 1),(2.0, 2),(3.0, 3)];
+        let _:() = con.zadd_multiple(MIGRATION_TABLE_NAME, &members).await?;
+        let res = db.current_version().await?;
+        assert_eq!(res, Some(3));
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_migrated_versions() -> Result<()> {
+        let db = redis_db().await?;
+        let mut con = db.pool.get().await?;
+        let members = vec![(1.0, 1),(2.0, 2),(3.0, 3)];
+        let _:() = con.zadd_multiple(MIGRATION_TABLE_NAME, &members).await?;
+        let res = db.migrated_versions().await?;
+        assert_eq!(res, BTreeSet::<i64>::from_iter(vec![1,2,3]));
+        Ok(())
+    }
+
+    struct CreateUsers;
+    migration!(CreateUsers, 1, "create users table");
+
+    #[async_trait]
+    impl RedisMigration for CreateUsers {
+        async fn up(&self, conn: &mut Connection) -> Result<()> {
+            let key = format!("{}", RedisDomain::Users);
+            let _:() = conn.set(key, "").await?;
+            Ok(())
+        }
+
+        async fn down(&self, conn: &mut Connection) -> Result<()> {
+            let key = format!("{}", RedisDomain::Users);
+            let  _:() = conn.del(key).await?;
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_register() -> Result<()> {
+        let mut db = redis_db()
+            .await
+            .expect("Could not connect to database");
+
+        drop_migrations_table(&db).await?;
+        db.register_migration(Arc::new(CreateUsers));
+
+        db.setup_schema().await.expect("Could not setup schema");
+
+        let db_arc = Arc::new(db);
+
+        let migrator = Migrator::new(db_arc.clone());
+
+        migrator.up(None, false).await.unwrap();
+
+        assert_eq!(db_arc.current_version().await.unwrap(), Some(1));
+
+        migrator.down(None, false).await.unwrap();
+
+        assert_eq!(db_arc.current_version().await.unwrap(), None);
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_list_keys() -> Result<()> {
+        let db = redis_db().await?;
+        cleanup_db(&db).await?;
+        let mut con = db.pool.get().await?;
+        db.store_bookmark("machine1", "subscription", "bookmark1").await?;
+        db.store_bookmark("machine2", "subscription", "bookmark2").await?;
+        let key = "BookMark:SUBSCRIPTION:*";
+        let keys = list_keys(&mut con, key).await?;
+        assert!(keys.len() == 2);
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_heartbeat_without_subscription() -> Result<()> {
+        let db = redis_db().await?;
+        cleanup_db(&db).await?;
+        db.store_heartbeat("machine1", "127.0.0.1".to_string(), "subscription1", true).await?;
+        db.store_heartbeat("machine2", "192.168.0.1".to_string(), "subscription1", true).await?;
+        db.store_heartbeat("machine2", "0.0.0.1".to_string(), "b00bf259-3ba9-4faf-b58e-d0e9a3275778", true).await?;
+        let mut subs = SubscriptionData::new("subscription2", "query");
+        subs.set_uuid(SubscriptionUuid(Uuid::from_str("b00bf259-3ba9-4faf-b58e-d0e9a3275778")?));
+        db.store_subscription(&subs).await?;
+        let mut fields = HeartbeatFilter::default();
+        fields.machine = Some("machine2".to_string());
+        let heartbeat_data = db.get_heartbeats_by_field(fields).await?;
+
+        assert!(heartbeat_data.len() == 1, "expected: {} received:{}", 1, heartbeat_data.len());
+        assert_eq!(heartbeat_data[0].machine(), "machine2");
+
+        Ok(())
+    }
+
+}

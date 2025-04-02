@@ -18,6 +18,7 @@ pub enum Authentication {
 pub enum Database {
     SQLite(SQLite),
     Postgres(Postgres),
+    Redis(Redis),
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -99,6 +100,18 @@ impl Kerberos {
 
     pub fn service_principal_name(&self) -> &str {
         &self.service_principal_name
+    }
+}
+
+#[derive(Debug, Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
+pub struct Redis {
+    connection_url: String,
+}
+
+impl Redis {
+    pub fn connection_url(&self) -> &str {
+        &self.connection_url
     }
 }
 

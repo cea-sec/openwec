@@ -34,6 +34,7 @@ use super::Database;
 
 pub mod postgres;
 pub mod sqlite;
+pub mod redis;
 
 /// The version type alias used to uniquely reference migrations.
 pub type Version = i64;
