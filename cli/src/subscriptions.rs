@@ -3,7 +3,7 @@ use common::{
     encoding::decode_utf16le,
     settings::Settings,
     subscription::{
-        ContentFormat, FilesConfiguration, KafkaConfiguration, PrincsFilterOperation,
+        ContentFormat, FilesConfiguration, KafkaConfiguration, ClientFilter, ClientFilterOperation,
         RedisConfiguration, SubscriptionData, SubscriptionMachineState, SubscriptionOutput,
         SubscriptionOutputDriver, SubscriptionOutputFormat, TcpConfiguration,
         UnixDatagramConfiguration,
@@ -20,7 +20,7 @@ use std::{
 };
 use uuid::Uuid;
 
-use anyhow::{anyhow, bail, ensure, Context, Result};
+use anyhow::{anyhow, bail, ensure, Context, Ok, Result};
 use clap::ArgMatches;
 use log::{debug, info, warn};
 use std::io::Write;
@@ -595,39 +595,50 @@ async fn delete(db: &Db, matches: &ArgMatches) -> Result<()> {
 }
 
 async fn edit_filter(subscription: &mut SubscriptionData, matches: &ArgMatches) -> Result<()> {
-    let mut filter = subscription.princs_filter().clone();
-    match matches.subcommand() {
-        Some(("set", matches)) => {
-            let op_str = matches
-                .get_one::<String>("operation")
-                .ok_or_else(|| anyhow!("Missing operation argument"))?;
+    if let Some(("set", matches)) = matches.subcommand() {
+        let op_str = matches
+            .get_one::<String>("operation")
+            .ok_or_else(|| anyhow!("Missing operation argument"))?;
 
-            let op_opt = PrincsFilterOperation::opt_from_str(op_str)?;
-            filter.set_operation(op_opt.clone());
+        if op_str.eq_ignore_ascii_case("none") {
+            subscription.set_client_filter(None);
+            return Ok(());
+        }
 
-            if let Some(op) = op_opt {
-                let mut princs = HashSet::new();
-                if let Some(identifiers) = matches.get_many::<String>("principals") {
-                    for identifier in identifiers {
-                        princs.insert(identifier.clone());
-                    }
-                }
-                if op == PrincsFilterOperation::Only && princs.is_empty() {
-                    warn!("'{}' filter has been set without principals making this subscription apply to nothing.", op)
-                }
-                filter.set_princs(princs)?;
+        let op = op_str.parse()?;
+
+        let mut princs = HashSet::new();
+        if let Some(identifiers) = matches.get_many::<String>("principals") {
+            for identifier in identifiers {
+                princs.insert(identifier.clone());
             }
         }
-        Some(("princs", matches)) => match matches.subcommand() {
+        if op == ClientFilterOperation::Only && princs.is_empty() {
+            warn!("'{}' filter has been set without principals making this subscription apply to nothing.", op)
+        }
+
+        subscription.set_client_filter(Some(ClientFilter::new_legacy(op, princs)));
+        return Ok(());
+    }
+
+    if let Some(("princs", matches)) = matches.subcommand() {
+        let filter = subscription.client_filter().cloned();
+        let Some(mut filter) = filter else {
+            bail!("No filter is set");
+        };
+
+        match matches.subcommand() {
             Some(("add", matches)) => {
-                filter.add_princ(
+                #[allow(deprecated)]
+                filter.add_target(
                     matches
                         .get_one::<String>("principal")
                         .ok_or_else(|| anyhow!("Missing principal"))?,
                 )?;
             }
             Some(("delete", matches)) => {
-                filter.delete_princ(
+                #[allow(deprecated)]
+                filter.delete_target(
                     matches
                         .get_one::<String>("principal")
                         .ok_or_else(|| anyhow!("Missing principal"))?,
@@ -639,7 +650,8 @@ async fn edit_filter(subscription: &mut SubscriptionData, matches: &ArgMatches) 
                     for identifier in identifiers {
                         princs.insert(identifier.clone());
                     }
-                    filter.set_princs(princs)?;
+                    #[allow(deprecated)]
+                    filter.set_targets(princs)?;
                 }
                 None => {
                     bail!("No principals to set")
@@ -648,14 +660,13 @@ async fn edit_filter(subscription: &mut SubscriptionData, matches: &ArgMatches) 
             _ => {
                 bail!("Nothing to do");
             }
-        },
-        _ => {
-            bail!("Nothing to do");
         }
-    }
-    subscription.set_princs_filter(filter);
 
-    Ok(())
+        subscription.set_client_filter(Some(filter));
+        return Ok(())
+    }
+
+    bail!("Nothing to do");
 }
 async fn outputs(subscription: &mut SubscriptionData, matches: &ArgMatches) -> Result<()> {
     info!(
