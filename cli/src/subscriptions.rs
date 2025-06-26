@@ -341,8 +341,8 @@ async fn edit(db: &Db, matches: &ArgMatches) -> Result<()> {
             ContentFormat::from_str(content_format).context("Parse content-format argument")?;
         debug!(
             "Update content_format from {} to {}",
-            subscription.content_format().to_string(),
-            content_format_t.to_string()
+            subscription.content_format(),
+            content_format_t
         );
         subscription.set_content_format(content_format_t);
     }
