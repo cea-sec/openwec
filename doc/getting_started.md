@@ -8,8 +8,9 @@ OpenWEC is not yet packaged for any distribution we know about. Therefore, you c
 
 To build OpenWEC, you will need:
 * cargo and rustc
-* openssl-dev
-* libgssapi
+* libssl-dev
+* libkrb5-dev
+* libsasl2-dev
 
 And you will need to run:
 

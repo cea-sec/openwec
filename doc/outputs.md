@@ -78,6 +78,9 @@ For a given subscription, all events will be sent in the configured Kafka topic.
 > [!TIP]
 > If multiple outputs use the Kafka driver and connect to the same Kafka cluster, it is recommended to configure the additional options in OpenWEC settings (`outputs.kafka.options`) **and** to omit the `options` parameter in Kafka output configuration. This way, only one Kafka client will be used by all the outputs, which is more resource efficient.
 
+> [!note]
+> OpenWEC bundles its own Kafka client (using `rdkafka`). It is built with `zstd`, `libz`, `external-lz4`, `ssl` and `gssapi` features (see https://github.com/fede1024/rust-rdkafka/blob/master/rdkafka-sys/README.md#features).
+
 #### Configuration
 
 ```toml

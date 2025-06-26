@@ -16,6 +16,7 @@ RUN apk upgrade --no-cache && apk add --no-cache \
     openssl-dev \
     krb5-dev  \
     pkgconf \
+    libsasl \
     rust-bindgen
 
 COPY --from=planner /SRC/recipe.json recipe.json

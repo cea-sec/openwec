@@ -5,7 +5,6 @@ use quick_xml::reader::Reader;
 use quick_xml::writer::Writer;
 use roxmltree::{Document, Node};
 use std::collections::HashMap;
-use std::io::ErrorKind;
 use std::sync::Arc;
 use uuid::Uuid;
 use xmlparser::XmlCharExt;
@@ -559,11 +558,7 @@ impl Serializable for Body {
             }
             x => {
                 return Err(quick_xml::Error::Io(
-                    std::io::Error::new(
-                        ErrorKind::Other,
-                        format!("Can not serialize body of {:?}", x),
-                    )
-                    .into(),
+                    std::io::Error::other(format!("Can not serialize body of {:?}", x)).into(),
                 ))
             }
         }
