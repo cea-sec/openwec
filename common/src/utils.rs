@@ -63,9 +63,8 @@ impl std::hash::Hasher for VersionHasher {
                 let mut short_buf = [0u8; 8];
                 short_buf.copy_from_slice(&hash[..8]);
                 u64::from_le_bytes(short_buf)
-            },
-            None =>
-                0u64
+            }
+            None => 0u64,
         }
     }
 

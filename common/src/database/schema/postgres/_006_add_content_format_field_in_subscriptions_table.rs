@@ -23,8 +23,11 @@ impl PostgresMigration for AddContentFormatFieldInSubscriptionsTable {
     }
 
     async fn down(&self, tx: &mut Transaction) -> Result<()> {
-        tx.execute("ALTER TABLE subscriptions DROP COLUMN IF EXISTS content_format", &[])
-            .await?;
+        tx.execute(
+            "ALTER TABLE subscriptions DROP COLUMN IF EXISTS content_format",
+            &[],
+        )
+        .await?;
         Ok(())
     }
 }

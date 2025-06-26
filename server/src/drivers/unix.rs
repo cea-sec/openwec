@@ -1,9 +1,6 @@
 use std::sync::Arc;
 
-use crate::{
-    event::EventMetadata,
-    output::OutputDriver,
-};
+use crate::{event::EventMetadata, output::OutputDriver};
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use common::subscription::UnixDatagramConfiguration;

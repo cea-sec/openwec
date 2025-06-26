@@ -39,7 +39,9 @@ async fn show(db: &Db, matches: &ArgMatches) -> Result<()> {
         })?;
 
     if let Some(machine) = machine {
-        let bookmark = db.get_bookmark(&machine, &subscription.uuid_string()).await?;
+        let bookmark = db
+            .get_bookmark(&machine, &subscription.uuid_string())
+            .await?;
         match bookmark {
             Some(str) => {
                 println!("{}", str)
@@ -126,7 +128,9 @@ async fn copy(db: &Db, matches: &ArgMatches) -> Result<()> {
         })?;
 
     if let Some(machine) = machine {
-        let existing_bookmark = db.get_bookmark(&machine, &destination.uuid_string()).await?;
+        let existing_bookmark = db
+            .get_bookmark(&machine, &destination.uuid_string())
+            .await?;
         if existing_bookmark.is_some() {
             println!(
                 "WARNING: A bookmark for {} already exists within subscription \"{}\"",

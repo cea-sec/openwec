@@ -13,8 +13,11 @@ migration!(
 
 impl SQLiteMigration for AddContentFormatFieldInSubscriptionsTable {
     fn up(&self, conn: &Connection) -> Result<()> {
-        conn.execute("ALTER TABLE subscriptions ADD COLUMN content_format TEXT DEFAULT 'RenderedText'", [])
-            .map_err(|err| anyhow!("SQLiteError: {}", err))?;
+        conn.execute(
+            "ALTER TABLE subscriptions ADD COLUMN content_format TEXT DEFAULT 'RenderedText'",
+            [],
+        )
+        .map_err(|err| anyhow!("SQLiteError: {}", err))?;
         Ok(())
     }
 

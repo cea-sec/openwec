@@ -451,7 +451,10 @@ mod tests {
     use std::{net::SocketAddr, str::FromStr, sync::Arc};
 
     use chrono::Utc;
-    use common::{settings, subscription::{SubscriptionData, SubscriptionUuid}};
+    use common::{
+        settings,
+        subscription::{SubscriptionData, SubscriptionUuid},
+    };
     use serde_json::Value;
     use uuid::Uuid;
 
@@ -514,7 +517,7 @@ Type 3 is a limited token with administrative privileges removed and administrat
             Some("openwec".to_owned()),
             &subscription,
             "188BB736-9441-5C66-188B-B73694415C66".to_string(),
-            Some("1234".to_string())
+            Some("1234".to_string()),
         );
         metadata.set_time_received(
             chrono::DateTime::parse_from_rfc3339("2022-12-14T17:07:03.331+01:00")
@@ -563,7 +566,7 @@ Licensing Status=
             Some("openwec".to_owned()),
             &subscription,
             "188BB736-9441-5C66-188B-B73694415C66".to_string(),
-            None
+            None,
         );
         metadata.set_time_received(
             chrono::DateTime::parse_from_rfc3339("2022-12-14T17:07:03.324+01:00")
@@ -609,7 +612,7 @@ If this computer is a domain controller for the specified domain, it sets up the
             Some("openwec".to_owned()),
             &subscription,
             "188BB736-9441-5C66-188B-B73694415C66".to_string(),
-            Some("babar".to_string())
+            Some("babar".to_string()),
         );
         metadata.set_time_received(
             chrono::DateTime::parse_from_rfc3339("2022-12-14T17:07:02.919+01:00")
@@ -689,7 +692,7 @@ If this computer is a domain controller for the specified domain, it sets up the
             Some("openwec".to_owned()),
             &subscription,
             "188BB736-9441-5C66-188B-B73694415C66".to_string(),
-            None
+            None,
         );
         metadata.set_time_received(
             chrono::DateTime::parse_from_rfc3339("2022-12-14T17:07:02.156+01:00")
@@ -729,7 +732,7 @@ If this computer is a domain controller for the specified domain, it sets up the
             Some("other_node".to_owned()),
             &subscription,
             "188BB736-9441-5C66-188B-B73694415C66".to_string(),
-            None
+            None,
         );
         metadata.set_time_received(
             chrono::DateTime::parse_from_rfc3339("2022-12-14T17:07:02.156+01:00")

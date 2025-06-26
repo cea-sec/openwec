@@ -13,8 +13,11 @@ migration!(
 
 impl SQLiteMigration for AddMaxElementsFieldInSubscriptionsTable {
     fn up(&self, conn: &Connection) -> Result<()> {
-        conn.execute("ALTER TABLE subscriptions ADD COLUMN max_elements INTEGER", [])
-            .map_err(|err| anyhow!("SQLiteError: {}", err))?;
+        conn.execute(
+            "ALTER TABLE subscriptions ADD COLUMN max_elements INTEGER",
+            [],
+        )
+        .map_err(|err| anyhow!("SQLiteError: {}", err))?;
         Ok(())
     }
 

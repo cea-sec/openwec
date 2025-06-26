@@ -292,7 +292,6 @@ pub async fn get_response_payload(
     payload: String,
     boundary: String,
 ) -> Result<Vec<u8>> {
-
     // Multiple blocking operations are done here:
     // - encode payload
     // - encrypt payload

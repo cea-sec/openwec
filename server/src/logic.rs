@@ -253,7 +253,13 @@ async fn handle_enumerate(
             bookmark
         );
 
-        let body = create_subscription_body(&subscription, bookmark, collector, &collector_hostname, auth_ctx,);
+        let body = create_subscription_body(
+            &subscription,
+            bookmark,
+            collector,
+            &collector_hostname,
+            auth_ctx,
+        );
 
         res_subscriptions.push(SoapSubscription {
             version: subscription.public_version_string(),
@@ -651,9 +657,16 @@ pub async fn handle_message(
     debug!("Received {} request", action);
 
     if action == ACTION_ENUMERATE {
-        handle_enumerate(collector, &db, subscriptions, request_data, auth_ctx, message)
-            .await
-            .context("Failed to handle Enumerate action")
+        handle_enumerate(
+            collector,
+            &db,
+            subscriptions,
+            request_data,
+            auth_ctx,
+            message,
+        )
+        .await
+        .context("Failed to handle Enumerate action")
     } else if action == ACTION_END || action == ACTION_SUBSCRIPTION_END {
         Ok(Response::err(StatusCode::OK))
     } else if action == ACTION_HEARTBEAT {

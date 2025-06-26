@@ -38,7 +38,10 @@ impl OutputFilesContext {
 
     pub fn clear(&mut self) {
         if let Err(e) = self.tx.send(WriteFilesMessage::ClearHandles) {
-            warn!("Failed to send ClearHandles message to Files handler thread: {}", e);
+            warn!(
+                "Failed to send ClearHandles message to Files handler thread: {}",
+                e
+            );
         }
     }
 
@@ -187,7 +190,7 @@ fn run(rx: Receiver<WriteFilesMessage>) {
 }
 
 struct PathValues {
-    metadata: Arc<EventMetadata>
+    metadata: Arc<EventMetadata>,
 }
 
 impl PathValues {
@@ -222,14 +225,16 @@ impl PathValues {
                     index
                 };
 
-                
                 let ip_str = ipv4.to_string();
                 self.split(&ip_str, ip_str.capacity(), index, '.')
             }
             IpAddr::V6(ipv6) => {
                 // Sanitize index
                 let index = if index < 1 {
-                    warn!("File configuration split_on_addr_index can not be inferior as 1: found {}", index);
+                    warn!(
+                        "File configuration split_on_addr_index can not be inferior as 1: found {}",
+                        index
+                    );
                     1
                 } else if index > 8 {
                     warn!("File configuration split_on_addr_index can not be superior as 8 for IPv6: found {}", index);
@@ -242,9 +247,7 @@ impl PathValues {
                 self.split(&ip_str, ip_str.capacity(), index, ':')
             }
         }
-            
     }
-
 }
 
 impl leon::Values for PathValues {
@@ -273,7 +276,6 @@ impl leon::Values for PathValues {
         }
     }
 }
- 
 
 pub struct OutputFiles {
     config: FilesConfiguration,
@@ -295,11 +297,10 @@ impl OutputFiles {
         })
     }
 
-    fn build_path(
-        &self,
-        metadata: &Arc<EventMetadata>
-    ) -> Result<PathBuf> {
-        let values = PathValues { metadata: metadata.clone() };
+    fn build_path(&self, metadata: &Arc<EventMetadata>) -> Result<PathBuf> {
+        let values = PathValues {
+            metadata: metadata.clone(),
+        };
         // It would be cool to parse the template only once
         // However, Template::parse takes a reference to a str and has the same
         // lifetime than the str. I don't know how to store that...
@@ -380,14 +381,21 @@ fn sanitize_name(name: &str) -> String {
 mod tests {
     use std::net::{IpAddr, SocketAddr};
 
-    use common::{settings, subscription::{SubscriptionData, SubscriptionUuid}};
+    use common::{
+        settings,
+        subscription::{SubscriptionData, SubscriptionUuid},
+    };
     use uuid::Uuid;
 
     use crate::{output::OutputDriversContext, subscription::Subscription};
 
     use super::*;
 
-    fn create_event_metadata(addr: IpAddr, principal: &str, node_name: Option<String>) -> Arc<EventMetadata> {
+    fn create_event_metadata(
+        addr: IpAddr,
+        principal: &str,
+        node_name: Option<String>,
+    ) -> Arc<EventMetadata> {
         let addr = SocketAddr::new(addr, 8080);
         let mut output_context = OutputDriversContext::new(&settings::Outputs::default());
         let mut subscription_data = SubscriptionData::new("Test", "");
@@ -398,8 +406,15 @@ mod tests {
             .set_uri(Some("/this/is/a/test".to_string()))
             .set_revision(Some("babar".to_string()));
         let subscription = Subscription::from_data(subscription_data, &mut output_context).unwrap();
-        
-        Arc::new(EventMetadata::new(&addr, principal, node_name, &subscription, subscription.public_version_string(), None))
+
+        Arc::new(EventMetadata::new(
+            &addr,
+            principal,
+            node_name,
+            &subscription,
+            subscription.public_version_string(),
+            None,
+        ))
     }
 
     #[test]
@@ -422,15 +437,13 @@ mod tests {
 
     #[tokio::test]
     async fn test_build_path() -> Result<()> {
-        let config =
-            FilesConfiguration::new("/base/{ip}/{principal}/messages".to_string());
-        
+        let config = FilesConfiguration::new("/base/{ip}/{principal}/messages".to_string());
+
         let ip: IpAddr = "127.0.0.1".parse()?;
         let principal = "princ";
         let node = Some("node".to_string());
         let event_metadata_without_node = create_event_metadata(ip, principal, None);
         let event_metadata_with_node = create_event_metadata(ip, principal, node);
-
 
         let context = Some(OutputFilesContext::new());
 
@@ -441,8 +454,7 @@ mod tests {
             PathBuf::from_str("/base/127.0.0.1/princ/messages")?
         );
 
-        let config =
-            FilesConfiguration::new("/base/{ip}/{node}/messages".to_string());
+        let config = FilesConfiguration::new("/base/{ip}/{node}/messages".to_string());
         let output_file = OutputFiles::new(&config, &context)?;
 
         assert_eq!(
@@ -468,8 +480,7 @@ mod tests {
             PathBuf::from_str("/base/127.0/127.0.0/127.0.0.1/princ/other")?
         );
 
-        let config =
-            FilesConfiguration::new("/base/{ip:3}/{ip}/messages".to_string());
+        let config = FilesConfiguration::new("/base/{ip:3}/{ip}/messages".to_string());
         let output_file = OutputFiles::new(&config, &context)?;
 
         assert_eq!(
@@ -477,8 +488,7 @@ mod tests {
             PathBuf::from_str("/base/127.0.0/127.0.0.1/messages")?
         );
 
-        let config =
-            FilesConfiguration::new("/base/{ip:4}/{principal}/messages".to_string());
+        let config = FilesConfiguration::new("/base/{ip:4}/{principal}/messages".to_string());
         let output_file = OutputFiles::new(&config, &context)?;
 
         assert_eq!(
@@ -486,8 +496,7 @@ mod tests {
             PathBuf::from_str("/base/127.0.0.1/princ/messages")?
         );
 
-        let config =
-            FilesConfiguration::new("/base/{ip:5}/messages".to_string());
+        let config = FilesConfiguration::new("/base/{ip:5}/messages".to_string());
         let output_file = OutputFiles::new(&config, &context)?;
 
         assert_eq!(
@@ -495,8 +504,7 @@ mod tests {
             PathBuf::from_str("/base/127.0.0.1/messages")?
         );
 
-        let config =
-            FilesConfiguration::new("/base/{node}/messages".to_string());
+        let config = FilesConfiguration::new("/base/{node}/messages".to_string());
         let output_file = OutputFiles::new(&config, &context)?;
 
         assert_eq!(
@@ -506,24 +514,22 @@ mod tests {
 
         let ip: IpAddr = "1:2:3:4:5:6:7:8".parse()?;
         let event_metadata_without_node = create_event_metadata(ip, principal, None);
-        let config =
-            FilesConfiguration::new("/base/{ip}/messages".to_string());
+        let config = FilesConfiguration::new("/base/{ip}/messages".to_string());
         let output_file = OutputFiles::new(&config, &context)?;
         assert_eq!(
             output_file.build_path(&event_metadata_without_node)?,
             PathBuf::from_str("/base/1:2:3:4:5:6:7:8/messages")?
         );
 
-        let config =
-            FilesConfiguration::new("/base/{ip:3}/{ip:6}/{ip:8}/messages".to_string());
+        let config = FilesConfiguration::new("/base/{ip:3}/{ip:6}/{ip:8}/messages".to_string());
         let output_file = OutputFiles::new(&config, &context)?;
         assert_eq!(
             output_file.build_path(&event_metadata_without_node)?,
-            PathBuf::from_str("/base/1:2:3/1:2:3:4:5:6/1:2:3:4:5:6:7:8/messages")?);
+            PathBuf::from_str("/base/1:2:3/1:2:3:4:5:6/1:2:3:4:5:6:7:8/messages")?
+        );
 
         let event_metadata_without_node = create_event_metadata(ip, "COMPUTER$@REALM", None);
-        let config =
-            FilesConfiguration::new("/base/{principal}/messages".to_string());
+        let config = FilesConfiguration::new("/base/{principal}/messages".to_string());
         let output_file = OutputFiles::new(&config, &context)?;
         assert_eq!(
             output_file.build_path(&event_metadata_without_node)?,

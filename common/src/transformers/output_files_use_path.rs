@@ -164,7 +164,7 @@ pub mod new {
     use serde::{Deserialize, Serialize};
     use strum::AsRefStr;
 
-    use super::{transform_files_config_to_path, old};
+    use super::{old, transform_files_config_to_path};
 
     #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
     pub struct FilesConfiguration {
@@ -243,27 +243,52 @@ mod tests {
     #[test]
     fn test_transform_files_config_to_path() -> Result<()> {
         assert_eq!(
-            transform_files_config_to_path(&Some("/base/openwec".to_string()), &None, &None, &None)?,
+            transform_files_config_to_path(
+                &Some("/base/openwec".to_string()),
+                &None,
+                &None,
+                &None
+            )?,
             "/base/openwec/{ip}/{principal}/messages".to_string()
         );
 
         assert_eq!(
-            transform_files_config_to_path(&Some("/base/openwec".to_string()), &Some(1), &None, &None)?,
+            transform_files_config_to_path(
+                &Some("/base/openwec".to_string()),
+                &Some(1),
+                &None,
+                &None
+            )?,
             "/base/openwec/{ip:1}/{ip:2}/{ip:3}/{ip}/{principal}/messages".to_string()
         );
 
         assert_eq!(
-            transform_files_config_to_path(&Some("/base/openwec".to_string()), &Some(2), &None, &None)?,
+            transform_files_config_to_path(
+                &Some("/base/openwec".to_string()),
+                &Some(2),
+                &None,
+                &None
+            )?,
             "/base/openwec/{ip:2}/{ip:3}/{ip}/{principal}/messages".to_string()
         );
 
         assert_eq!(
-            transform_files_config_to_path(&Some("/base/openwec".to_string()), &Some(3), &None, &None)?,
+            transform_files_config_to_path(
+                &Some("/base/openwec".to_string()),
+                &Some(3),
+                &None,
+                &None
+            )?,
             "/base/openwec/{ip:3}/{ip}/{principal}/messages".to_string()
         );
 
         assert_eq!(
-            transform_files_config_to_path(&Some("/base/openwec".to_string()), &Some(4), &None, &None)?,
+            transform_files_config_to_path(
+                &Some("/base/openwec".to_string()),
+                &Some(4),
+                &None,
+                &None
+            )?,
             "/base/openwec/{ip}/{principal}/messages".to_string()
         );
 

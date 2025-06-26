@@ -1134,7 +1134,8 @@ pub async fn run(settings: Settings, verbosity: u8) {
     let subscriptions = Arc::new(RwLock::new(HashMap::new()));
 
     if let Some(monitoring_settings) = settings.monitoring() {
-        monitoring::init(&db, subscriptions.clone(), monitoring_settings).expect("Failed to initialize metrics exporter");
+        monitoring::init(&db, subscriptions.clone(), monitoring_settings)
+            .expect("Failed to initialize metrics exporter");
     }
 
     let reload_interval = settings.server().db_sync_interval();

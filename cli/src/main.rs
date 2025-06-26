@@ -4,8 +4,7 @@ use std::env;
 
 use clap::{arg, command, value_parser, Arg, ArgAction, ArgGroup, Command};
 use common::{
-    database::schema::Version,
-    settings::DEFAULT_CONFIG_FILE,
+    database::schema::Version, settings::DEFAULT_CONFIG_FILE,
     subscription::SubscriptionOutputFormat,
 };
 use strum::VariantNames;

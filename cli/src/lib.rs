@@ -7,13 +7,13 @@ use clap::ArgMatches;
 use anyhow::{anyhow, bail, Context, Result};
 
 mod bookmarks;
+mod config;
 mod db;
 mod heartbeats;
+mod skell;
 mod stats;
 mod subscriptions;
 mod utils;
-mod config;
-mod skell;
 
 pub async fn run(matches: ArgMatches, help_str: StyledStr) -> Result<()> {
     let settings = Settings::new(matches.get_one::<String>("config"))
