@@ -3,10 +3,7 @@ use async_trait::async_trait;
 use common::subscription::RedisConfiguration;
 use log::debug;
 
-use crate::{
-    event::EventMetadata,
-    output::OutputDriver,
-};
+use crate::{event::EventMetadata, output::OutputDriver};
 use futures_util::stream::FuturesUnordered;
 use futures_util::StreamExt;
 use std::sync::Arc;

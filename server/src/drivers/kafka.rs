@@ -10,13 +10,10 @@ use rdkafka::{
 };
 use std::{sync::Arc, time::Duration};
 
-use crate::{
-    event::EventMetadata,
-    output::OutputDriver,
-};
+use crate::{event::EventMetadata, output::OutputDriver};
 
 pub struct OutputKafkaContext {
-    producer: FutureProducer
+    producer: FutureProducer,
 }
 
 impl OutputKafkaContext {
@@ -33,9 +30,12 @@ impl OutputKafkaContext {
             bail!("'bootstrap.servers' option must be configured for Kafka outputs to work")
         }
 
-        debug!("Initialize kafka context with options {:?}", settings.options());
+        debug!(
+            "Initialize kafka context with options {:?}",
+            settings.options()
+        );
         Ok(Self {
-            producer: client_config.create()?
+            producer: client_config.create()?,
         })
     }
 }
@@ -66,7 +66,10 @@ impl OutputKafka {
             if client_config.get("bootstrap.servers").is_none() {
                 bail!("'bootstrap.servers' option must be configured for Kafka outputs to work")
             }
-            debug!("Initialize kafka output with a standalone producer and config {:?}", config);
+            debug!(
+                "Initialize kafka output with a standalone producer and config {:?}",
+                config
+            );
             client_config.create()?
         };
         Ok(OutputKafka {

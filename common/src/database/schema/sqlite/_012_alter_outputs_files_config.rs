@@ -19,7 +19,8 @@ impl SQLiteMigration for AlterOutputsFilesConfig {
         while let Some(row) = rows.next()? {
             let uuid: String = row.get(0)?;
             let outputs_str: String = row.get(1)?;
-            let outputs: Vec<output_files_use_path::old::SubscriptionOutput> = serde_json::from_str(&outputs_str)?;
+            let outputs: Vec<output_files_use_path::old::SubscriptionOutput> =
+                serde_json::from_str(&outputs_str)?;
             let new_outputs: Vec<output_files_use_path::new::SubscriptionOutput> =
                 outputs.iter().map(|elt| elt.clone().into()).collect();
             let new_outputs_str = serde_json::to_string(&new_outputs)?;
@@ -46,7 +47,8 @@ impl SQLiteMigration for AlterOutputsFilesConfig {
         while let Some(row) = rows.next()? {
             let uuid: String = row.get(0)?;
             let outputs_str: String = row.get(1)?;
-            let outputs: Vec<output_files_use_path::new::SubscriptionOutput> = serde_json::from_str(&outputs_str)?;
+            let outputs: Vec<output_files_use_path::new::SubscriptionOutput> =
+                serde_json::from_str(&outputs_str)?;
             let new_outputs: Vec<output_files_use_path::old::SubscriptionOutput> =
                 outputs.iter().map(|elt| elt.clone().into()).collect();
             let new_outputs_str = serde_json::to_string(&new_outputs)?;

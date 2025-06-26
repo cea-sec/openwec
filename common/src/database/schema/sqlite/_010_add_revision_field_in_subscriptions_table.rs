@@ -13,11 +13,8 @@ migration!(
 
 impl SQLiteMigration for AddRevisionFieldInSubscriptionsTable {
     fn up(&self, conn: &Connection) -> Result<()> {
-        conn.execute(
-            "ALTER TABLE subscriptions ADD COLUMN revision TEXT",
-            [],
-        )
-        .map_err(|err| anyhow!("SQLiteError: {}", err))?;
+        conn.execute("ALTER TABLE subscriptions ADD COLUMN revision TEXT", [])
+            .map_err(|err| anyhow!("SQLiteError: {}", err))?;
         Ok(())
     }
 

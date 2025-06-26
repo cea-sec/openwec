@@ -50,6 +50,8 @@ jobs:
         pkgconf ;
     - name: Clippy
       run: rustup component add clippy && cargo clippy -- -Dwarnings
+    - name: Rustfmt
+      run: rustup component add rustfmt && cargo fmt --check
     - name: Run tests
       run: |
         # Env var to connect to the Postgres service

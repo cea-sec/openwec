@@ -341,8 +341,8 @@ async fn edit(db: &Db, matches: &ArgMatches) -> Result<()> {
             ContentFormat::from_str(content_format).context("Parse content-format argument")?;
         debug!(
             "Update content_format from {} to {}",
-            subscription.content_format().to_string(),
-            content_format_t.to_string()
+            subscription.content_format(),
+            content_format_t
         );
         subscription.set_content_format(content_format_t);
     }
@@ -740,14 +740,7 @@ fn outputs_add_tcp(matches: &ArgMatches) -> Result<TcpConfiguration> {
         .ok_or_else(|| anyhow!("Missing TCP port"))?;
 
     info!("Adding TCP output: {}:{}", addr, port);
-    TcpConfiguration::new(
-        addr.clone(),
-        *port,
-        false,
-        Vec::new(),
-        None,
-        None,
-    )
+    TcpConfiguration::new(addr.clone(), *port, false, Vec::new(), None, None)
 }
 
 fn outputs_add_redis(matches: &ArgMatches) -> Result<RedisConfiguration> {
@@ -970,7 +963,9 @@ async fn load(db: &Db, matches: &ArgMatches) -> Result<()> {
         .ok_or_else(|| anyhow!("Missing argument path"))?;
     let keep = matches.get_one::<bool>("keep").expect("Defaulted by clap");
     let yes = matches.get_one::<bool>("yes").expect("Defaulted by clap");
-    let allow_empty = matches.get_one::<bool>("allow-empty").expect("Defaulted by clap");
+    let allow_empty = matches
+        .get_one::<bool>("allow-empty")
+        .expect("Defaulted by clap");
     let revision = matches.get_one::<String>("revision");
 
     let path_obj = Path::new(path);

@@ -30,18 +30,19 @@ use async_trait::async_trait;
 use deadpool_sqlite::{Config, Pool, Runtime};
 use log::warn;
 use rusqlite::{named_params, params, Connection, OptionalExtension, Row};
-use uuid::Uuid;
 use std::collections::btree_map::Entry::Vacant;
 use std::collections::{BTreeMap, BTreeSet};
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::SystemTime;
+use uuid::Uuid;
 
 use crate::bookmark::BookmarkData;
 use crate::database::Database;
 use crate::heartbeat::{HeartbeatData, HeartbeatsCache};
 use crate::subscription::{
-    ContentFormat, InternalVersion, PrincsFilter, SubscriptionData, SubscriptionMachine, SubscriptionMachineState, SubscriptionStatsCounters, SubscriptionUuid
+    ContentFormat, InternalVersion, PrincsFilter, SubscriptionData, SubscriptionMachine,
+    SubscriptionMachineState, SubscriptionStatsCounters, SubscriptionUuid,
 };
 
 use super::schema::{Migration, MigrationBase, Version};
@@ -68,12 +69,10 @@ pub struct SQLiteDatabase {
 fn optional<T>(res: Result<T>) -> Result<Option<T>> {
     match res {
         Ok(value) => Ok(Some(value)),
-        Err(e) => {
-            match e.downcast_ref::<rusqlite::Error>() {
-                Some(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
-                _ => Err(e),
-            }
-        }
+        Err(e) => match e.downcast_ref::<rusqlite::Error>() {
+            Some(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            _ => Err(e),
+        },
     }
 }
 
@@ -121,9 +120,12 @@ impl SQLiteDatabase {
                             AND subscription = :subscription"#,
                             field
                         )
-                        .as_str()
+                        .as_str(),
                     )?;
-                    let rows = statement.query_and_then(&[(":field_value", &field_value), (":subscription", &value)], row_to_heartbeat)?;
+                    let rows = statement.query_and_then(
+                        &[(":field_value", &field_value), (":subscription", &value)],
+                        row_to_heartbeat,
+                    )?;
 
                     let mut heartbeats = Vec::new();
                     for heartbeat in rows {
@@ -139,9 +141,10 @@ impl SQLiteDatabase {
                             WHERE {} = :field_value"#,
                             field
                         )
-                        .as_str()
+                        .as_str(),
                     )?;
-                    let rows = statement.query_and_then(&[(":field_value", &field_value)], row_to_heartbeat)?;
+                    let rows = statement
+                        .query_and_then(&[(":field_value", &field_value)], row_to_heartbeat)?;
                     let mut heartbeats = Vec::new();
                     for heartbeat in rows {
                         heartbeats.push(heartbeat?);
@@ -156,7 +159,8 @@ impl SQLiteDatabase {
 
 fn row_to_subscription(row: &Row) -> Result<SubscriptionData> {
     let outputs_str: String = row.get("outputs")?;
-    let outputs = serde_json::from_str(&outputs_str).context("Failed to parse subscription output")?;
+    let outputs =
+        serde_json::from_str(&outputs_str).context("Failed to parse subscription output")?;
 
     // row.get can not convert into &str, so we retrieve String(s) first
     let name: String = row.get("name")?;
@@ -164,11 +168,16 @@ fn row_to_subscription(row: &Row) -> Result<SubscriptionData> {
     let version: String = row.get("version")?;
     let query: String = row.get("query")?;
 
-    let content_format = ContentFormat::from_str(row.get::<&str, String>("content_format")?.as_ref())?;
-    let princs_filter = PrincsFilter::from(row.get("princs_filter_op")?, row.get("princs_filter_value")?)?;
+    let content_format =
+        ContentFormat::from_str(row.get::<&str, String>("content_format")?.as_ref())?;
+    let princs_filter = PrincsFilter::from(
+        row.get("princs_filter_op")?,
+        row.get("princs_filter_value")?,
+    )?;
 
-    let mut subscription= SubscriptionData::new(&name, &query);
-    subscription.set_uuid(SubscriptionUuid(Uuid::parse_str(&uuid)?))
+    let mut subscription = SubscriptionData::new(&name, &query);
+    subscription
+        .set_uuid(SubscriptionUuid(Uuid::parse_str(&uuid)?))
         .set_uri(row.get("uri")?)
         .set_revision(row.get("revision")?)
         .set_heartbeat_interval(row.get("heartbeat_interval")?)
@@ -242,13 +251,14 @@ impl Database for SQLiteDatabase {
                     r#"SELECT machine, bookmark FROM bookmarks
                                 WHERE subscription = :subscription"#,
                 )?;
-                let rows = statement.query_map(&[
-                        (":subscription", &subscription_owned),
-                    ], |row| Ok(BookmarkData {
-                        machine: row.get(0)?,
-                        bookmark: row.get(1)?,
-                        subscription: subscription_owned.clone(),
-                    }))?;
+                let rows =
+                    statement.query_map(&[(":subscription", &subscription_owned)], |row| {
+                        Ok(BookmarkData {
+                            machine: row.get(0)?,
+                            bookmark: row.get(1)?,
+                            subscription: subscription_owned.clone(),
+                        })
+                    })?;
 
                 let mut bookmarks = Vec::new();
                 for bookmark in rows {
@@ -303,31 +313,42 @@ impl Database for SQLiteDatabase {
             (Some(machine), Some(subscription)) => {
                 let machine = machine.to_owned();
                 let subscription = subscription.to_owned();
-                client.interact(move |conn| {
-                    conn.execute("DELETE FROM bookmarks WHERE machine = ?1 AND subscription = ?2", params![machine, subscription])
-                }).await
+                client
+                    .interact(move |conn| {
+                        conn.execute(
+                            "DELETE FROM bookmarks WHERE machine = ?1 AND subscription = ?2",
+                            params![machine, subscription],
+                        )
+                    })
+                    .await
             }
             (Some(machine), None) => {
                 let machine = machine.to_owned();
-                client.interact(move |conn| {
-                    conn.execute("DELETE FROM bookmarks WHERE machine = ?1", params![machine])
-                }).await
+                client
+                    .interact(move |conn| {
+                        conn.execute("DELETE FROM bookmarks WHERE machine = ?1", params![machine])
+                    })
+                    .await
             }
             (None, Some(subscription)) => {
                 let subscription = subscription.to_owned();
-                client.interact(move |conn| {
-                    conn.execute("DELETE FROM bookmarks WHERE subscription = ?1", params![subscription])
-                }).await
-            },
+                client
+                    .interact(move |conn| {
+                        conn.execute(
+                            "DELETE FROM bookmarks WHERE subscription = ?1",
+                            params![subscription],
+                        )
+                    })
+                    .await
+            }
             (None, None) => {
-                client.interact(move |conn| {
-                    conn.execute("DELETE FROM bookmarks", [])
-                }).await
+                client
+                    .interact(move |conn| conn.execute("DELETE FROM bookmarks", []))
+                    .await
             }
         };
         future.map_err(|err| anyhow!(format!("{}", err)))??;
         Ok(())
-
     }
 
     async fn get_heartbeats_by_machine(
@@ -530,15 +551,13 @@ impl Database for SQLiteDatabase {
             .get()
             .await?
             .interact(move |conn| {
-                optional(
-                    conn.query_row_and_then(
-                        r#"SELECT *
+                optional(conn.query_row_and_then(
+                    r#"SELECT *
                         FROM subscriptions
                         WHERE name = :identifier OR uuid = :identifier"#,
-                        &[(":identifier", &identifier)],
-                        row_to_subscription,
-                    )
-                )
+                    &[(":identifier", &identifier)],
+                    row_to_subscription,
+                ))
             })
             .await
             .map_err(|err| anyhow!(format!("{}", err)))?

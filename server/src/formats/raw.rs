@@ -18,7 +18,10 @@ mod tests {
     use std::{net::SocketAddr, str::FromStr, sync::Arc};
 
     use chrono::Utc;
-    use common::{settings, subscription::{SubscriptionData, SubscriptionUuid}};
+    use common::{
+        settings,
+        subscription::{SubscriptionData, SubscriptionUuid},
+    };
     use uuid::Uuid;
 
     use crate::{
@@ -78,7 +81,7 @@ Type 3 is a limited token with administrative privileges removed and administrat
             Some("openwec".to_owned()),
             &subscription,
             "188BB736-9441-5C66-188B-B73694415C66".to_string(),
-            Some("1234".to_string())
+            Some("1234".to_string()),
         );
         metadata.set_time_received(
             chrono::DateTime::parse_from_rfc3339("2022-12-14T17:07:03.331+01:00")

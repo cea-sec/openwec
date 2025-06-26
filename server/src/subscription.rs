@@ -99,8 +99,9 @@ pub async fn reload_subscriptions_task(
 ) {
     info!("reload_subscriptions task started");
     let mut reload = time::interval(Duration::from_secs(reload_interval));
-    let mut garbage_collect =
-        time::interval(Duration::from_secs(outputs_settings.garbage_collect_interval()));
+    let mut garbage_collect = time::interval(Duration::from_secs(
+        outputs_settings.garbage_collect_interval(),
+    ));
     let mut sighup = signal(SignalKind::hangup()).expect("Could not listen to SIGHUP");
 
     let mut context = OutputDriversContext::new(&outputs_settings);
@@ -145,7 +146,9 @@ async fn reload_subscriptions(
     let db_subscriptions = db.get_subscriptions().await?;
 
     // Make sure that the context is initialized for every active output drivers
-    context.initialize_missing(&db_subscriptions).context("Failed to initialize output drivers context")?;
+    context
+        .initialize_missing(&db_subscriptions)
+        .context("Failed to initialize output drivers context")?;
 
     let mut active_subscriptions: HashSet<InternalVersion> =
         HashSet::with_capacity(db_subscriptions.len());
