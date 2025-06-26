@@ -44,6 +44,7 @@ jobs:
         apt-get install -y --no-install-recommends \
         libkrb5-dev \
         libssl-dev \
+        libsasl2-dev \
         make \
         clang \
         pkgconf ;

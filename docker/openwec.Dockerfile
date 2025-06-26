@@ -13,6 +13,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     clang \
     libssl-dev \
     libkrb5-dev  \
+    libsasl2-dev \
     make \
     pkgconf
 
