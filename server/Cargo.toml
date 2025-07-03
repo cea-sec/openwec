@@ -22,7 +22,7 @@ log = "0.4.19"
 mime = "0.3.17"
 quick-xml = "0.36.0"
 roxmltree = "0.20.0"
-tokio = { version = "1.41.0", features = ["full"] }
+tokio = { version = "1.46.0", features = ["full"] }
 rdkafka = { version = "0.37.0", features = ["zstd", "libz", "external-lz4", "ssl", "gssapi"] }
 regex = "1.11.0"
 uuid = { version = "1.12.1", features = ["v4", "fast-rng"] }
