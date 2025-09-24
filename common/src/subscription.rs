@@ -47,6 +47,14 @@ impl KafkaConfiguration {
     pub fn options(&self) -> &HashMap<String, String> {
         &self.options
     }
+
+    /// Get the kafka configuration's topic split on commas.
+    pub fn topic_as_array(&self) -> Vec<String> {
+        self.topic.split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect()
+    }
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
