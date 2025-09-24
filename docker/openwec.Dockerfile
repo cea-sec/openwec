@@ -1,4 +1,4 @@
-FROM rust:slim-bookworm as chef 
+FROM rust:slim-bookworm AS chef 
 RUN cargo install cargo-chef 
 WORKDIR /SRC
 
@@ -12,6 +12,8 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
     clang \
     libssl-dev \
+    libsasl2-2 \
+    libsasl2-modules \
     libkrb5-dev  \
     libsasl2-dev \
     make \
@@ -37,6 +39,7 @@ ENV APP_USER=openwec
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libgssapi-krb5-2 \
+    libsasl2-2 \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd $APP_USER \
     && useradd -g $APP_USER $APP_USER \
