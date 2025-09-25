@@ -8,13 +8,7 @@ use rdkafka::{
     util::Timeout,
     ClientConfig,
 };
-use std::{
-    sync::{Arc, atomic::{
-        AtomicUsize,
-        Ordering,
-    }},
-    time::Duration,
-};
+use std::{sync::Arc, time::Duration};
 
 use crate::{event::EventMetadata, output::OutputDriver};
 
@@ -49,7 +43,6 @@ impl OutputKafkaContext {
 pub struct OutputKafka {
     config: KafkaConfiguration,
     producer: FutureProducer,
-    topic_index: AtomicUsize,
 }
 
 impl OutputKafka {
@@ -82,7 +75,6 @@ impl OutputKafka {
         Ok(OutputKafka {
             config: config.clone(),
             producer,
-            topic_index: AtomicUsize::new(0),
         })
     }
 }
@@ -95,7 +87,7 @@ impl OutputDriver for OutputKafka {
         events: Arc<Vec<Arc<String>>>,
     ) -> Result<()> {
         let topics_array = self.config.topic_as_array();
-        let mut l_topic_index = self.topic_index.load(Ordering::Relaxed);
+        let mut l_topic_index: usize = 0;
         let mut futures = Vec::new();
         for event in events.iter() {
             // Get current topic
@@ -107,7 +99,6 @@ impl OutputDriver for OutputKafka {
             ));
             l_topic_index = (l_topic_index + 1) % topics_array.len();
         }
-        self.topic_index.store(l_topic_index, Ordering::Relaxed);
 
         // Wait for all events to be sent and ack
         let results = join_all(futures).await;
