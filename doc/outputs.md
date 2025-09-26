@@ -73,7 +73,9 @@ $ openwec subscriptions edit <subscription> outputs add --format <format> files 
 
 The Kafka driver sends events in a Kafka topic.
 
-For a given subscription, all events will be sent in the configured Kafka topic. If there are multiple topics then topic can contain that list, delimited with commas. You may want to add additionnal options to the inner Kafka client, such as `bootstrap.servers`. This options will be directly given to `librdkafka` (available options are listed here: https://docs.confluent.io/platform/current/clients/librdkafka/html/md_CONFIGURATION.html).
+For a given subscription, all events will be sent in the configured Kafka topic. If multiple topics are provided, delimited by commas, then the events are evenly distributed across the listed topics.
+
+You may want to add additionnal options to the inner Kafka client, such as `bootstrap.servers`. This options will be directly given to `librdkafka` (available options are listed here: https://docs.confluent.io/platform/current/clients/librdkafka/html/md_CONFIGURATION.html).
 
 > [!TIP]
 > If multiple outputs use the Kafka driver and connect to the same Kafka cluster, it is recommended to configure the additional options in OpenWEC settings (`outputs.kafka.options`) **and** to omit the `options` parameter in Kafka output configuration. This way, only one Kafka client will be used by all the outputs, which is more resource efficient.
