@@ -41,8 +41,8 @@ impl OutputKafkaContext {
 }
 
 pub struct OutputKafka {
-    config: KafkaConfiguration,
     producer: FutureProducer,
+    topics: Vec<String>,
 }
 
 impl OutputKafka {
@@ -72,9 +72,15 @@ impl OutputKafka {
             );
             client_config.create()?
         };
+
         Ok(OutputKafka {
-            config: config.clone(),
             producer,
+            topics: config
+                .topic()
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect(),
         })
     }
 }
@@ -86,18 +92,17 @@ impl OutputDriver for OutputKafka {
         _metadata: Arc<EventMetadata>,
         events: Arc<Vec<Arc<String>>>,
     ) -> Result<()> {
-        let topics_array = self.config.topic_as_array();
         let mut l_topic_index: usize = 0;
         let mut futures = Vec::new();
         for event in events.iter() {
             // Get current topic
-            let topic = topics_array[l_topic_index].as_ref();
+            let topic = self.topics[l_topic_index].as_ref();
             // We need to explicitly assign the Key type as ()
             futures.push(self.producer.send::<(), _, _>(
                 FutureRecord::to(topic).payload(event.as_ref()),
                 Timeout::After(Duration::from_secs(30)),
             ));
-            l_topic_index = (l_topic_index + 1) % topics_array.len();
+            l_topic_index = (l_topic_index + 1) % self.topics.len();
         }
 
         // Wait for all events to be sent and ack
