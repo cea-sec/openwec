@@ -165,8 +165,8 @@ async fn reload_subscriptions(
     // mem_subscriptions is indexed on "public version"
     // To know whether something has changed, we must rely "on internal version"
     let mem_subscriptions_internal_version: HashSet<InternalVersion> = mem_subscriptions
-        .iter()
-        .map(|(_, subscription)| subscription.data().internal_version())
+        .values()
+        .map(|subscription| subscription.data().internal_version())
         .collect();
 
     for subscription_data in db_subscriptions {
@@ -258,8 +258,8 @@ async fn reload_subscriptions(
         debug!(
             "Active subscriptions are: {}",
             mem_subscriptions
-                .iter()
-                .map(|(_, subscription)| format!(
+                .values()
+                .map(|subscription| format!(
                     "\"{}\" (uuid:{}, internal_version:{}, public_version:{})",
                     subscription.data.name(),
                     subscription.data.uuid(),
