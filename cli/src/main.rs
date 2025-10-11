@@ -139,35 +139,6 @@ async fn main() {
                             .arg(arg!(<index> "Index of the output to disable").value_parser(value_parser!(usize)))
                         )
                     )
-                    .subcommand(
-                        Command::new("filter")
-                        .about("Manage the principals filter of a subscription.")
-                        .subcommand(
-                            Command::new("set")
-                            .about("Set the principals filter.")
-                            .arg(arg!(<operation> "Possible operations are: 'none' (don't filter), 'only' (only apply this subscription to the given principals), 'except' (apply this subcription to everyone except the given principals).").value_parser(["none", "only", "except"]).required(true))
-                            .arg(arg!(<principals> ... "Principals to filter. The comparison of principal names is case-sensitive.").action(ArgAction::Append).required(false))
-                        )
-                        .subcommand(
-                            Command::new("princs")
-                            .about("Manage the principals of the filter.")
-                            .subcommand(
-                                Command::new("add")
-                                .about("Add a principal (case-sensitive)")
-                                .arg(arg!(<principal> "Principal to add. The comparison of principal names is case-sensitive."))
-                            )
-                            .subcommand(
-                                Command::new("delete")
-                                .about("Delete a principal (case-sensitive)")
-                                .arg(arg!(<principal> "Principal to delete. The comparison of principal names is case-sensitive."))
-                            )
-                            .subcommand(
-                                Command::new("set")
-                                .about("Set the principals (case-sensitive)")
-                                .arg(arg!(<principals> ... "Principals to filter. The comparison of principal names is case-sensitive.").action(ArgAction::Append).required(true))
-                            )
-                        )
-                    )
                     .arg(arg!(-q --query <QUERY> "File containing the query (XML format)"))
                     .arg(arg!(-r --rename <NAME> "Rename the subscription"))
                     .arg(
