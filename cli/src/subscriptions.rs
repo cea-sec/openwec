@@ -3,10 +3,9 @@ use common::{
     encoding::decode_utf16le,
     settings::Settings,
     subscription::{
-        ContentFormat, FilesConfiguration, KafkaConfiguration,
-        RedisConfiguration, SubscriptionData, SubscriptionMachineState, SubscriptionOutput,
-        SubscriptionOutputDriver, SubscriptionOutputFormat, TcpConfiguration,
-        UnixDatagramConfiguration,
+        ContentFormat, FilesConfiguration, KafkaConfiguration, RedisConfiguration,
+        SubscriptionData, SubscriptionMachineState, SubscriptionOutput, SubscriptionOutputDriver,
+        SubscriptionOutputFormat, TcpConfiguration, UnixDatagramConfiguration,
     },
 };
 use roxmltree::{Document, Node};

@@ -31,7 +31,7 @@ use crate::bookmark::BookmarkData;
 use crate::heartbeat::{HeartbeatKey, HeartbeatsCache};
 use crate::settings::PostgresSslMode;
 use crate::subscription::{
-    ContentFormat, InternalVersion, ClientFilter, SubscriptionMachine, SubscriptionMachineState,
+    ClientFilter, ContentFormat, InternalVersion, SubscriptionMachine, SubscriptionMachineState,
     SubscriptionStatsCounters, SubscriptionUuid,
 };
 use crate::{
@@ -216,15 +216,17 @@ fn row_to_subscription(row: &Row) -> Result<SubscriptionData> {
     let client_filter_op: Option<String> = row.try_get("client_filter_op")?;
 
     let client_filter = match client_filter_op {
-        Some(op) =>  {
+        Some(op) => {
             let client_filter_kind: Option<String> = row.try_get("client_filter_kind")?;
             let client_filter_flags: Option<i32> = row.try_get("client_filter_flags")?;
-            Some(
-                ClientFilter::from(op, client_filter_kind.unwrap(),
-                client_filter_flags.map(|c| c.try_into()).transpose()?, row.try_get("client_filter_targets")?)?
-            )
-        },
-        None => None
+            Some(ClientFilter::from(
+                op,
+                client_filter_kind.unwrap(),
+                client_filter_flags.map(|c| c.try_into()).transpose()?,
+                row.try_get("client_filter_targets")?,
+            )?)
+        }
+        None => None,
     };
 
     let mut subscription = SubscriptionData::new(row.try_get("name")?, row.try_get("query")?);
@@ -634,10 +636,17 @@ impl Database for PostgresDatabase {
         };
 
         let max_envelope_size: i32 = subscription.max_envelope_size().try_into()?;
-        let client_filter_op: Option<String> = subscription.client_filter().map(|f| f.operation().to_string());
+        let client_filter_op: Option<String> = subscription
+            .client_filter()
+            .map(|f| f.operation().to_string());
         let client_filter_kind = subscription.client_filter().map(|f| f.kind().to_string());
-        let client_filter_flags: Option<i32> = subscription.client_filter().map(|f| f.flags().bits().try_into()).transpose()?;
-        let client_filter_targets = subscription.client_filter().and_then(|f| f.targets_to_opt_string());
+        let client_filter_flags: Option<i32> = subscription
+            .client_filter()
+            .map(|f| f.flags().bits().try_into())
+            .transpose()?;
+        let client_filter_targets = subscription
+            .client_filter()
+            .and_then(|f| f.targets_to_opt_string());
 
         let count = self
             .pool

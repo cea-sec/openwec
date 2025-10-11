@@ -1,11 +1,11 @@
 use std::collections::{HashMap, HashSet};
 
 use anyhow::{bail, Context, Result};
-use serde::{Deserialize, Serialize};
-use uuid::Uuid;
-use strum::{Display, AsRefStr, EnumString};
 use bitflags::bitflags;
+use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
+use strum::{AsRefStr, Display, EnumString};
+use uuid::Uuid;
 
 use crate::{
     subscription::{SubscriptionData, DEFAULT_OUTPUT_ENABLED},
@@ -217,7 +217,9 @@ impl From<ClientFilterOperation> for crate::subscription::ClientFilterOperation 
     }
 }
 
-#[derive(Default, Debug, Clone, Eq, PartialEq, Serialize, Deserialize, Display, AsRefStr, EnumString)]
+#[derive(
+    Default, Debug, Clone, Eq, PartialEq, Serialize, Deserialize, Display, AsRefStr, EnumString,
+)]
 #[strum(ascii_case_insensitive)]
 pub enum ClientFilterType {
     #[default]
@@ -230,7 +232,9 @@ impl From<ClientFilterType> for crate::subscription::ClientFilterType {
     fn from(value: ClientFilterType) -> Self {
         match value {
             ClientFilterType::KerberosPrinc => crate::subscription::ClientFilterType::KerberosPrinc,
-            ClientFilterType::TLSCertSubject => crate::subscription::ClientFilterType::TLSCertSubject,
+            ClientFilterType::TLSCertSubject => {
+                crate::subscription::ClientFilterType::TLSCertSubject
+            }
             ClientFilterType::MachineID => crate::subscription::ClientFilterType::MachineID,
         }
     }
@@ -278,7 +282,12 @@ impl TryFrom<ClientFilter> for crate::subscription::ClientFilter {
     type Error = anyhow::Error;
 
     fn try_from(value: ClientFilter) -> std::prelude::v1::Result<Self, Self::Error> {
-        crate::subscription::ClientFilter::try_new(value.operation.into(), value.kind.into(), value.flags.into(), value.targets)
+        crate::subscription::ClientFilter::try_new(
+            value.operation.into(),
+            value.kind.into(),
+            value.flags.into(),
+            value.targets,
+        )
     }
 }
 
@@ -689,7 +698,12 @@ path = "/whatever/you/{ip}/want/{principal}/{ip:2}/{node}/end"
         targets.insert("tutu@windomain.local".to_string());
         let kind = crate::subscription::ClientFilterType::KerberosPrinc;
         let flags = crate::subscription::ClientFilterFlags::empty();
-        let filter = crate::subscription::ClientFilter::try_new(crate::subscription::ClientFilterOperation::Only, kind, flags, targets)?;
+        let filter = crate::subscription::ClientFilter::try_new(
+            crate::subscription::ClientFilterOperation::Only,
+            kind,
+            flags,
+            targets,
+        )?;
 
         expected.set_client_filter(Some(filter));
 
@@ -976,23 +990,22 @@ targets = ["radis*@REALM"]
             "28fcc206-1336-4e4a-b76b-18b0ab46e585",
         )?));
 
-        let outputs = vec![
-            crate::subscription::SubscriptionOutput::new(
-                crate::subscription::SubscriptionOutputFormat::Raw,
-                crate::subscription::SubscriptionOutputDriver::Files(
-                    crate::subscription::FilesConfiguration::new(
-                        "/data/logs/{ip}/{principal}/messages".to_string(),
-                    ),
+        let outputs = vec![crate::subscription::SubscriptionOutput::new(
+            crate::subscription::SubscriptionOutputFormat::Raw,
+            crate::subscription::SubscriptionOutputDriver::Files(
+                crate::subscription::FilesConfiguration::new(
+                    "/data/logs/{ip}/{principal}/messages".to_string(),
                 ),
-                true,
             ),
-        ];
+            true,
+        )];
 
         expected.set_outputs(outputs);
 
         let operation = crate::subscription::ClientFilterOperation::Only;
         let kind = crate::subscription::ClientFilterType::KerberosPrinc;
-        let flags = crate::subscription::ClientFilterFlags::GlobPattern | crate::subscription::ClientFilterFlags::CaseInsensitive;
+        let flags = crate::subscription::ClientFilterFlags::GlobPattern
+            | crate::subscription::ClientFilterFlags::CaseInsensitive;
 
         let mut targets = HashSet::new();
         targets.insert("radis*@REALM".to_string());

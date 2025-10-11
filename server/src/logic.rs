@@ -309,7 +309,10 @@ async fn handle_heartbeat(
     };
 
     let machine_id = message.header().machine_id().map(|m| m.as_str());
-    if !subscription.data().is_active_for(request_data.principal(), machine_id) {
+    if !subscription
+        .data()
+        .is_active_for(request_data.principal(), machine_id)
+    {
         debug!(
             "Received Heartbeat from {}:{} ({}, {}) for subscription {} ({}) but the client is not allowed to use the subscription.",
             request_data.remote_addr().ip(),
@@ -441,7 +444,10 @@ async fn handle_events(
         };
 
         let machine_id = message.header().machine_id().map(|m| m.as_str());
-        if !subscription.data().is_active_for(request_data.principal(), machine_id) {
+        if !subscription
+            .data()
+            .is_active_for(request_data.principal(), machine_id)
+        {
             debug!(
                 "Received Events from {}:{} ({}, {}) for subscription {} ({}) but the client is not allowed to use this subscription.",
                 request_data.remote_addr().ip(),

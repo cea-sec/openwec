@@ -41,7 +41,8 @@ use crate::bookmark::BookmarkData;
 use crate::database::Database;
 use crate::heartbeat::{HeartbeatData, HeartbeatsCache};
 use crate::subscription::{
-    ContentFormat, InternalVersion, ClientFilter, SubscriptionData, SubscriptionMachine, SubscriptionMachineState, SubscriptionStatsCounters, SubscriptionUuid
+    ClientFilter, ContentFormat, InternalVersion, SubscriptionData, SubscriptionMachine,
+    SubscriptionMachineState, SubscriptionStatsCounters, SubscriptionUuid,
 };
 
 use super::schema::{Migration, MigrationBase, Version};
@@ -167,16 +168,22 @@ fn row_to_subscription(row: &Row) -> Result<SubscriptionData> {
     let version: String = row.get("version")?;
     let query: String = row.get("query")?;
 
-    let content_format = ContentFormat::from_str(row.get::<&str, String>("content_format")?.as_ref())?;
+    let content_format =
+        ContentFormat::from_str(row.get::<&str, String>("content_format")?.as_ref())?;
 
     let client_filter_op: Option<String> = row.get("client_filter_op")?;
 
     let client_filter = match client_filter_op {
-        Some(op) =>  {
+        Some(op) => {
             let client_filter_kind: Option<String> = row.get("client_filter_kind")?;
-            Some(ClientFilter::from(op, client_filter_kind.unwrap(), row.get("client_filter_flags")?, row.get("client_filter_targets")?)?)
-        },
-        None => None
+            Some(ClientFilter::from(
+                op,
+                client_filter_kind.unwrap(),
+                row.get("client_filter_flags")?,
+                row.get("client_filter_targets")?,
+            )?)
+        }
+        None => None,
     };
 
     let mut subscription = SubscriptionData::new(&name, &query);
@@ -569,10 +576,14 @@ impl Database for SQLiteDatabase {
 
     async fn store_subscription(&self, subscription: &SubscriptionData) -> Result<()> {
         let subscription = subscription.clone();
-        let client_filter_op: Option<String> = subscription.client_filter().map(|f| f.operation().to_string());
+        let client_filter_op: Option<String> = subscription
+            .client_filter()
+            .map(|f| f.operation().to_string());
         let client_filter_kind = subscription.client_filter().map(|f| f.kind().to_string());
         let client_filter_flags = subscription.client_filter().map(|f| f.flags().bits());
-        let client_filter_targets = subscription.client_filter().and_then(|f| f.targets_to_opt_string());
+        let client_filter_targets = subscription
+            .client_filter()
+            .and_then(|f| f.targets_to_opt_string());
 
         let count = self
             .pool

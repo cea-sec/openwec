@@ -226,7 +226,10 @@ mod v1 {
     impl PrincsFilter {
         fn into_client_filter(self) -> Option<crate::subscription::ClientFilter> {
             let op = self.operation?;
-            Some(crate::subscription::ClientFilter::new_legacy(op.into(), self.princs))
+            Some(crate::subscription::ClientFilter::new_legacy(
+                op.into(),
+                self.princs,
+            ))
         }
     }
 
@@ -599,7 +602,10 @@ pub mod v2 {
     impl PrincsFilter {
         fn into_client_filter(self) -> Option<crate::subscription::ClientFilter> {
             let op = self.operation?;
-            Some(crate::subscription::ClientFilter::new_legacy(op.into(), self.princs))
+            Some(crate::subscription::ClientFilter::new_legacy(
+                op.into(),
+                self.princs,
+            ))
         }
     }
 
@@ -607,7 +613,9 @@ pub mod v2 {
         fn from(value: Option<crate::subscription::ClientFilter>) -> Self {
             Self {
                 operation: value.as_ref().map(|f| f.operation().clone().into()),
-                princs: value.map_or(HashSet::new(), |f| f.targets().iter().cloned().map(String::from).collect()),
+                princs: value.map_or(HashSet::new(), |f| {
+                    f.targets().iter().cloned().map(String::from).collect()
+                }),
             }
         }
     }
@@ -743,12 +751,12 @@ pub mod v2 {
 }
 
 pub mod v3 {
+    use bitflags::bitflags;
     use serde::{Deserialize, Serialize};
     use std::collections::{HashMap, HashSet};
-    use uuid::Uuid;
-    use strum::{Display, AsRefStr, EnumString};
-    use bitflags::bitflags;
     use std::fmt::{Display, Formatter};
+    use strum::{AsRefStr, Display, EnumString};
+    use uuid::Uuid;
 
     #[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize)]
     pub(super) struct KafkaConfiguration {
@@ -1013,7 +1021,7 @@ pub mod v3 {
         }
     }
 
-    impl From<crate::subscription::ClientFilterOperation> for ClientFilterOperation  {
+    impl From<crate::subscription::ClientFilterOperation> for ClientFilterOperation {
         fn from(value: crate::subscription::ClientFilterOperation) -> Self {
             match value {
                 crate::subscription::ClientFilterOperation::Except => ClientFilterOperation::Except,
@@ -1022,8 +1030,9 @@ pub mod v3 {
         }
     }
 
-
-    #[derive(Default, Debug, Clone, Eq, PartialEq, Serialize, Deserialize, Display, AsRefStr, EnumString)]
+    #[derive(
+        Default, Debug, Clone, Eq, PartialEq, Serialize, Deserialize, Display, AsRefStr, EnumString,
+    )]
     #[strum(ascii_case_insensitive)]
     pub(super) enum ClientFilterType {
         #[default]
@@ -1035,8 +1044,12 @@ pub mod v3 {
     impl From<ClientFilterType> for crate::subscription::ClientFilterType {
         fn from(value: ClientFilterType) -> Self {
             match value {
-                ClientFilterType::KerberosPrinc => crate::subscription::ClientFilterType::KerberosPrinc,
-                ClientFilterType::TLSCertSubject => crate::subscription::ClientFilterType::TLSCertSubject,
+                ClientFilterType::KerberosPrinc => {
+                    crate::subscription::ClientFilterType::KerberosPrinc
+                }
+                ClientFilterType::TLSCertSubject => {
+                    crate::subscription::ClientFilterType::TLSCertSubject
+                }
                 ClientFilterType::MachineID => crate::subscription::ClientFilterType::MachineID,
             }
         }
@@ -1045,8 +1058,12 @@ pub mod v3 {
     impl From<crate::subscription::ClientFilterType> for ClientFilterType {
         fn from(value: crate::subscription::ClientFilterType) -> Self {
             match value {
-                crate::subscription::ClientFilterType::KerberosPrinc => ClientFilterType::KerberosPrinc,
-                crate::subscription::ClientFilterType::TLSCertSubject => ClientFilterType::TLSCertSubject,
+                crate::subscription::ClientFilterType::KerberosPrinc => {
+                    ClientFilterType::KerberosPrinc
+                }
+                crate::subscription::ClientFilterType::TLSCertSubject => {
+                    ClientFilterType::TLSCertSubject
+                }
                 crate::subscription::ClientFilterType::MachineID => ClientFilterType::MachineID,
             }
         }
@@ -1100,7 +1117,12 @@ pub mod v3 {
         type Error = anyhow::Error;
 
         fn try_from(value: ClientFilter) -> std::prelude::v1::Result<Self, Self::Error> {
-            crate::subscription::ClientFilter::try_new(value.operation.into(), value.kind.into(), value.flags.into(), value.targets)
+            crate::subscription::ClientFilter::try_new(
+                value.operation.into(),
+                value.kind.into(),
+                value.flags.into(),
+                value.targets,
+            )
         }
     }
 

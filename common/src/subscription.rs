@@ -7,12 +7,12 @@ use std::{
 };
 
 use anyhow::{anyhow, bail, Context, Result};
-use log::{info, warn};
-use serde::{Deserialize, Serialize};
-use strum::{Display, AsRefStr, EnumString, IntoStaticStr, VariantNames};
-use uuid::Uuid;
 use bitflags::bitflags;
 use glob::Pattern;
+use log::{info, warn};
+use serde::{Deserialize, Serialize};
+use strum::{AsRefStr, Display, EnumString, IntoStaticStr, VariantNames};
+use uuid::Uuid;
 
 use crate::utils::VersionHasher;
 
@@ -274,7 +274,9 @@ pub enum ClientFilterOperation {
     Except,
 }
 
-#[derive(Default, Debug, Clone, Eq, PartialEq, Serialize, Deserialize, Display, AsRefStr, EnumString)]
+#[derive(
+    Default, Debug, Clone, Eq, PartialEq, Serialize, Deserialize, Display, AsRefStr, EnumString,
+)]
 #[strum(ascii_case_insensitive)]
 pub enum ClientFilterType {
     #[default]
@@ -306,7 +308,7 @@ impl Default for ClientFilterFlags {
 #[derive(Debug, Clone, Eq, PartialEq)]
 enum ClientFilterTargets {
     Exact(HashSet<String>),
-    Glob(Vec<Pattern>)
+    Glob(Vec<Pattern>),
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -327,9 +329,19 @@ impl ClientFilter {
         }
     }
 
-    pub fn try_new(operation: ClientFilterOperation, kind: ClientFilterType, flags: ClientFilterFlags, mut targets: HashSet<String>) -> Result<Self> {
+    pub fn try_new(
+        operation: ClientFilterOperation,
+        kind: ClientFilterType,
+        flags: ClientFilterFlags,
+        mut targets: HashSet<String>,
+    ) -> Result<Self> {
         let targets = if flags.contains(ClientFilterFlags::GlobPattern) {
-            ClientFilterTargets::Glob(targets.iter().map(|t| Pattern::new(t.as_str())).collect::<Result<Vec<Pattern>, _>>()?)
+            ClientFilterTargets::Glob(
+                targets
+                    .iter()
+                    .map(|t| Pattern::new(t.as_str()))
+                    .collect::<Result<Vec<Pattern>, _>>()?,
+            )
         } else {
             if flags.contains(ClientFilterFlags::CaseInsensitive) {
                 targets = targets.iter().map(|t| t.to_lowercase()).collect();
@@ -337,12 +349,23 @@ impl ClientFilter {
             ClientFilterTargets::Exact(targets)
         };
 
-        Ok(Self { operation, kind, flags, targets })
+        Ok(Self {
+            operation,
+            kind,
+            flags,
+            targets,
+        })
     }
 
-    pub fn from(operation: String, kind: String, flags: Option<u32>, targets: Option<String>) -> Result<Self> {
+    pub fn from(
+        operation: String,
+        kind: String,
+        flags: Option<u32>,
+        targets: Option<String>,
+    ) -> Result<Self> {
         let flags = flags.unwrap_or_default();
-        let flags = ClientFilterFlags::from_bits(flags).context("unknown bits are set in client filter flags")?;
+        let flags = ClientFilterFlags::from_bits(flags)
+            .context("unknown bits are set in client filter flags")?;
 
         let mut clients = if flags.contains(ClientFilterFlags::GlobPattern) {
             ClientFilterTargets::Glob(Vec::new())
@@ -354,7 +377,11 @@ impl ClientFilter {
             let targets = targets.split(',');
 
             clients = if flags.contains(ClientFilterFlags::GlobPattern) {
-                ClientFilterTargets::Glob(targets.map(Pattern::new).collect::<Result<Vec<Pattern>, _>>()?)
+                ClientFilterTargets::Glob(
+                    targets
+                        .map(Pattern::new)
+                        .collect::<Result<Vec<Pattern>, _>>()?,
+                )
             } else {
                 let targets = if flags.contains(ClientFilterFlags::CaseInsensitive) {
                     HashSet::from_iter(targets.map(|t| t.to_lowercase()))
@@ -367,7 +394,10 @@ impl ClientFilter {
         }
 
         Ok(ClientFilter {
-            operation: operation.parse()?, kind: kind.parse()?, flags, targets: clients
+            operation: operation.parse()?,
+            kind: kind.parse()?,
+            flags,
+            targets: clients,
         })
     }
 
@@ -379,10 +409,11 @@ impl ClientFilter {
                 }
 
                 targets.contains(target)
-            },
+            }
             ClientFilterTargets::Glob(targets) => {
                 let mut match_opts = glob::MatchOptions::new();
-                match_opts.case_sensitive = !self.flags.contains(ClientFilterFlags::CaseInsensitive);
+                match_opts.case_sensitive =
+                    !self.flags.contains(ClientFilterFlags::CaseInsensitive);
 
                 for p in targets {
                     if p.matches_with(target, match_opts) {
@@ -435,7 +466,7 @@ impl ClientFilter {
                 if targets.is_empty() {
                     return None;
                 }
-            },
+            }
             ClientFilterTargets::Glob(targets) => {
                 if targets.is_empty() {
                     return None;
@@ -446,23 +477,33 @@ impl ClientFilter {
         Some(self.targets_to_string())
     }
 
-    #[deprecated(since = "0.4.0", note = "This should be used only by the legacy CLI interface. Use ClientFilter constructors instead")]
+    #[deprecated(
+        since = "0.4.0",
+        note = "This should be used only by the legacy CLI interface. Use ClientFilter constructors instead"
+    )]
     pub fn add_target(&mut self, target: &str) -> Result<()> {
         match &mut self.targets {
-            ClientFilterTargets::Exact(targets) => { targets.insert(target.to_owned()); },
-            ClientFilterTargets::Glob(targets) => { targets.push(Pattern::new(target)?); },
+            ClientFilterTargets::Exact(targets) => {
+                targets.insert(target.to_owned());
+            }
+            ClientFilterTargets::Glob(targets) => {
+                targets.push(Pattern::new(target)?);
+            }
         }
         Ok(())
     }
 
-    #[deprecated(since = "0.4.0", note = "This should be used only by the legacy CLI interface. Use ClientFilter constructors instead")]
+    #[deprecated(
+        since = "0.4.0",
+        note = "This should be used only by the legacy CLI interface. Use ClientFilter constructors instead"
+    )]
     pub fn delete_target(&mut self, target: &str) -> Result<()> {
         match &mut self.targets {
             ClientFilterTargets::Exact(targets) => {
                 if !targets.remove(target) {
                     warn!("{} was not present in the targets set", target)
                 }
-            },
+            }
             ClientFilterTargets::Glob(targets) => {
                 let Some(i) = targets.iter().position(|p| p.as_str() == target) else {
                     warn!("{} was not present in the targets set", target);
@@ -470,17 +511,25 @@ impl ClientFilter {
                 };
 
                 targets.remove(i);
-            },
+            }
         }
 
         Ok(())
     }
 
-    #[deprecated(since = "0.4.0", note = "This should be used only by the legacy CLI interface. Use ClientFilter constructors instead")]
+    #[deprecated(
+        since = "0.4.0",
+        note = "This should be used only by the legacy CLI interface. Use ClientFilter constructors instead"
+    )]
     pub fn set_targets(&mut self, targets: HashSet<String>) -> Result<()> {
         match &mut self.targets {
             ClientFilterTargets::Exact(t) => *t = targets,
-            ClientFilterTargets::Glob(t) => *t = targets.iter().map(|t| Pattern::new(t)).collect::<Result<Vec<Pattern>, _>>()?,
+            ClientFilterTargets::Glob(t) => {
+                *t = targets
+                    .iter()
+                    .map(|t| Pattern::new(t))
+                    .collect::<Result<Vec<Pattern>, _>>()?
+            }
         }
 
         Ok(())
@@ -490,7 +539,10 @@ impl ClientFilter {
         &self.operation
     }
 
-    #[deprecated(since = "0.4.0", note = "This should be used only by the legacy CLI interface. Use ClientFilter constructors instead")]
+    #[deprecated(
+        since = "0.4.0",
+        note = "This should be used only by the legacy CLI interface. Use ClientFilter constructors instead"
+    )]
     pub fn set_operation(&mut self, operation: ClientFilterOperation) {
         self.operation = operation;
     }
@@ -1125,8 +1177,12 @@ mod tests {
         targets.insert("another".to_string());
 
         let filter = ClientFilter::try_new(
-            ClientFilterOperation::Only, ClientFilterType::default(), ClientFilterFlags::default(), targets.clone()
-        ).expect("couldn't construct client filter");
+            ClientFilterOperation::Only,
+            ClientFilterType::default(),
+            ClientFilterFlags::default(),
+            targets.clone(),
+        )
+        .expect("couldn't construct client filter");
 
         assert_eq!(*filter.operation(), ClientFilterOperation::Only);
         assert!(!filter.eval("expected_target_similar", None));
@@ -1134,8 +1190,12 @@ mod tests {
         assert!(filter.eval("another", None));
 
         let filter = ClientFilter::try_new(
-            ClientFilterOperation::Except, ClientFilterType::default(), ClientFilterFlags::default(), targets.clone()
-        ).expect("couldn't construct client filter");
+            ClientFilterOperation::Except,
+            ClientFilterType::default(),
+            ClientFilterFlags::default(),
+            targets.clone(),
+        )
+        .expect("couldn't construct client filter");
 
         assert_eq!(*filter.operation(), ClientFilterOperation::Except);
         assert!(filter.eval("different_target", None));
@@ -1149,8 +1209,12 @@ mod tests {
         targets.insert("expected_machine".to_string());
 
         let filter = ClientFilter::try_new(
-            ClientFilterOperation::Only, ClientFilterType::MachineID, ClientFilterFlags::default(), targets.clone()
-        ).expect("couldn't construct client filter");
+            ClientFilterOperation::Only,
+            ClientFilterType::MachineID,
+            ClientFilterFlags::default(),
+            targets.clone(),
+        )
+        .expect("couldn't construct client filter");
 
         assert!(!filter.eval("expected_machine", None));
         assert!(!filter.eval("client", Some("unexpected_machine")));
@@ -1164,8 +1228,12 @@ mod tests {
         targets.insert("aNother?_target".to_string());
 
         let filter = ClientFilter::try_new(
-            ClientFilterOperation::Only, ClientFilterType::default(), ClientFilterFlags::GlobPattern, targets
-        ).expect("couldn't construct client filter");
+            ClientFilterOperation::Only,
+            ClientFilterType::default(),
+            ClientFilterFlags::GlobPattern,
+            targets,
+        )
+        .expect("couldn't construct client filter");
 
         assert!(!filter.eval("expected_target", None));
         assert!(filter.eval("eXPected_", None));
@@ -1180,10 +1248,12 @@ mod tests {
         targets.insert("aNother?_target".to_string());
 
         let filter = ClientFilter::try_new(
-            ClientFilterOperation::Only, ClientFilterType::default(),
+            ClientFilterOperation::Only,
+            ClientFilterType::default(),
             ClientFilterFlags::GlobPattern | ClientFilterFlags::CaseInsensitive,
-            targets
-        ).expect("couldn't construct client filter");
+            targets,
+        )
+        .expect("couldn't construct client filter");
 
         assert!(filter.eval("expected_target", None));
         assert!(filter.eval("expected_", None));
@@ -1201,13 +1271,19 @@ mod tests {
         expected_targets.insert("target2");
 
         let filter = ClientFilter::from(
-            "only".to_string(), "TLSCertSubject".to_string(),
-            Some(0b11), Some("target1,target2".to_string())
-        ).expect("couldn't construct client filter");
+            "only".to_string(),
+            "TLSCertSubject".to_string(),
+            Some(0b11),
+            Some("target1,target2".to_string()),
+        )
+        .expect("couldn't construct client filter");
 
         assert_eq!(*filter.operation(), ClientFilterOperation::Only);
         assert_eq!(*filter.kind(), ClientFilterType::TLSCertSubject);
-        assert_eq!(*filter.flags(), ClientFilterFlags::GlobPattern | ClientFilterFlags::CaseInsensitive);
+        assert_eq!(
+            *filter.flags(),
+            ClientFilterFlags::GlobPattern | ClientFilterFlags::CaseInsensitive
+        );
         assert_eq!(filter.targets(), expected_targets);
     }
 }
