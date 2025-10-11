@@ -124,14 +124,19 @@ pub mod tests {
     use crate::{
         heartbeat::{HeartbeatKey, HeartbeatValue},
         subscription::{
-            ContentFormat, FilesConfiguration, ClientFilter, ClientFilterOperation,
-            SubscriptionOutput, SubscriptionOutputDriver, SubscriptionOutputFormat,
-            DEFAULT_CONTENT_FORMAT, DEFAULT_IGNORE_CHANNEL_ERROR, DEFAULT_READ_EXISTING_EVENTS,
+            ClientFilter, ClientFilterFlags, ClientFilterOperation, ClientFilterType,
+            ContentFormat, FilesConfiguration, SubscriptionOutput, SubscriptionOutputDriver,
+            SubscriptionOutputFormat, DEFAULT_CONTENT_FORMAT, DEFAULT_IGNORE_CHANNEL_ERROR,
+            DEFAULT_READ_EXISTING_EVENTS,
         },
     };
 
     use super::{schema::Migrator, *};
-    use std::{collections::HashSet, thread::sleep, time::{Duration, SystemTime}};
+    use std::{
+        collections::HashSet,
+        thread::sleep,
+        time::{Duration, SystemTime},
+    };
 
     async fn setup_db(db: Arc<dyn Database>) -> Result<()> {
         db.setup_schema().await?;
@@ -234,6 +239,14 @@ pub mod tests {
             tata.client_filter().unwrap().targets(),
             HashSet::from(["couscous", "boulette"])
         );
+        assert_eq!(
+            tata.client_filter().unwrap().kind(),
+            &ClientFilterType::KerberosPrinc
+        );
+        assert_eq!(
+            tata.client_filter().unwrap().flags(),
+            &ClientFilterFlags::empty()
+        );
 
         assert_eq!(
             tata.outputs(),
@@ -273,15 +286,19 @@ pub mod tests {
             .set_revision(Some("1890".to_string()))
             .set_data_locale(Some("fr-FR".to_string()));
 
-
         let orig_filter = &tata.client_filter().unwrap();
-        let mut new_targets: HashSet<String> = orig_filter.targets().iter().map(|&f| f.to_owned()).collect();
+        let mut new_targets: HashSet<String> = orig_filter
+            .targets()
+            .iter()
+            .map(|&f| f.to_owned())
+            .collect();
         new_targets.insert("semoule".to_owned());
 
-        let new_client_filter = ClientFilter::try_new(orig_filter.operation().clone(),
+        let new_client_filter = ClientFilter::try_new(
+            orig_filter.operation().clone(),
             orig_filter.kind().clone(),
             orig_filter.flags().clone(),
-            new_targets
+            new_targets,
         )?;
 
         tata.set_client_filter(Some(new_client_filter));
@@ -308,11 +325,15 @@ pub mod tests {
         );
         assert_eq!(
             tata2.client_filter().unwrap().targets(),
-            HashSet::from([
-                "couscous",
-                "boulette",
-                "semoule"
-            ])
+            HashSet::from(["couscous", "boulette", "semoule"])
+        );
+        assert_eq!(
+            tata.client_filter().unwrap().kind(),
+            &ClientFilterType::KerberosPrinc
+        );
+        assert_eq!(
+            tata.client_filter().unwrap().flags(),
+            &ClientFilterFlags::empty()
         );
         assert_eq!(tata2.is_active_for("couscous", None), true);
         assert_eq!(tata2.is_active_for("semoule", None), true);
@@ -325,9 +346,15 @@ pub mod tests {
         let mut new_client_filter = tata2.client_filter().cloned();
 
         #[allow(deprecated)]
-        new_client_filter.as_mut().unwrap().delete_target("couscous")?;
+        new_client_filter
+            .as_mut()
+            .unwrap()
+            .delete_target("couscous")?;
         #[allow(deprecated)]
-        new_client_filter.as_mut().unwrap().set_operation(ClientFilterOperation::Except);
+        new_client_filter
+            .as_mut()
+            .unwrap()
+            .set_operation(ClientFilterOperation::Except);
         tata2.set_client_filter(new_client_filter);
 
         db.store_subscription(&tata2).await?;
