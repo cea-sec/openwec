@@ -555,7 +555,7 @@ format = "Json" # or "Raw"
 enabled = true
 
 [outputs.config]
-path = "/whatever/you/{ip}/want/{principal}/{ip:2}/{node}/end"
+path = "/whatever/you/{ip}/want/{client}/{ip:2}/{node}/end"
     "#;
 
     #[test]
@@ -590,7 +590,7 @@ path = "/whatever/you/{ip}/want/{principal}/{ip:2}/{node}/end"
                 crate::subscription::SubscriptionOutputFormat::Json,
                 crate::subscription::SubscriptionOutputDriver::Files(
                     crate::subscription::FilesConfiguration::new(
-                        "/tmp/{ip:2}/{ip:3}/{ip}/{principal}/{node}/courgette".to_string(),
+                        "/tmp/{ip:2}/{ip:3}/{ip}/{client}/{node}/courgette".to_string(),
                     ),
                 ),
                 true,
@@ -684,7 +684,7 @@ path = "/whatever/you/{ip}/want/{principal}/{ip:2}/{node}/end"
                 crate::subscription::SubscriptionOutputFormat::Json,
                 crate::subscription::SubscriptionOutputDriver::Files(
                     crate::subscription::FilesConfiguration::new(
-                        "/whatever/you/{ip}/want/{principal}/{ip:2}/{node}/end".to_string(),
+                        "/whatever/you/{ip}/want/{client}/{ip:2}/{node}/end".to_string(),
                     ),
                 ),
                 true,
@@ -887,7 +887,7 @@ query = """
 [[outputs]]
 driver = "Files"
 format = "Raw"
-config = { path = "/data/logs/{ip}/{principal}/messages" }
+config = { path = "/data/logs/{ip}/{client}/messages" }
 
 # Subscription outputs
 [[outputs]]
@@ -930,7 +930,7 @@ config = { topic = "my-kafka-topic", options = { "bootstrap.servers" = "localhos
                 crate::subscription::SubscriptionOutputFormat::Raw,
                 crate::subscription::SubscriptionOutputDriver::Files(
                     crate::subscription::FilesConfiguration::new(
-                        "/data/logs/{ip}/{principal}/messages".to_string(),
+                        "/data/logs/{ip}/{client}/messages".to_string(),
                     ),
                 ),
                 true,
@@ -968,7 +968,7 @@ query = "<QueryList></QueryList>"
 [[outputs]]
 driver = "Files"
 format = "Raw"
-config = { path = "/data/logs/{ip}/{principal}/messages" }
+config = { path = "/data/logs/{ip}/{client}/messages" }
 
 [filter]
 operation = "Only"
@@ -994,7 +994,7 @@ targets = ["radis*@REALM"]
             crate::subscription::SubscriptionOutputFormat::Raw,
             crate::subscription::SubscriptionOutputDriver::Files(
                 crate::subscription::FilesConfiguration::new(
-                    "/data/logs/{ip}/{principal}/messages".to_string(),
+                    "/data/logs/{ip}/{client}/messages".to_string(),
                 ),
             ),
             true,

@@ -113,7 +113,7 @@ async fn main() {
                             .subcommand(
                                 Command::new("files")
                                 .about("Configures a Files output which will store events on disk at configured path")
-                                .arg(arg!(<path> "Destination path that can use variables. Example: \"/archive/{ip}/{principal}/{node}/messages\", where {ip} is the string representation of the IP addr of the machine and {principal} its Kerberos principal. See documentation for other variables."))
+                                .arg(arg!(<path> "Destination path that can use variables. Example: \"/archive/{ip}/{client}/{node}/messages\", where {ip} is the string representation of the IP addr of the machine and {client} its identifier (Kerberos Principal or TLS subject). See documentation for other variables."))
                             )
                             .subcommand(
                                 Command::new("unixdatagram")
@@ -234,12 +234,13 @@ async fn main() {
                     .arg(arg!(<subscription> "Name or UUID of the subscription"))
                 )
                 .subcommand(
-                    Command::new("machines")
-                    .about("Show subscribing machines. Defaults to all machines ever seen.")
+                    Command::new("clients")
+                    .alias("machines")
+                    .about("Show subscribing clients. Defaults to all clients ever seen.")
                     .arg(arg!(<subscription> "Name or UUID of the subscription"))
-                    .arg(arg!(-a --active "Only show active machines"))
-                    .arg(arg!(-l --alive "Only show machines that are alive but not active"))
-                    .arg(arg!(-d --dead "Only show dead machines principal"))
+                    .arg(arg!(-a --active "Only show active clients"))
+                    .arg(arg!(-l --alive "Only show clients that are alive but not active"))
+                    .arg(arg!(-d --dead "Only show dead clients"))
                     .arg(
                         arg!(-i --interval <INTERVAL> "Duration after which a machine is considered alive if no events are received or dead if no heartbeats are received. \
                             Defaults to heartbeat-interval")

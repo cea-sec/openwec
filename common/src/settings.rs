@@ -247,7 +247,7 @@ impl Logging {
     pub fn access_logs_pattern(&self) -> String {
         match &self.access_logs_pattern {
             Some(s) => s.to_owned(),
-            None => "{X(ip)}:{X(port)} - {X(principal)} [{d}] \"{X(http_uri)}\" {X(http_status)} {X(response_time)}{n}".to_owned()
+            None => "{X(ip)}:{X(port)} - {X(client)} [{d}] \"{X(http_uri)}\" {X(http_status)} {X(response_time)}{n}".to_owned()
         }
     }
 

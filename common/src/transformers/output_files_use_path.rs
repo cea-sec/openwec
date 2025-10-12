@@ -22,7 +22,7 @@ pub fn transform_files_config_to_path(
         path.push("{ip}")
     }
 
-    path.push("{principal}");
+    path.push("{client}");
 
     let append_node_name = append_node_name.unwrap_or(false);
     if append_node_name {
@@ -249,7 +249,7 @@ mod tests {
                 &None,
                 &None
             )?,
-            "/base/openwec/{ip}/{principal}/messages".to_string()
+            "/base/openwec/{ip}/{client}/messages".to_string()
         );
 
         assert_eq!(
@@ -259,7 +259,7 @@ mod tests {
                 &None,
                 &None
             )?,
-            "/base/openwec/{ip:1}/{ip:2}/{ip:3}/{ip}/{principal}/messages".to_string()
+            "/base/openwec/{ip:1}/{ip:2}/{ip:3}/{ip}/{client}/messages".to_string()
         );
 
         assert_eq!(
@@ -269,7 +269,7 @@ mod tests {
                 &None,
                 &None
             )?,
-            "/base/openwec/{ip:2}/{ip:3}/{ip}/{principal}/messages".to_string()
+            "/base/openwec/{ip:2}/{ip:3}/{ip}/{client}/messages".to_string()
         );
 
         assert_eq!(
@@ -279,7 +279,7 @@ mod tests {
                 &None,
                 &None
             )?,
-            "/base/openwec/{ip:3}/{ip}/{principal}/messages".to_string()
+            "/base/openwec/{ip:3}/{ip}/{client}/messages".to_string()
         );
 
         assert_eq!(
@@ -289,7 +289,7 @@ mod tests {
                 &None,
                 &None
             )?,
-            "/base/openwec/{ip}/{principal}/messages".to_string()
+            "/base/openwec/{ip}/{client}/messages".to_string()
         );
 
         assert_eq!(
@@ -299,7 +299,7 @@ mod tests {
                 &Some(false),
                 &None
             )?,
-            "/base/openwec/{ip}/{principal}/messages".to_string()
+            "/base/openwec/{ip}/{client}/messages".to_string()
         );
 
         assert_eq!(
@@ -309,7 +309,7 @@ mod tests {
                 &Some(true),
                 &None
             )?,
-            "/base/openwec/{ip}/{principal}/{node}/messages".to_string()
+            "/base/openwec/{ip}/{client}/{node}/messages".to_string()
         );
 
         assert_eq!(
@@ -319,7 +319,7 @@ mod tests {
                 &Some(true),
                 &Some("test".to_string())
             )?,
-            "/base/openwec/{ip}/{principal}/{node}/test".to_string()
+            "/base/openwec/{ip}/{client}/{node}/test".to_string()
         );
 
         Ok(())

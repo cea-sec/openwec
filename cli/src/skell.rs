@@ -162,7 +162,7 @@ fn get_outputs() -> String {
 # Files driver has the following parameters:
 # - path (required): the path in which files will be written. It can be parameterized
 #       with variables using the syntax {variable} (see available variables in documentation)
-# config = { path = "/var/log/openwec/{ip:2}/{ip:3}/{ip}/{principal}/messages" }
+# config = { path = "/var/log/openwec/{ip:2}/{ip:3}/{ip}/{client}/messages" }
 
 
 # Configure a Kafka output
@@ -231,7 +231,7 @@ pub fn get_minimal_skell_content(uuid: Uuid, name: &str, now: DateTime<Local>) -
 [[outputs]]
 driver = "Files"
 format = "Raw"
-config = { path = "/var/log/openwec/{ip:2}/{ip:3}/{ip}/{principal}/messages" }
+config = { path = "/var/log/openwec/{ip:2}/{ip:3}/{ip}/{client}/messages" }
 "#,
     );
     content

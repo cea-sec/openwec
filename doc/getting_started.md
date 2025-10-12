@@ -106,11 +106,11 @@ In this example, let's say we want to retrieve every events in *Security*, *Syst
 ### Outputs
 
 In this example, we want to:
-- store events in `Raw` format in files in the path `/data/logs/<ip>/<principal>/messages`, where `<ip>` is the IP address of the machine who sent the log messages and `<principal>` its Kerberos principal
+- store events in `Raw` format in files in the path `/data/logs/<ip>/<client>/messages`, where `<ip>` is the IP address of the machine who sent the log messages and `<client>` its identifier (Kerberos Principal)
 - send events in `RawJson` format in a Kafka topic (`my-kafka-topic`) on `localhost:9092` for further processing
 
 We need to configure two outputs:
-- one using the `Files` driver and the `Raw` format with path `/data/logs/{ip}/{principal}/messages`
+- one using the `Files` driver and the `Raw` format with path `/data/logs/{ip}/{client}/messages`
 - one using the `Kafka` driver and the `RawJson` format with topic `my-kafka-topic` and option `bootstrap-servers=localhost:9092`
 
 ### Configuration file
@@ -153,7 +153,7 @@ query = """
 [[outputs]]
 driver = "Files"
 format = "Raw"
-config = { path = "/data/logs/{ip}/{principal}/messages" }
+config = { path = "/data/logs/{ip}/{client}/messages" }
 
 # Subscription outputs
 [[outputs]]

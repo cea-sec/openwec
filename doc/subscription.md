@@ -122,7 +122,7 @@ query = """
 [[outputs]]
 driver = "Files"
 format = "Raw"
-config = { path = "/var/log/openwec/{ip}/{principal}/messages" }
+config = { path = "/var/log/openwec/{ip}/{client}/messages" }
 ```
 
 Note: `uuid` and `name` must be unique for each subscription.
@@ -363,7 +363,7 @@ $ openwec subscriptions delete windows-subscription
 Are you sure that you want to delete "windows-subscription" (92A7836D-96FC-4EE5-9E45-03D0618607DE) ? [y/n] y
 ```
 
-### `openwec subscriptions machines`
+### `openwec subscriptions clients`
 
 This command enables you to retrieve the list of clients attached to a subscription.
 
@@ -374,7 +374,7 @@ You may filter on status:
 
 If you only want numbers, check `openwec stats` command.
 
-The output format is `<IP ADDRESS>:<PRINCIPAL>`.
+The output format is `<IP ADDRESS>:<IDENTIFIER>`.
 
 #### Usage
 
