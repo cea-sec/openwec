@@ -24,14 +24,11 @@ impl PostgresMigration for AlterClientFilterInSubscriptionsTable {
             &[],
         )
         .await?;
-
         tx.execute(
             "ALTER TABLE subscriptions ADD COLUMN client_filter_kind TEXT",
             &[],
         )
         .await?;
-        tx.execute("UPDATE subscriptions SET client_filter_kind = 'KerberosPrinc' WHERE client_filter_op IS NOT NULL", &[]).await?;
-
         tx.execute(
             "ALTER TABLE subscriptions ADD COLUMN client_filter_flags INT4",
             &[],

@@ -221,21 +221,17 @@ impl From<ClientFilterOperation> for crate::subscription::ClientFilterOperation 
     Default, Debug, Clone, Eq, PartialEq, Serialize, Deserialize, Display, AsRefStr, EnumString,
 )]
 #[strum(ascii_case_insensitive)]
-pub enum ClientFilterType {
+pub enum ClientFilterKind {
     #[default]
-    KerberosPrinc,
-    TLSCertSubject,
+    Client,
     MachineID,
 }
 
-impl From<ClientFilterType> for crate::subscription::ClientFilterType {
-    fn from(value: ClientFilterType) -> Self {
+impl From<ClientFilterKind> for crate::subscription::ClientFilterKind {
+    fn from(value: ClientFilterKind) -> Self {
         match value {
-            ClientFilterType::KerberosPrinc => crate::subscription::ClientFilterType::KerberosPrinc,
-            ClientFilterType::TLSCertSubject => {
-                crate::subscription::ClientFilterType::TLSCertSubject
-            }
-            ClientFilterType::MachineID => crate::subscription::ClientFilterType::MachineID,
+            ClientFilterKind::Client => crate::subscription::ClientFilterKind::Client,
+            ClientFilterKind::MachineID => crate::subscription::ClientFilterKind::MachineID,
         }
     }
 }
@@ -271,7 +267,7 @@ impl Default for ClientFilterFlags {
 struct ClientFilter {
     pub operation: ClientFilterOperation,
     #[serde(rename = "type", default)]
-    pub kind: ClientFilterType,
+    pub kind: ClientFilterKind,
     #[serde(default)]
     pub flags: ClientFilterFlags,
     #[serde(alias = "cert_subjects", alias = "princs")]
@@ -696,7 +692,7 @@ path = "/whatever/you/{ip}/want/{client}/{ip:2}/{node}/end"
         let mut targets = HashSet::new();
         targets.insert("toto@windomain.local".to_string());
         targets.insert("tutu@windomain.local".to_string());
-        let kind = crate::subscription::ClientFilterType::KerberosPrinc;
+        let kind = crate::subscription::ClientFilterKind::Client;
         let flags = crate::subscription::ClientFilterFlags::empty();
         let filter = crate::subscription::ClientFilter::try_new(
             crate::subscription::ClientFilterOperation::Only,
@@ -972,7 +968,7 @@ config = { path = "/data/logs/{ip}/{client}/messages" }
 
 [filter]
 operation = "Only"
-type = "KerberosPrinc"
+type = "Client"
 flags = "GlobPattern | CaseInsensitive"
 targets = ["radis*@REALM"]
 
@@ -1003,7 +999,7 @@ targets = ["radis*@REALM"]
         expected.set_outputs(outputs);
 
         let operation = crate::subscription::ClientFilterOperation::Only;
-        let kind = crate::subscription::ClientFilterType::KerberosPrinc;
+        let kind = crate::subscription::ClientFilterKind::Client;
         let flags = crate::subscription::ClientFilterFlags::GlobPattern
             | crate::subscription::ClientFilterFlags::CaseInsensitive;
 

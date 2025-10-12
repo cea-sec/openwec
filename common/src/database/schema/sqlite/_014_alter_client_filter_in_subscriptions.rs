@@ -29,7 +29,7 @@ impl SQLiteMigration for AlterClientFilterInSubscriptionsTable {
             [],
         )
         .map_err(|err| anyhow!("SQLiteError: {}", err))?;
-        conn.execute("UPDATE subscriptions SET client_filter_kind = 'KerberosPrinc' WHERE client_filter_op IS NOT NULL", [])
+        conn.execute("UPDATE subscriptions SET client_filter_kind = 'Client' WHERE client_filter_op IS NOT NULL", [])
             .map_err(|err| anyhow!("SQLiteError: {}", err))?;
 
         conn.execute(

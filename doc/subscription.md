@@ -78,14 +78,14 @@ It is possible to filter the clients that can see a subscription.
 * `Except`: the subscription will be shown to everyone except the listed clients
 
 ### Filtering types:
-* `KerberosPrinc`: the filter will be evaluated on the Kerberos principal
-* `TLSCertSubject`: the filter will be evaluated on the TLS certificate's subject field
+* `Client`: the filter will be evaluated on client identifier, either Kerberos principal if Kerberos authentication is used or TLS certificate's subject field if TLS authentication is used.
 * `MachineID`: the filtering is done based on the name of the computer
 
-The default is either `KerberosPrinc` or `TLSCertSubject`, depending on how server authentication is configured.
+The default is `Client`.
 
-Warning: `MachineID` is not cryptographically authenticated information, it can be spoofed.
-For more info, see [Hunting rogue Windows Event Forwarder](issues.md#hunting-rogue-windows-event-forwarder).
+> [!warning]
+> `MachineID` is not cryptographically authenticated information, it can be spoofed.
+> For more info, see [Hunting rogue Windows Event Forwarder](issues.md#hunting-rogue-windows-event-forwarder).
 
 ### Filtering flags:
 * `GlobPattern`: Glob patterns like `*` and `?` can be used in `targets`
@@ -98,7 +98,7 @@ The comparison is **case-sensitive** by default.
 
 There are two methods available to configure subscriptions:
 - using configuration files (recommended)
-- using the `openwec` command line interface (`openwec subscriptions`)
+- using the `openwec` command line interface (`openwec subscriptions`) (deprecated)
 
 ## Configuration Files
 

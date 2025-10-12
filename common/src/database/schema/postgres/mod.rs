@@ -1,6 +1,9 @@
 use std::sync::Arc;
 
-use crate::database::postgres::PostgresDatabase;
+use crate::database::{
+    postgres::PostgresDatabase,
+    schema::postgres::_015_add_default_client_filter_kind_in_subscriptions::AddDefaultClientFilterKindInSubscriptionsTable,
+};
 
 use self::{
     _001_create_subscriptions_table::CreateSubscriptionsTable,
@@ -33,6 +36,7 @@ mod _011_add_locale_fields_in_subscriptions_table;
 mod _012_alter_outputs_files_config;
 mod _013_add_max_elements_field_in_subscriptions_table;
 mod _014_alter_client_filter_in_subscriptions;
+mod _015_add_default_client_filter_kind_in_subscriptions;
 
 pub fn register_migrations(postgres_db: &mut PostgresDatabase) {
     postgres_db.register_migration(Arc::new(CreateSubscriptionsTable));
@@ -49,4 +53,5 @@ pub fn register_migrations(postgres_db: &mut PostgresDatabase) {
     postgres_db.register_migration(Arc::new(AlterOutputsFilesConfig));
     postgres_db.register_migration(Arc::new(AddMaxElementsFieldInSubscriptionsTable));
     postgres_db.register_migration(Arc::new(AlterClientFilterInSubscriptionsTable));
+    postgres_db.register_migration(Arc::new(AddDefaultClientFilterKindInSubscriptionsTable));
 }

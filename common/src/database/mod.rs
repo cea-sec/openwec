@@ -124,7 +124,7 @@ pub mod tests {
     use crate::{
         heartbeat::{HeartbeatKey, HeartbeatValue},
         subscription::{
-            ClientFilter, ClientFilterFlags, ClientFilterOperation, ClientFilterType,
+            ClientFilter, ClientFilterFlags, ClientFilterKind, ClientFilterOperation,
             ContentFormat, FilesConfiguration, SubscriptionOutput, SubscriptionOutputDriver,
             SubscriptionOutputFormat, DEFAULT_CONTENT_FORMAT, DEFAULT_IGNORE_CHANNEL_ERROR,
             DEFAULT_READ_EXISTING_EVENTS,
@@ -190,8 +190,8 @@ pub mod tests {
             .unwrap();
         assert_eq!(toto, &toto3);
 
-        let file_config_1 = FilesConfiguration::new("/path1/{ip}/{principal}/messages".to_string());
-        let file_config_2 = FilesConfiguration::new("/path2/{ip}/{principal}/messages".to_string());
+        let file_config_1 = FilesConfiguration::new("/path1/{ip}/{client}/messages".to_string());
+        let file_config_2 = FilesConfiguration::new("/path2/{ip}/{client}/messages".to_string());
         let mut subscription2 = SubscriptionData::new("tata", "query2");
         subscription2
             .set_read_existing_events(true)
@@ -199,7 +199,7 @@ pub mod tests {
             .set_ignore_channel_error(false)
             .set_client_filter(Some(ClientFilter::from(
                 "Only".to_string(),
-                "KerberosPrinc".to_string(),
+                "Client".to_string(),
                 None,
                 Some("couscous,boulette".to_string()),
             )?))
@@ -241,7 +241,7 @@ pub mod tests {
         );
         assert_eq!(
             tata.client_filter().unwrap().kind(),
-            &ClientFilterType::KerberosPrinc
+            &ClientFilterKind::Client
         );
         assert_eq!(
             tata.client_filter().unwrap().flags(),
@@ -329,7 +329,7 @@ pub mod tests {
         );
         assert_eq!(
             tata.client_filter().unwrap().kind(),
-            &ClientFilterType::KerberosPrinc
+            &ClientFilterKind::Client
         );
         assert_eq!(
             tata.client_filter().unwrap().flags(),
@@ -343,19 +343,13 @@ pub mod tests {
 
         assert!(tata2.public_version()? != tata_save.public_version()?);
 
-        let mut new_client_filter = tata2.client_filter().cloned();
-
-        #[allow(deprecated)]
-        new_client_filter
-            .as_mut()
-            .unwrap()
-            .delete_target("couscous")?;
-        #[allow(deprecated)]
-        new_client_filter
-            .as_mut()
-            .unwrap()
-            .set_operation(ClientFilterOperation::Except);
-        tata2.set_client_filter(new_client_filter);
+        let new_client_filter = ClientFilter::try_new(
+            ClientFilterOperation::Except,
+            ClientFilterKind::MachineID,
+            ClientFilterFlags::CaseInsensitive,
+            HashSet::from(["boulette".to_owned(), "semoule".to_owned()]),
+        )?;
+        tata2.set_client_filter(Some(new_client_filter));
 
         db.store_subscription(&tata2).await?;
 
@@ -368,13 +362,33 @@ pub mod tests {
             ClientFilterOperation::Except
         );
         assert_eq!(
+            *tata2_clone.client_filter().unwrap().kind(),
+            ClientFilterKind::MachineID
+        );
+        assert_eq!(
+            *tata2_clone.client_filter().unwrap().flags(),
+            ClientFilterFlags::CaseInsensitive
+        );
+        assert_eq!(
             tata2_clone.client_filter().unwrap().targets(),
             HashSet::from(["boulette", "semoule"])
         );
 
         assert_eq!(tata2_clone.is_active_for("couscous", None), true);
-        assert_eq!(tata2_clone.is_active_for("semoule", None), false);
-        assert_eq!(tata2_clone.is_active_for("boulette", None), false);
+        assert_eq!(tata2_clone.is_active_for("semoule", None), true);
+        assert_eq!(tata2_clone.is_active_for("boulette", None), true);
+
+        assert_eq!(
+            tata2_clone.is_active_for("couscous", Some("couscous")),
+            true
+        );
+        assert_eq!(tata2_clone.is_active_for("semoule", Some("semoule")), false);
+        assert_eq!(tata2_clone.is_active_for("babar", Some("SEmOuLe")), false);
+        assert_eq!(tata2_clone.is_active_for("boul", Some("BOUlette")), false);
+        assert_eq!(
+            tata2_clone.is_active_for("boulette", Some("notboulette")),
+            true
+        );
 
         tata2_clone.set_client_filter(None);
 

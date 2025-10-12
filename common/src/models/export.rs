@@ -1034,37 +1034,26 @@ pub mod v3 {
         Default, Debug, Clone, Eq, PartialEq, Serialize, Deserialize, Display, AsRefStr, EnumString,
     )]
     #[strum(ascii_case_insensitive)]
-    pub(super) enum ClientFilterType {
+    pub(super) enum ClientFilterKind {
         #[default]
-        KerberosPrinc,
-        TLSCertSubject,
+        Client,
         MachineID,
     }
 
-    impl From<ClientFilterType> for crate::subscription::ClientFilterType {
-        fn from(value: ClientFilterType) -> Self {
+    impl From<ClientFilterKind> for crate::subscription::ClientFilterKind {
+        fn from(value: ClientFilterKind) -> Self {
             match value {
-                ClientFilterType::KerberosPrinc => {
-                    crate::subscription::ClientFilterType::KerberosPrinc
-                }
-                ClientFilterType::TLSCertSubject => {
-                    crate::subscription::ClientFilterType::TLSCertSubject
-                }
-                ClientFilterType::MachineID => crate::subscription::ClientFilterType::MachineID,
+                ClientFilterKind::Client => crate::subscription::ClientFilterKind::Client,
+                ClientFilterKind::MachineID => crate::subscription::ClientFilterKind::MachineID,
             }
         }
     }
 
-    impl From<crate::subscription::ClientFilterType> for ClientFilterType {
-        fn from(value: crate::subscription::ClientFilterType) -> Self {
+    impl From<crate::subscription::ClientFilterKind> for ClientFilterKind {
+        fn from(value: crate::subscription::ClientFilterKind) -> Self {
             match value {
-                crate::subscription::ClientFilterType::KerberosPrinc => {
-                    ClientFilterType::KerberosPrinc
-                }
-                crate::subscription::ClientFilterType::TLSCertSubject => {
-                    ClientFilterType::TLSCertSubject
-                }
-                crate::subscription::ClientFilterType::MachineID => ClientFilterType::MachineID,
+                crate::subscription::ClientFilterKind::Client => ClientFilterKind::Client,
+                crate::subscription::ClientFilterKind::MachineID => ClientFilterKind::MachineID,
             }
         }
     }
@@ -1106,7 +1095,7 @@ pub mod v3 {
     pub(super) struct ClientFilter {
         pub operation: ClientFilterOperation,
         #[serde(rename = "type", default)]
-        pub kind: ClientFilterType,
+        pub kind: ClientFilterKind,
         #[serde(default)]
         pub flags: ClientFilterFlags,
         #[serde(alias = "cert_subjects", alias = "princs")]
@@ -1301,7 +1290,7 @@ mod tests {
             .set_uri(Some("toto".to_string()))
             .set_client_filter(Some(crate::subscription::ClientFilter::try_new(
                 crate::subscription::ClientFilterOperation::Except,
-                crate::subscription::ClientFilterType::KerberosPrinc,
+                crate::subscription::ClientFilterKind::Client,
                 crate::subscription::ClientFilterFlags::empty(),
                 targets,
             )?))

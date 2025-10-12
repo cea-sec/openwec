@@ -9,7 +9,7 @@ use std::{
 use anyhow::{anyhow, bail, Context, Result};
 use bitflags::bitflags;
 use glob::Pattern;
-use log::{info, warn};
+use log::info;
 use serde::{Deserialize, Serialize};
 use strum::{AsRefStr, Display, EnumString, IntoStaticStr, VariantNames};
 use uuid::Uuid;
@@ -278,10 +278,9 @@ pub enum ClientFilterOperation {
     Default, Debug, Clone, Eq, PartialEq, Serialize, Deserialize, Display, AsRefStr, EnumString,
 )]
 #[strum(ascii_case_insensitive)]
-pub enum ClientFilterType {
+pub enum ClientFilterKind {
     #[default]
-    KerberosPrinc,
-    TLSCertSubject,
+    Client,
     MachineID,
 }
 
@@ -314,7 +313,7 @@ enum ClientFilterTargets {
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct ClientFilter {
     operation: ClientFilterOperation,
-    kind: ClientFilterType,
+    kind: ClientFilterKind,
     flags: ClientFilterFlags,
     targets: ClientFilterTargets,
 }
@@ -323,7 +322,7 @@ impl ClientFilter {
     pub fn new_legacy(operation: ClientFilterOperation, targets: HashSet<String>) -> Self {
         Self {
             operation,
-            kind: ClientFilterType::KerberosPrinc,
+            kind: ClientFilterKind::Client,
             flags: ClientFilterFlags::empty(),
             targets: ClientFilterTargets::Exact(targets),
         }
@@ -331,7 +330,7 @@ impl ClientFilter {
 
     pub fn try_new(
         operation: ClientFilterOperation,
-        kind: ClientFilterType,
+        kind: ClientFilterKind,
         flags: ClientFilterFlags,
         mut targets: HashSet<String>,
     ) -> Result<Self> {
@@ -427,20 +426,31 @@ impl ClientFilter {
     }
 
     pub fn eval(&self, client: &str, machine_id: Option<&str>) -> bool {
-        let target = match self.kind {
-            ClientFilterType::MachineID => {
-                let Some(machine_id) = machine_id else {
-                    return false;
-                };
-
-                machine_id
-            }
-            _ => client,
-        };
-
         match self.operation {
-            ClientFilterOperation::Only => self.matches(target),
-            ClientFilterOperation::Except => !self.matches(target),
+            ClientFilterOperation::Only => {
+                let target = match self.kind {
+                    ClientFilterKind::MachineID => {
+                        let Some(machine_id) = machine_id else {
+                            return false;
+                        };
+                        machine_id
+                    }
+                    _ => client,
+                };
+                self.matches(target)
+            }
+            ClientFilterOperation::Except => {
+                let target = match self.kind {
+                    ClientFilterKind::MachineID => {
+                        let Some(machine_id) = machine_id else {
+                            return true;
+                        };
+                        machine_id
+                    }
+                    _ => client,
+                };
+                !self.matches(target)
+            }
         }
     }
 
@@ -477,77 +487,11 @@ impl ClientFilter {
         Some(self.targets_to_string())
     }
 
-    #[deprecated(
-        since = "0.4.0",
-        note = "This should be used only by the legacy CLI interface. Use ClientFilter constructors instead"
-    )]
-    pub fn add_target(&mut self, target: &str) -> Result<()> {
-        match &mut self.targets {
-            ClientFilterTargets::Exact(targets) => {
-                targets.insert(target.to_owned());
-            }
-            ClientFilterTargets::Glob(targets) => {
-                targets.push(Pattern::new(target)?);
-            }
-        }
-        Ok(())
-    }
-
-    #[deprecated(
-        since = "0.4.0",
-        note = "This should be used only by the legacy CLI interface. Use ClientFilter constructors instead"
-    )]
-    pub fn delete_target(&mut self, target: &str) -> Result<()> {
-        match &mut self.targets {
-            ClientFilterTargets::Exact(targets) => {
-                if !targets.remove(target) {
-                    warn!("{} was not present in the targets set", target)
-                }
-            }
-            ClientFilterTargets::Glob(targets) => {
-                let Some(i) = targets.iter().position(|p| p.as_str() == target) else {
-                    warn!("{} was not present in the targets set", target);
-                    return Ok(());
-                };
-
-                targets.remove(i);
-            }
-        }
-
-        Ok(())
-    }
-
-    #[deprecated(
-        since = "0.4.0",
-        note = "This should be used only by the legacy CLI interface. Use ClientFilter constructors instead"
-    )]
-    pub fn set_targets(&mut self, targets: HashSet<String>) -> Result<()> {
-        match &mut self.targets {
-            ClientFilterTargets::Exact(t) => *t = targets,
-            ClientFilterTargets::Glob(t) => {
-                *t = targets
-                    .iter()
-                    .map(|t| Pattern::new(t))
-                    .collect::<Result<Vec<Pattern>, _>>()?
-            }
-        }
-
-        Ok(())
-    }
-
     pub fn operation(&self) -> &ClientFilterOperation {
         &self.operation
     }
 
-    #[deprecated(
-        since = "0.4.0",
-        note = "This should be used only by the legacy CLI interface. Use ClientFilter constructors instead"
-    )]
-    pub fn set_operation(&mut self, operation: ClientFilterOperation) {
-        self.operation = operation;
-    }
-
-    pub fn kind(&self) -> &ClientFilterType {
+    pub fn kind(&self) -> &ClientFilterKind {
         &self.kind
     }
 
@@ -1045,10 +989,10 @@ impl SubscriptionData {
         }
 
         if let Some(client_filter) = self.client_filter() {
-            return client_filter.eval(client, machine_id);
+            client_filter.eval(client, machine_id)
+        } else {
+            true
         }
-
-        true
     }
 
     pub fn revision(&self) -> Option<&String> {
@@ -1178,7 +1122,7 @@ mod tests {
 
         let filter = ClientFilter::try_new(
             ClientFilterOperation::Only,
-            ClientFilterType::default(),
+            ClientFilterKind::default(),
             ClientFilterFlags::default(),
             targets.clone(),
         )
@@ -1191,7 +1135,7 @@ mod tests {
 
         let filter = ClientFilter::try_new(
             ClientFilterOperation::Except,
-            ClientFilterType::default(),
+            ClientFilterKind::default(),
             ClientFilterFlags::default(),
             targets.clone(),
         )
@@ -1210,7 +1154,7 @@ mod tests {
 
         let filter = ClientFilter::try_new(
             ClientFilterOperation::Only,
-            ClientFilterType::MachineID,
+            ClientFilterKind::MachineID,
             ClientFilterFlags::default(),
             targets.clone(),
         )
@@ -1229,7 +1173,7 @@ mod tests {
 
         let filter = ClientFilter::try_new(
             ClientFilterOperation::Only,
-            ClientFilterType::default(),
+            ClientFilterKind::default(),
             ClientFilterFlags::GlobPattern,
             targets,
         )
@@ -1249,7 +1193,7 @@ mod tests {
 
         let filter = ClientFilter::try_new(
             ClientFilterOperation::Only,
-            ClientFilterType::default(),
+            ClientFilterKind::default(),
             ClientFilterFlags::GlobPattern | ClientFilterFlags::CaseInsensitive,
             targets,
         )
@@ -1272,14 +1216,14 @@ mod tests {
 
         let filter = ClientFilter::from(
             "only".to_string(),
-            "TLSCertSubject".to_string(),
+            "Client".to_string(),
             Some(0b11),
             Some("target1,target2".to_string()),
         )
         .expect("couldn't construct client filter");
 
         assert_eq!(*filter.operation(), ClientFilterOperation::Only);
-        assert_eq!(*filter.kind(), ClientFilterType::TLSCertSubject);
+        assert_eq!(*filter.kind(), ClientFilterKind::Client);
         assert_eq!(
             *filter.flags(),
             ClientFilterFlags::GlobPattern | ClientFilterFlags::CaseInsensitive

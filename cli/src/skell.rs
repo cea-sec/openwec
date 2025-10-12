@@ -126,17 +126,17 @@ fn get_filter() -> String {
 # - "Only": only the listed clients will be able to read the subscription
 # - "Except": everyone but the listed clients will be able to read the subscription
 #
-# Types: KerberosPrinc, TLSCertSubject, MachineID
+# Types: Client, MachineID (defaults to Client)
 #
 # Flags: GlobPattern, CaseInsensitive
 # Filters are case-sensitive by default.
 #
 # By default, everyone can read the subscription.
 #
-# Example to only authorize computers marching the "courgette@REALM" and "radis*@REALM" patterns to read the subscription.
+# Example to only authorize clients matching the "courgette@REALM" and "radis*@REALM" patterns to read the subscription.
 # [filter]
 # operation = "Only"
-# type = "KerberosPrinc"
+# type = "Client"
 # flags = "GlobPattern | CaseInsensitive"
 # targets = ["courgette@REALM", "radis*@REALM"]
 
