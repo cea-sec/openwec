@@ -1,6 +1,7 @@
 # Configuration for TLS authentication
 
-This feature is **EXPERIMENTAL**, please use carefully.
+> [!caution]
+> This feature is **EXPERIMENTAL**, please use carefully. There are known issues with our TLS implementation (see #291).
 
 This documentation describes how to set up TLS authentication. Certificates need to be generated first, then follow the rest of the documentation in parallel with [getting_started.md](getting_started.md/#configuring-windows-machines).
 
