@@ -29,8 +29,11 @@ In an Active Directory domain `DC=windomain,DC=local`, let's configure OpenWEC o
 Requirements:
 * A DNS entry for `wec.windomain.local`
 * Authorise connections from your Windows machines to `wec.windomain.local` on TCP/5985
-* An Active Directory account for OpenWEC with `http/wec.windomain.local@WINDOMAIN.LOCAL` Service Principal Name.
-* A keytab file containing keys for `http/wec.windomain.local@WINDOMAIN.LOCAL` SPN, available in `/etc/wec.windomain.local.keytab`.
+* An Active Directory account for OpenWEC with `http/wec.windomain.local@WINDOMAIN.LOCAL` **and** `host/wec.windomain.local@WINDOMAIN.LOCAL` Service Principal Name.
+* A keytab file containing keys for `http/wec.windomain.local@WINDOMAIN.LOCAL` **or** `host/wec.windomain.local@WINDOMAIN.LOCAL` SPN, available in `/etc/wec.windomain.local.keytab`.
+
+> [!note]
+> The `host/<wec>` SPN is used by default by the WinRM client since Windows Server 2025.
 
 Write the following content in `/etc/openwec.conf.toml`:
 <!--
