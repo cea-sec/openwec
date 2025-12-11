@@ -178,7 +178,7 @@ impl Serializable for SubscriptionBody {
                                                             .create_element("c:All")
                                                             // if thumbprint is defined, then we are using Tls
                                                             .write_inner_content(|writer| {
-                                                                if let Some(tmb) = &self.thumbprint {
+                                                                if let Some(thumbprints) = &self.thumbprint {
                                                                     // ---- BEGIN TLS ---- //
                                                                     writer
                                                                         .create_element(
@@ -194,18 +194,20 @@ impl Serializable for SubscriptionBody {
                                                                                 "auth:ClientCertificate",
                                                                             )
                                                                             .write_inner_content(|writer| {
-                                                                                writer
-                                                                                .create_element(
-                                                                                    "auth:Thumbprint",
-                                                                                )
-                                                                                .with_attribute((
-                                                                                    "Role",
-                                                                                    "issuer",
-                                                                                ))
-                                                                                .write_text_content(BytesText::new(
-                                                                                            //FIXME: allow multiple thumbprints
-                                                                                    tmb.first().map(String::as_str).unwrap_or(""),
-                                                                                ))?;
+                                                                                // Support multiple CA thumbprints
+                                                                                for thumbprint in thumbprints {
+                                                                                    writer
+                                                                                    .create_element(
+                                                                                        "auth:Thumbprint",
+                                                                                    )
+                                                                                    .with_attribute((
+                                                                                        "Role",
+                                                                                        "issuer",
+                                                                                    ))
+                                                                                    .write_text_content(BytesText::new(
+                                                                                        thumbprint,
+                                                                                    ))?;
+                                                                                }
                                                                                 Ok::<(), quick_xml::Error>(())
                                                                             })?;
                                                                             Ok::<(), quick_xml::Error>(())
