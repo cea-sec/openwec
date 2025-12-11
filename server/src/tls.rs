@@ -66,7 +66,7 @@ pub fn compute_thumbprint(cert_content: &[u8]) -> String {
 
 pub struct TlsConfig {
     pub server: Arc<ServerConfig>,
-    pub thumbprint: String,
+    pub thumbprints: Vec<String>,
 }
 
 /// Create configuration for TLS connection
@@ -77,18 +77,20 @@ pub fn make_config(args: &common::settings::Tls) -> Result<TlsConfig> {
         load_priv_key(args.server_private_key()).context("Could not load private key")?;
     let ca_certs = load_certs(args.ca_certificate()).context("Could not load CA certificate")?;
 
-    let ca_cert_content: &[u8] = ca_certs
-        .first()
-        .context("CA certificate should contain at least one certificate")?
-        .as_ref();
-    let thumbprint = compute_thumbprint(ca_cert_content);
-
-    debug!("CA Thumbprint from certificate : {}", thumbprint);
+    // Ensure at least one CA is present
+    if ca_certs.is_empty() {
+        bail!("CA certificate should contain at least one certificate");
+    }
 
     let mut client_auth_roots = RootCertStore::empty();
+    let mut thumbprints = Vec::new();
 
-    // Put all certificates from given CA certificate file into certificate store
+    // Compute thumbprint for each CA and add to trust store
     for root in ca_certs {
+        let thumbprint = compute_thumbprint(root.as_ref());
+        debug!("CA Thumbprint from certificate: {}", thumbprint);
+        thumbprints.push(thumbprint);
+
         client_auth_roots
             .add(root)
             .context("Could not add certificate to root of trust")?;
@@ -103,24 +105,26 @@ pub fn make_config(args: &common::settings::Tls) -> Result<TlsConfig> {
     let mut crypto_provider = default_provider();
     crypto_provider.cipher_suites = ALL_CIPHER_SUITES.to_vec();
     // make config
+
     let mut config: ServerConfig = ServerConfig::builder_with_provider(Arc::new(crypto_provider))
         .with_protocol_versions(ALL_VERSIONS)
         .context("Could not build configuration defaults")?
         .with_client_cert_verifier(client_cert_verifier) // add verifier
-        .with_single_cert(cert, priv_key) // add server vertification
+        .with_single_cert(cert, priv_key) // add server verification
         .context("Bad configuration certificate or key")?;
 
     // any http version is ok
     config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec(), b"http/1.0".to_vec()];
 
     info!(
-        "Loaded TLS configuration with server certificate {}",
-        args.server_certificate()
+        "Loaded TLS configuration with server certificate {} and {} CA(s)",
+        args.server_certificate(),
+        thumbprints.len()
     );
 
     Ok(TlsConfig {
         server: Arc::new(config),
-        thumbprint,
+        thumbprints,
     })
 }
 

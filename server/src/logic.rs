@@ -80,7 +80,7 @@ fn create_subscription_body(
                 collector.advertized_port(),
                 identifier
             ),
-            AuthenticationContext::Tls(_, _) => format!(
+            AuthenticationContext::Tls(_) => format!(
                 "https://{}:{}/wsman/subscriptions/{}",
                 collector_hostname,
                 collector.advertized_port(),
@@ -93,7 +93,12 @@ fn create_subscription_body(
         max_elements: subscription_data.max_elements(),
         max_envelope_size: subscription_data.max_envelope_size(),
         thumbprint: match auth_ctx {
-            AuthenticationContext::Tls(_, thumbprint) => Some(thumbprint.clone()),
+            AuthenticationContext::Tls(certs) => Some(
+                certs
+                    .iter()
+                    .map(|(_, thumbprint)| thumbprint.clone())
+                    .collect(),
+            ),
             AuthenticationContext::Kerberos(_) => None,
         },
         locale: subscription_data.locale().cloned(),
