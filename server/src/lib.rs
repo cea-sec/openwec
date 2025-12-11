@@ -296,20 +296,26 @@ async fn authenticate(
     addr: &SocketAddr,
 ) -> Result<(String, Builder)> {
     match auth_ctx {
-        AuthenticationContext::Tls(thumbprints) => {
-            //FIXME: allow multiple certs
-            let subject = thumbprints
-                .first()
-                .map(|(subject, _)| subject.clone())
-                .unwrap_or_default();
-            // if subject is empty, show unauthorized error
+        AuthenticationContext::Tls(cert_pairs) => {
+            // The certificate has already been validated during TLS handshake
+            // and matched against trusted CA thumbprints
+            let (subject, _thumbprint) = cert_pairs.first().ok_or_else(|| {
+                log_auth_error(
+                    addr,
+                    req,
+                    "No certificate information available".to_owned(),
+                    true,
+                );
+                anyhow!("No certificate information available")
+            })?;
+
             if subject.is_empty() {
-                log_auth_error(addr, req, "Empty certificate".to_owned(), true);
-                bail!("Empty certificate")
+                log_auth_error(addr, req, "Empty certificate subject".to_owned(), true);
+                bail!("Empty certificate subject");
             }
 
             let response = Response::builder();
-            Ok((subject.to_owned(), response))
+            Ok((subject.clone(), response))
         }
         AuthenticationContext::Kerberos(conn_state) => {
             let auth_result = kerberos::authenticate(conn_state, req)
@@ -952,8 +958,7 @@ fn create_tls_server(
             let svc_monitoring_settings = monitoring_settings.clone();
             let subscriptions = collector_subscriptions.clone();
             let collector_heartbeat_tx = collector_heartbeat_tx.clone();
-            //FIXME: allow multiple certs
-            let thumbprint = tls_config.thumbprints.first().cloned().unwrap_or_default();
+            let ca_thumbprints = tls_config.thumbprints.clone();
             let tls_acceptor = tls_acceptor.clone();
 
             // Create a "rx" channel end for the task
@@ -1007,8 +1012,20 @@ fn create_tls_server(
                 let subject =
                     subject_from_cert(cert.as_ref()).expect("Could not parse client certificate");
 
+                let client_thumbprint = tls::compute_thumbprint(cert.as_ref());
+
+                // verify that the client certificate thumbprint matches one of the trusted CA thumbprints
+                if !ca_thumbprints.contains(&client_thumbprint) {
+                    error!(
+                        "Client certificate thumbprint {} from {} does not match any trusted CA",
+                        client_thumbprint, real_client_addr
+                    );
+                    return;
+                }
+
                 // Initialize Authentication context once for each TCP connection
-                let auth_ctx = AuthenticationContext::Tls(vec![(subject, thumbprint.clone())]);
+                let auth_ctx =
+                    AuthenticationContext::Tls(vec![(subject, client_thumbprint.clone())]);
 
                 // Hyper needs a wrapper for the stream
                 let io = TokioIo::new(stream);
