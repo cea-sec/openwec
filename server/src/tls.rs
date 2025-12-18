@@ -3,6 +3,7 @@ use common::encoding::encode_utf16le;
 use hex::ToHex;
 use log::{debug, info};
 use sha1::{Digest, Sha1};
+use std::collections::HashMap;
 use std::fs;
 use std::io::BufReader;
 use std::sync::Arc;
@@ -131,6 +132,39 @@ pub fn subject_from_cert(cert: &[u8]) -> Result<String> {
 
     let oid_registry = OidRegistry::default().with_x509(); // registry of OIDs we will need
     let rdn_iter = cert.subject.iter_rdn(); // iterator on RDNs
+
+    for subject_attribute in rdn_iter {
+        // Each entry contains a list of AttributeTypeAndValue objects,
+        // so we fetch their attribute type (= the OID representing each of them)
+        let sn = subject_attribute.iter();
+
+        for set in sn {
+            // OID of the sub-entry
+            let typ = set.attr_type();
+
+            // get the SN corresponding to the OID (None if it does not exist)
+            let oid_reg = oid_registry.get(typ).map(|oid| oid.sn());
+
+            // the value we are interested in is only contained where the commonName is
+            if oid_reg == Some("commonName") {
+                // get data as text => FQDN of the client
+                if let Ok(name) = set.as_str() {
+                    return Ok(name.to_string());
+                } else {
+                    bail!("CommonName is empty")
+                }
+            }
+        }
+    }
+    bail!("CommonName not found")
+}
+
+pub fn issuer_from_cert(cert: &[u8]) -> Result<String> {
+    // load certificate to decompose its content
+    let cert = X509Certificate::from_der(cert)?.1;
+
+    let oid_registry = OidRegistry::default().with_x509(); // registry of OIDs we will need
+    let rdn_iter = cert.issuer.iter_rdn(); // iterator on RDNs
 
     for subject_attribute in rdn_iter {
         // Each entry contains a list of AttributeTypeAndValue objects,
