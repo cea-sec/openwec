@@ -79,7 +79,7 @@ It is possible to filter the clients that can see a subscription.
 
 ### Filtering types:
 * `Client`: the filter will be evaluated on client identifier, either Kerberos principal if Kerberos authentication is used or TLS certificate's subject field if TLS authentication is used.
-* `MachineID`: the filtering is done based on the name of the computer
+* `MachineID`: the filtering is done based on the name of the computer (`System.Computer`)
 
 The default is `Client`.
 
