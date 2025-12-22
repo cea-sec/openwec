@@ -1,5 +1,5 @@
 FROM alpine:3.21 AS chef
-RUN apk add --no-cache rust cargo && cargo install cargo-chef
+RUN apk add --no-cache rust cargo && cargo install --locked cargo-chef
 WORKDIR /SRC
 
 FROM chef AS planner

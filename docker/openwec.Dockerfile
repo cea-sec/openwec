@@ -1,5 +1,5 @@
-FROM rust:slim-bookworm AS chef 
-RUN cargo install cargo-chef 
+FROM rust:slim-bookworm AS chef
+RUN cargo install --locked cargo-chef
 WORKDIR /SRC
 
 FROM chef AS planner
