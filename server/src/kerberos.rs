@@ -10,7 +10,7 @@ use libgssapi::{
     credential::{Cred, CredUsage},
     error::Error,
     name::Name,
-    oid::{OidSet, GSS_MECH_KRB5, GSS_NT_KRB5_PRINCIPAL},
+    oid::{OidSet, GSS_MECH_KRB5, GSS_MECH_SPNEGO, GSS_NT_KRB5_PRINCIPAL},
     util::{GssIov, GssIovType},
 };
 use log::{debug, error};
@@ -22,9 +22,17 @@ use thiserror::Error;
 use crate::multipart;
 use crate::sldc;
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum Method {
+    Kerberos,
+    #[allow(clippy::upper_case_acronyms)]
+    SPNEGO,
+}
+
 #[derive(Debug)]
 pub struct State {
     context: Option<ServerCtx>,
+    method: Option<Method>,
 }
 
 impl State {
@@ -32,10 +40,16 @@ impl State {
         let context = setup_server_ctx(principal.as_bytes());
 
         match context {
-            Ok(ctx) => State { context: Some(ctx) },
+            Ok(ctx) => State {
+                context: Some(ctx),
+                method: None,
+            },
             Err(e) => {
                 error!("Could not setup Kerberos server context: {:?}", e);
-                State { context: None }
+                State {
+                    context: None,
+                    method: None,
+                }
             }
         }
     }
@@ -49,6 +63,7 @@ fn setup_server_ctx(principal: &[u8]) -> Result<ServerCtx, Error> {
     let desired_mechs = {
         let mut s = OidSet::new()?;
         s.add(&GSS_MECH_KRB5)?;
+        s.add(&GSS_MECH_SPNEGO)?;
         s
     };
     let name = Name::new(principal, Some(&GSS_NT_KRB5_PRINCIPAL))?;
@@ -61,6 +76,7 @@ fn setup_server_ctx(principal: &[u8]) -> Result<ServerCtx, Error> {
 pub struct AuthenticationData {
     principal: String,
     token: Option<String>,
+    method: Method,
 }
 
 impl AuthenticationData {
@@ -71,12 +87,18 @@ impl AuthenticationData {
     pub fn token(&self) -> Option<&String> {
         self.token.as_ref()
     }
+
+    pub fn method(&self) -> &Method {
+        &self.method
+    }
 }
 
 #[derive(Error, Debug)]
 pub enum AuthenticationError {
     #[error("Client request does not contain authorization header")]
     MissingAuthorizationHeader,
+    #[error("Client request authorization header is invalid")]
+    InvalidAuthorizationHeader,
     #[error(transparent)]
     Gssapi(#[from] libgssapi::error::Error),
     #[error(transparent)]
@@ -92,6 +114,7 @@ pub async fn authenticate(
 ) -> Result<AuthenticationData, AuthenticationError> {
     {
         let mut state = conn_state.lock().unwrap();
+        let method = state.method.clone();
         let server_ctx = state
             .context
             .as_mut()
@@ -102,6 +125,7 @@ pub async fn authenticate(
             return Ok(AuthenticationData {
                 principal: server_ctx.source_name()?.to_string(),
                 token: None,
+                method: method.ok_or_else(|| anyhow!("GSSAPI method is not set"))?,
             });
         }
     }
@@ -116,10 +140,19 @@ pub async fn authenticate(
     let cloned_conn_state = conn_state.clone();
 
     tokio::task::spawn_blocking(move || {
-        let b64_token = auth_header
-            .strip_prefix("Kerberos ")
-            .ok_or_else(|| anyhow!("Authorization header does not start with 'Kerberos '"))?;
+        let (b64_token_opt, method) = if auth_header.starts_with("Kerberos ") {
+            (auth_header.strip_prefix("Kerberos "), Method::Kerberos)
+        } else if auth_header.starts_with("Negotiate ") {
+            (auth_header.strip_prefix("Negotiate "), Method::SPNEGO)
+        } else {
+            return Err(AuthenticationError::InvalidAuthorizationHeader);
+        };
+
+        let b64_token = b64_token_opt
+            .ok_or_else(|| anyhow!("Authorization header is invalid: {}", auth_header))?;
+
         let mut state = cloned_conn_state.lock().unwrap();
+        state.method = Some(method.clone());
         let server_ctx = state
             .context
             .as_mut()
@@ -136,6 +169,7 @@ pub async fn authenticate(
             None => Ok(AuthenticationData {
                 principal: server_ctx.source_name()?.to_string(),
                 token: None,
+                method,
             }),
             Some(step) => {
                 // TODO: support multiple steps
@@ -159,6 +193,7 @@ pub async fn authenticate(
                 Ok(AuthenticationData {
                     principal: server_ctx.source_name()?.to_string(),
                     token: Some(base64::engine::general_purpose::STANDARD.encode(&*step)),
+                    method,
                 })
             }
         }
@@ -167,7 +202,7 @@ pub async fn authenticate(
     .map_err(|e| anyhow!("{}", e))?
 }
 
-fn get_boundary(mime: &Mime) -> Result<String> {
+fn get_boundary(mime: &Mime, method: &Method) -> Result<String> {
     if mime.type_() != "multipart" {
         bail!("Top level media type must be multipart");
     }
@@ -177,7 +212,12 @@ fn get_boundary(mime: &Mime) -> Result<String> {
     }
 
     match mime.get_param("protocol") {
-        Some(protocol) if protocol == "application/HTTP-Kerberos-session-encrypted" => {}
+        Some(protocol)
+            if *method == Method::Kerberos
+                && protocol == "application/HTTP-Kerberos-session-encrypted" => {}
+        Some(protocol)
+            if *method == Method::SPNEGO
+                && protocol == "application/HTTP-SPNEGO-session-encrypted" => {}
         _ => bail!("Invalid or missing parameter 'protocol' in Content-Type"),
     }
 
@@ -260,18 +300,30 @@ pub async fn get_request_payload(
             .to_str()?
             .parse::<Mime>()
             .context("Could not parse Content-Type header")?;
-        let boundary = get_boundary(&mime).context("Could not get multipart boundaries")?;
 
-        let encrypted_payload = multipart::read_multipart_body(&mut &*data, &boundary)
+        let method = {
+            let state = conn_state.lock().unwrap();
+            state
+                .method
+                .as_ref()
+                .ok_or_else(|| anyhow!("Unknown GSSAPI method"))?
+                .clone()
+        };
+
+        let boundary =
+            get_boundary(&mime, &method).context("Could not get multipart boundaries")?;
+        let encrypted_payload = multipart::read_multipart_body(&mut &*data, &boundary, &method)
             .context("Could not retrieve encrypted payload")?;
-        let mut state = conn_state.lock().unwrap();
-        let server_ctx = state
-            .context
-            .as_mut()
-            .ok_or_else(|| anyhow!("Kerberos server context is empty"))?;
 
-        let decrypted_message =
-            decrypt_payload(encrypted_payload, server_ctx).context("Could not decrypt payload")?;
+        let decrypted_message = {
+            let mut state = conn_state.lock().unwrap();
+            let server_ctx = state
+                .context
+                .as_mut()
+                .ok_or_else(|| anyhow!("Kerberos server context is empty"))?;
+
+            decrypt_payload(encrypted_payload, server_ctx).context("Could not decrypt payload")?
+        };
 
         let message = match parts.headers.get("Content-Encoding") {
             Some(value) if value == "SLDC" => {
@@ -302,18 +354,36 @@ pub async fn get_response_payload(
 
         let cleartext_payload_len = payload.len();
 
-        let mut state = conn_state.lock().unwrap();
-        let server_ctx = &mut state
-            .context
-            .as_mut()
-            .ok_or_else(|| anyhow!("Kerberos server context is empty"))?;
-        payload = encrypt_payload(payload, server_ctx).context("Failed to encrypt payload")?;
+        let (payload, method) = {
+            let mut state = conn_state.lock().unwrap();
+            let method = state
+                .method
+                .as_ref()
+                .ok_or_else(|| anyhow!("Unknown GSSAPI method"))?
+                .clone();
+            let server_ctx = &mut state
+                .context
+                .as_mut()
+                .ok_or_else(|| anyhow!("Kerberos server context is empty"))?;
+            payload = encrypt_payload(payload, server_ctx).context("Failed to encrypt payload")?;
+            (payload, method)
+        };
 
         Ok(multipart::get_multipart_body(
             &payload,
             cleartext_payload_len,
             &boundary,
+            &method,
         ))
     })
     .await?
+}
+
+pub fn get_response_content_type(conn_state: Arc<Mutex<State>>, boundary: &str) -> Result<String> {
+    let state = conn_state.lock().unwrap();
+    match state.method {
+        Some(Method::Kerberos) => Ok("multipart/encrypted;protocol=\"application/HTTP-Kerberos-session-encrypted\";boundary=\"".to_owned() + boundary + "\""),
+        Some(Method::SPNEGO)=> Ok("multipart/encrypted;protocol=\"application/HTTP-SPNEGO-session-encrypted\";boundary=\"".to_owned() + boundary + "\""),
+        _ => bail!("Invalid GSSAPI Method")
+    }
 }

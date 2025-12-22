@@ -5,7 +5,13 @@ use log::debug;
 use mime::Mime;
 use std::io::{BufReader, Read};
 
-pub fn read_multipart_body<S: Read>(stream: &mut S, boundary: &str) -> Result<Vec<u8>> {
+use crate::kerberos;
+
+pub fn read_multipart_body<S: Read>(
+    stream: &mut S,
+    boundary: &str,
+    method: &kerberos::Method,
+) -> Result<Vec<u8>> {
     let mut reader = BufReader::with_capacity(4096, stream);
 
     let mut buf: Vec<u8> = Vec::new();
@@ -46,8 +52,17 @@ pub fn read_multipart_body<S: Read>(stream: &mut S, boundary: &str) -> Result<Ve
                     if mime.type_() != "application" {
                         bail!("Wrong encapsulated multipart type");
                     }
-                    if mime.subtype() != "HTTP-Kerberos-session-encrypted" {
-                        bail!("Wrong encapsulated multipart sub type");
+
+                    let expected_sub_type = match method {
+                        kerberos::Method::Kerberos => "HTTP-Kerberos-session-encrypted",
+                        kerberos::Method::SPNEGO => "HTTP-SPNEGO-session-encrypted",
+                    };
+                    if mime.subtype() != expected_sub_type {
+                        bail!(
+                            "Wrong encapsulated multipart sub type. Expected \"{}\", found \"{}\"",
+                            expected_sub_type,
+                            mime.subtype()
+                        );
                     }
                 }
                 if header.name == "OriginalContent" {
@@ -111,6 +126,7 @@ pub fn get_multipart_body(
     encrypted_payload: &[u8],
     cleartext_payload_len: usize,
     boundary: &str,
+    method: &kerberos::Method,
 ) -> Vec<u8> {
     let mut body = Vec::with_capacity(4096);
 
@@ -118,9 +134,13 @@ pub fn get_multipart_body(
     let end_boundary = "--".to_owned() + boundary + "--\r\n";
 
     body.extend_from_slice(middle_boundary.as_bytes());
-    body.extend_from_slice(
-        "Content-Type: application/HTTP-Kerberos-session-encrypted\r\n".as_bytes(),
-    );
+    let content_type = match method {
+        kerberos::Method::Kerberos => {
+            "Content-Type: application/HTTP-Kerberos-session-encrypted\r\n"
+        }
+        kerberos::Method::SPNEGO => "Content-Type: application/HTTP-SPNEGO-session-encrypted\r\n",
+    };
+    body.extend_from_slice(content_type.as_bytes());
 
     let mut buffer = itoa::Buffer::new();
     body.extend_from_slice(
@@ -143,14 +163,30 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_multipart() -> Result<()> {
+    fn test_multipart_kerberos() -> Result<()> {
         let payload = "this is a very good payload".to_owned();
         let length = payload.len();
         let boundary = "super cool boundary";
+        let method = kerberos::Method::Kerberos;
 
-        let body = get_multipart_body(&payload.as_bytes(), length, boundary);
+        let body = get_multipart_body(&payload.as_bytes(), length, boundary, &method);
 
-        let received_payload = read_multipart_body(&mut &*body, boundary)?;
+        let received_payload = read_multipart_body(&mut &*body, boundary, &method)?;
+        assert_eq!(payload.as_bytes(), received_payload);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_multipart_spnego() -> Result<()> {
+        let payload = "this is a very bad payload".to_owned();
+        let length = payload.len();
+        let boundary = "super cool boundary";
+        let method = kerberos::Method::SPNEGO;
+
+        let body = get_multipart_body(&payload.as_bytes(), length, boundary, &method);
+
+        let received_payload = read_multipart_body(&mut &*body, boundary, &method)?;
         assert_eq!(payload.as_bytes(), received_payload);
 
         Ok(())

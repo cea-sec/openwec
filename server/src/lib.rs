@@ -258,7 +258,10 @@ async fn create_response(
         AuthenticationContext::Kerberos(conn_state) => {
             let boundary = "Encrypted Boundary".to_owned();
             if payload.is_some() {
-                response = response.header(CONTENT_TYPE, "multipart/encrypted;protocol=\"application/HTTP-Kerberos-session-encrypted\";boundary=\"".to_owned() + &boundary + "\"");
+                let content_type =
+                    kerberos::get_response_content_type(conn_state.clone(), &boundary)?;
+                debug!("Response Content-Type header value is: {}", content_type);
+                response = response.header(CONTENT_TYPE, content_type);
             }
             let body = match payload {
                 None => empty(),
@@ -328,7 +331,11 @@ async fn authenticate(
             let mut response = Response::builder();
 
             if let Some(token) = auth_result.token() {
-                response = response.header(WWW_AUTHENTICATE, format!("Kerberos {}", token))
+                let auth_method = match auth_result.method() {
+                    kerberos::Method::Kerberos => "Kerberos",
+                    kerberos::Method::SPNEGO => "Negotiate",
+                };
+                response = response.header(WWW_AUTHENTICATE, format!("{} {}", auth_method, token))
             }
             Ok((auth_result.principal().to_owned(), response))
         }
@@ -508,6 +515,7 @@ async fn handle(
                 return Ok(Response::builder()
                     .status(status)
                     .header(WWW_AUTHENTICATE, "Kerberos")
+                    .header(WWW_AUTHENTICATE, "Negotiate")
                     .body(empty())
                     .expect("Failed to build HTTP response"));
             } else {
