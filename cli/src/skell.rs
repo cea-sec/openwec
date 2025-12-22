@@ -121,17 +121,21 @@ fn get_filter() -> String {
     r#"
 # Subscription filter (optional)
 #
+# By default, everyone can read the subscription.
+#
 # Filters enables you to choose which clients can read the subscription
 # There are two operations available:
 # - "Only": only the listed clients will be able to read the subscription
 # - "Except": everyone but the listed clients will be able to read the subscription
 #
-# Types: Client, MachineID (defaults to Client)
+# You can filter based on the following types:
+# - Client: defines clients based on their identifier (from authentication)
+# - MachineID: defines clients based on their System.Computer
+# The default value is "Client"
 #
-# Flags: GlobPattern, CaseInsensitive
-# Filters are case-sensitive by default.
-#
-# By default, everyone can read the subscription.
+# Multiple flags can be combined using the bitwise OR operator "|":
+# - GlobPattern: targets are interpreted as glob patterns (e.g. "radis*@REALM")
+# - CaseInsensitive: targets are compared in a case-insensitive way (off by default)
 #
 # Example to only authorize clients matching the "courgette@REALM" and "radis*@REALM" patterns to read the subscription.
 # [filter]
