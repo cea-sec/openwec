@@ -1,7 +1,10 @@
 use std::collections::{HashMap, HashSet};
 
 use anyhow::{bail, Context, Result};
-use serde::Deserialize;
+use bitflags::bitflags;
+use serde::{Deserialize, Serialize};
+use std::fmt::{Display, Formatter};
+use strum::{AsRefStr, Display, EnumString};
 use uuid::Uuid;
 
 use crate::{
@@ -200,36 +203,87 @@ impl From<SubscriptionOutputFormat> for crate::subscription::SubscriptionOutputF
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Deserialize)]
-enum PrincsFilterOperation {
+enum ClientFilterOperation {
     Only,
     Except,
 }
 
-impl From<PrincsFilterOperation> for crate::subscription::PrincsFilterOperation {
-    fn from(value: PrincsFilterOperation) -> Self {
+impl From<ClientFilterOperation> for crate::subscription::ClientFilterOperation {
+    fn from(value: ClientFilterOperation) -> Self {
         match value {
-            PrincsFilterOperation::Except => crate::subscription::PrincsFilterOperation::Except,
-            PrincsFilterOperation::Only => crate::subscription::PrincsFilterOperation::Only,
+            ClientFilterOperation::Except => crate::subscription::ClientFilterOperation::Except,
+            ClientFilterOperation::Only => crate::subscription::ClientFilterOperation::Only,
         }
+    }
+}
+
+#[derive(
+    Default, Debug, Clone, Eq, PartialEq, Serialize, Deserialize, Display, AsRefStr, EnumString,
+)]
+#[strum(ascii_case_insensitive)]
+pub enum ClientFilterKind {
+    #[default]
+    Client,
+    MachineID,
+}
+
+impl From<ClientFilterKind> for crate::subscription::ClientFilterKind {
+    fn from(value: ClientFilterKind) -> Self {
+        match value {
+            ClientFilterKind::Client => crate::subscription::ClientFilterKind::Client,
+            ClientFilterKind::MachineID => crate::subscription::ClientFilterKind::MachineID,
+        }
+    }
+}
+
+bitflags! {
+    #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
+    pub struct ClientFilterFlags: u32 {
+        const CaseInsensitive = 1 << 0;
+        const GlobPattern = 1 << 1;
+    }
+}
+
+impl From<ClientFilterFlags> for crate::subscription::ClientFilterFlags {
+    fn from(value: ClientFilterFlags) -> Self {
+        crate::subscription::ClientFilterFlags::from_bits(value.bits()).unwrap()
+    }
+}
+
+impl Display for ClientFilterFlags {
+    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+        bitflags::parser::to_writer_strict(self, f)
+    }
+}
+
+impl Default for ClientFilterFlags {
+    fn default() -> Self {
+        Self::empty()
     }
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct PrincsFilter {
-    pub operation: Option<PrincsFilterOperation>,
-    pub princs: HashSet<String>,
+struct ClientFilter {
+    pub operation: ClientFilterOperation,
+    #[serde(rename = "type", default)]
+    pub kind: ClientFilterKind,
+    #[serde(default)]
+    pub flags: ClientFilterFlags,
+    #[serde(alias = "cert_subjects", alias = "princs")]
+    pub targets: HashSet<String>,
 }
 
-impl TryFrom<PrincsFilter> for crate::subscription::PrincsFilter {
+impl TryFrom<ClientFilter> for crate::subscription::ClientFilter {
     type Error = anyhow::Error;
 
-    fn try_from(value: PrincsFilter) -> std::prelude::v1::Result<Self, Self::Error> {
-        let mut filter = crate::subscription::PrincsFilter::empty();
-        let operation = value.operation.map(|op| op.into());
-        filter.set_operation(operation);
-        filter.set_princs(value.princs)?;
-        Ok(filter)
+    fn try_from(value: ClientFilter) -> std::prelude::v1::Result<Self, Self::Error> {
+        crate::subscription::ClientFilter::try_new(
+            value.operation.into(),
+            value.kind.into(),
+            value.flags.into(),
+            value.targets,
+        )
     }
 }
 
@@ -320,7 +374,7 @@ struct Subscription {
     pub version: Uuid,
     pub name: String,
     pub query: String,
-    pub filter: Option<PrincsFilter>,
+    pub filter: Option<ClientFilter>,
     pub outputs: Vec<SubscriptionOutput>,
     pub options: Option<SubscriptionOptions>,
 }
@@ -335,7 +389,7 @@ impl TryFrom<Subscription> for crate::subscription::SubscriptionData {
         data.set_name(subscription.name.clone());
         data.set_query(subscription.query.clone());
         if let Some(filter) = subscription.filter {
-            data.set_princs_filter(filter.try_into()?);
+            data.set_client_filter(Some(filter.try_into()?));
         }
 
         if subscription.outputs.is_empty() {
@@ -497,7 +551,7 @@ format = "Json" # or "Raw"
 enabled = true
 
 [outputs.config]
-path = "/whatever/you/{ip}/want/{principal}/{ip:2}/{node}/end"
+path = "/whatever/you/{ip}/want/{client}/{ip:2}/{node}/end"
     "#;
 
     #[test]
@@ -532,7 +586,7 @@ path = "/whatever/you/{ip}/want/{principal}/{ip:2}/{node}/end"
                 crate::subscription::SubscriptionOutputFormat::Json,
                 crate::subscription::SubscriptionOutputDriver::Files(
                     crate::subscription::FilesConfiguration::new(
-                        "/tmp/{ip:2}/{ip:3}/{ip}/{principal}/{node}/courgette".to_string(),
+                        "/tmp/{ip:2}/{ip:3}/{ip}/{client}/{node}/courgette".to_string(),
                     ),
                 ),
                 true,
@@ -626,7 +680,7 @@ path = "/whatever/you/{ip}/want/{principal}/{ip:2}/{node}/end"
                 crate::subscription::SubscriptionOutputFormat::Json,
                 crate::subscription::SubscriptionOutputDriver::Files(
                     crate::subscription::FilesConfiguration::new(
-                        "/whatever/you/{ip}/want/{principal}/{ip:2}/{node}/end".to_string(),
+                        "/whatever/you/{ip}/want/{client}/{ip:2}/{node}/end".to_string(),
                     ),
                 ),
                 true,
@@ -635,14 +689,19 @@ path = "/whatever/you/{ip}/want/{principal}/{ip:2}/{node}/end"
 
         expected.set_outputs(outputs);
 
-        let mut filter = crate::subscription::PrincsFilter::empty();
-        filter.set_operation(Some(crate::subscription::PrincsFilterOperation::Only));
-        let mut princs = HashSet::new();
-        princs.insert("toto@windomain.local".to_string());
-        princs.insert("tutu@windomain.local".to_string());
-        filter.set_princs(princs)?;
+        let mut targets = HashSet::new();
+        targets.insert("toto@windomain.local".to_string());
+        targets.insert("tutu@windomain.local".to_string());
+        let kind = crate::subscription::ClientFilterKind::Client;
+        let flags = crate::subscription::ClientFilterFlags::empty();
+        let filter = crate::subscription::ClientFilter::try_new(
+            crate::subscription::ClientFilterOperation::Only,
+            kind,
+            flags,
+            targets,
+        )?;
 
-        expected.set_princs_filter(filter);
+        expected.set_client_filter(Some(filter));
 
         // The only difference between both subscriptions should be the
         // internal version, so we set both the same value
@@ -824,7 +883,7 @@ query = """
 [[outputs]]
 driver = "Files"
 format = "Raw"
-config = { path = "/data/logs/{ip}/{principal}/messages" }
+config = { path = "/data/logs/{ip}/{client}/messages" }
 
 # Subscription outputs
 [[outputs]]
@@ -867,7 +926,7 @@ config = { topic = "my-kafka-topic", options = { "bootstrap.servers" = "localhos
                 crate::subscription::SubscriptionOutputFormat::Raw,
                 crate::subscription::SubscriptionOutputDriver::Files(
                     crate::subscription::FilesConfiguration::new(
-                        "/data/logs/{ip}/{principal}/messages".to_string(),
+                        "/data/logs/{ip}/{client}/messages".to_string(),
                     ),
                 ),
                 true,
@@ -888,6 +947,68 @@ config = { topic = "my-kafka-topic", options = { "bootstrap.servers" = "localhos
 
         // The only difference between both subscriptions should be the
         // internal version, so we set both the same value
+        let version = Uuid::new_v4();
+        // Must be done last
+        expected.set_internal_version(crate::subscription::InternalVersion(version.clone()));
+        data.set_internal_version(crate::subscription::InternalVersion(version.clone()));
+
+        assert_eq!(data, expected);
+        Ok(())
+    }
+
+    const CLIENT_FILTER_CONF: &str = r#"
+uuid = "28fcc206-1336-4e4a-b76b-18b0ab46e585"
+name = "my-test-subscription"
+query = "<QueryList></QueryList>"
+
+[[outputs]]
+driver = "Files"
+format = "Raw"
+config = { path = "/data/logs/{ip}/{client}/messages" }
+
+[filter]
+operation = "Only"
+type = "Client"
+flags = "GlobPattern | CaseInsensitive"
+targets = ["radis*@REALM"]
+
+    "#;
+
+    #[test]
+    fn test_client_filter() -> Result<()> {
+        let mut data = parse(CLIENT_FILTER_CONF, None)?;
+
+        let mut expected = crate::subscription::SubscriptionData::new(
+            "my-test-subscription",
+            "<QueryList></QueryList>",
+        );
+        expected.set_uuid(crate::subscription::SubscriptionUuid(Uuid::from_str(
+            "28fcc206-1336-4e4a-b76b-18b0ab46e585",
+        )?));
+
+        let outputs = vec![crate::subscription::SubscriptionOutput::new(
+            crate::subscription::SubscriptionOutputFormat::Raw,
+            crate::subscription::SubscriptionOutputDriver::Files(
+                crate::subscription::FilesConfiguration::new(
+                    "/data/logs/{ip}/{client}/messages".to_string(),
+                ),
+            ),
+            true,
+        )];
+
+        expected.set_outputs(outputs);
+
+        let operation = crate::subscription::ClientFilterOperation::Only;
+        let kind = crate::subscription::ClientFilterKind::Client;
+        let flags = crate::subscription::ClientFilterFlags::GlobPattern
+            | crate::subscription::ClientFilterFlags::CaseInsensitive;
+
+        let mut targets = HashSet::new();
+        targets.insert("radis*@REALM".to_string());
+
+        let filter = crate::subscription::ClientFilter::try_new(operation, kind, flags, targets)?;
+        expected.set_client_filter(Some(filter));
+
         let version = Uuid::new_v4();
         // Must be done last
         expected.set_internal_version(crate::subscription::InternalVersion(version.clone()));

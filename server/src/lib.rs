@@ -93,7 +93,7 @@ impl TryFrom<&Request<Incoming>> for RequestCategory {
 }
 
 pub struct RequestData {
-    principal: String,
+    client: String,
     remote_addr: SocketAddr,
     category: RequestCategory,
     uri: String,
@@ -101,9 +101,9 @@ pub struct RequestData {
 }
 
 impl RequestData {
-    fn new(principal: &str, remote_addr: &SocketAddr, req: &Request<Incoming>) -> Result<Self> {
+    fn new(client: &str, remote_addr: &SocketAddr, req: &Request<Incoming>) -> Result<Self> {
         Ok(RequestData {
-            principal: principal.to_owned(),
+            client: client.to_owned(),
             remote_addr: remote_addr.to_owned(),
             category: RequestCategory::try_from(req)?,
             method: req.method().to_string(),
@@ -111,9 +111,9 @@ impl RequestData {
         })
     }
 
-    /// Get a reference to the request data's principal.
-    pub fn principal(&self) -> &str {
-        self.principal.as_ref()
+    /// Get a reference to the request data's client.
+    pub fn client(&self) -> &str {
+        self.client.as_ref()
     }
 
     /// Get a reference to the request data's remote addr.
@@ -195,7 +195,7 @@ async fn get_request_payload(
         {
             counter!(HTTP_REQUEST_BODY_NETWORK_SIZE_BYTES_COUNTER,
                 HTTP_REQUEST_URI => request_data.uri().to_string(),
-                MACHINE => request_data.principal().to_string())
+                MACHINE => request_data.client().to_string())
         }
         _ => {
             counter!(HTTP_REQUEST_BODY_NETWORK_SIZE_BYTES_COUNTER,
@@ -219,7 +219,7 @@ async fn get_request_payload(
                 {
                     counter!(HTTP_REQUEST_BODY_REAL_SIZE_BYTES_COUNTER,
                         HTTP_REQUEST_URI => request_data.uri().to_string(),
-                        MACHINE => request_data.principal().to_string())
+                        MACHINE => request_data.client().to_string())
                 }
                 _ => {
                     counter!(HTTP_REQUEST_BODY_REAL_SIZE_BYTES_COUNTER,
@@ -436,7 +436,7 @@ fn log_response(
     uri: &str,
     start: &Instant,
     status: StatusCode,
-    principal: &str,
+    client: &str,
     conn_status: ConnectionStatus,
 ) {
     let duration = start.elapsed().as_secs_f64();
@@ -458,7 +458,9 @@ fn log_response(
     log_mdc::insert("response_time", format!("{:.3}", duration * 1000.0));
     log_mdc::insert("ip", addr.ip().to_string());
     log_mdc::insert("port", addr.port().to_string());
-    log_mdc::insert("principal", principal);
+    log_mdc::insert("client", client);
+    // "principal" is kept for compatibility
+    log_mdc::insert("principal", client);
     log_mdc::insert("conn_status", conn_status.as_str());
 
     // Empty message, logging pattern should use MDC
@@ -498,8 +500,8 @@ async fn handle(
     let uri = req.uri().to_string();
 
     // Check authentication
-    let (principal, mut response_builder) = match authenticate(&auth_ctx, &req, &addr).await {
-        Ok((principal, builder)) => (principal, builder),
+    let (client, mut response_builder) = match authenticate(&auth_ctx, &req, &addr).await {
+        Ok((client, builder)) => (client, builder),
         Err(_) => {
             let status = StatusCode::UNAUTHORIZED;
             log_response(
@@ -524,9 +526,9 @@ async fn handle(
         }
     };
 
-    debug!("Successfully authenticated {}", principal);
+    debug!("Successfully authenticated {}", client);
 
-    let request_data = match RequestData::new(&principal, &addr, &req) {
+    let request_data = match RequestData::new(&client, &addr, &req) {
         Ok(request_data) => request_data,
         Err(e) => {
             error!("Failed to compute request data: {:?}", e);
@@ -537,7 +539,7 @@ async fn handle(
                 &uri,
                 &start,
                 status,
-                &principal,
+                &client,
                 ConnectionStatus::Alive,
             );
             return Ok(build_error_response(status));
@@ -557,7 +559,7 @@ async fn handle(
                     &uri,
                     &start,
                     status,
-                    &principal,
+                    &client,
                     ConnectionStatus::Alive,
                 );
                 return Ok(build_error_response(status));
@@ -587,7 +589,7 @@ async fn handle(
     let auth_ctx_cloned = auth_ctx.clone();
     let method_cloned = method.clone();
     let uri_cloned = uri.clone();
-    let principal_cloned = principal.clone();
+    let client_cloned = client.clone();
 
     tokio::spawn(async move {
         let res = handle_payload(
@@ -628,7 +630,7 @@ async fn handle(
                 &uri_cloned,
                 &start,
                 status,
-                &principal_cloned,
+                &client_cloned,
                 ConnectionStatus::Aborted,
             );
         }
@@ -646,7 +648,7 @@ async fn handle(
                 &uri,
                 &start,
                 status,
-                &principal,
+                &client,
                 ConnectionStatus::Alive,
             );
             return Ok(build_error_response(status));
@@ -661,7 +663,7 @@ async fn handle(
                 &uri,
                 &start,
                 status,
-                &principal,
+                &client,
                 ConnectionStatus::Alive,
             );
             return Ok(build_error_response(status));
@@ -687,7 +689,7 @@ async fn handle(
                 &uri,
                 &start,
                 status,
-                &principal,
+                &client,
                 ConnectionStatus::Alive,
             );
             return Ok(build_error_response(status));
@@ -700,7 +702,7 @@ async fn handle(
         &uri,
         &start,
         response.status(),
-        &principal,
+        &client,
         ConnectionStatus::Alive,
     );
     Ok(response)

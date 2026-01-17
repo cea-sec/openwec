@@ -13,7 +13,7 @@ The XML schema is defined in the Windows SDK (see [event.xsd](event.xsd)).
 ## Json Raw format
 
 OpenWEC can add useful metadata to events, such as:
-- The Windows client principal that sent an event
+- The Windows client identifier that sent an event
 - The Windows client IP address that sent an event
 - The time when the event was received
 - the OpenWEC subscription that received the event
@@ -61,7 +61,7 @@ openwec_data := {
 
 Using this format, raw XML events are parsed and then serialized using Json.
 
-In addition, OpenWEC adds some data that may be useful: the Windows client IP address, its principal, the time when the event was received and the OpenWEC subscription.
+In addition, OpenWEC adds some data that may be useful: the Windows client IP address, its identifier (Kerberos Principal or TLS subject), the time when the event was received and the OpenWEC subscription.
 
 The JSON document generated uses the following structure:
 ```json

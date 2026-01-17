@@ -69,25 +69,36 @@ In its configuration UI, Microsoft WEC enables users to choose between three eve
 
 In its documentation, Microsoft states that Normal mode uses a Pull delivery mode (meaning that its the collector who connects to Windows machines and retrieve their event logs). It seems to be a mistake, as the exported configuration of a subscription configured in Normal mode clearly specifies that it is SourceInitiated in Push mode.
 
-## Principals filter
+## Client filter
 
-It is possible to filter the client Kerberos principals that can see a subscription. The comparison is **case-sensitive**.
+It is possible to filter the clients that can see a subscription.
 
-There are three filtering modes:
-* `None` (default): no filtering based on Kerberos principal
-* `Only [princ, ...]`: the subscription will only be shown to the listed principals
-* `Except [princ, ...]`: the subscription will be shown to everyone except the listed principals
+### Filtering modes:
+* `Only`: the subscription will only be shown to the listed clients
+* `Except`: the subscription will be shown to everyone except the listed clients
 
-The principals filter can be configured using openwec cli:
-*  `openwec subscriptions edit <subscription> filter set <mode> [princ, ...]` configures the principals filter.
-*  `openwec subscriptions edit <subscription> filter princs {add,delete,set} [princ, ...]` manages the principals in the filter.
+### Filtering types:
+* `Client`: the filter will be evaluated on client identifier, either Kerberos principal if Kerberos authentication is used or TLS certificate's subject field if TLS authentication is used.
+* `MachineID`: the filtering is done based on the name of the computer (`System.Computer`)
 
+The default is `Client`.
+
+> [!warning]
+> `MachineID` is not cryptographically authenticated information, it can be spoofed.
+> For more info, see [Hunting rogue Windows Event Forwarder](issues.md#hunting-rogue-windows-event-forwarder).
+
+### Filtering flags:
+* `GlobPattern`: Glob patterns like `*` and `?` can be used in `targets`
+* `CaseInsensitive`: Filter matching will be case-insensitive
+
+Flags are composable using the `|` operator.
+The comparison is **case-sensitive** by default.
 
 ## Configuration
 
 There are two methods available to configure subscriptions:
 - using configuration files (recommended)
-- using the `openwec` command line interface (`openwec subscriptions`)
+- using the `openwec` command line interface (`openwec subscriptions`) (deprecated)
 
 ## Configuration Files
 
@@ -111,7 +122,7 @@ query = """
 [[outputs]]
 driver = "Files"
 format = "Raw"
-config = { path = "/var/log/openwec/{ip}/{principal}/messages" }
+config = { path = "/var/log/openwec/{ip}/{client}/messages" }
 ```
 
 Note: `uuid` and `name` must be unique for each subscription.
@@ -238,7 +249,7 @@ Subscription my-super-subscription
 	ReadExistingEvents: false
 	ContentFormat: Raw
 	IgnoreChannelError: true
-	Principal filter: Not configured
+	Client filter: Not configured
 	Outputs: Not configured
 	Enabled: false
 
@@ -285,7 +296,7 @@ Subscription this-is-a-clone
 	ReadExistingEvents: false
 	ContentFormat: Raw
 	IgnoreChannelError: true
-	Principal filter: Not configured
+	Client filter: Not configured
 	Outputs: None
 	Enabled: false
 
@@ -352,7 +363,7 @@ $ openwec subscriptions delete windows-subscription
 Are you sure that you want to delete "windows-subscription" (92A7836D-96FC-4EE5-9E45-03D0618607DE) ? [y/n] y
 ```
 
-### `openwec subscriptions machines`
+### `openwec subscriptions clients`
 
 This command enables you to retrieve the list of clients attached to a subscription.
 
@@ -363,7 +374,7 @@ You may filter on status:
 
 If you only want numbers, check `openwec stats` command.
 
-The output format is `<IP ADDRESS>:<PRINCIPAL>`.
+The output format is `<IP ADDRESS>:<IDENTIFIER>`.
 
 #### Usage
 

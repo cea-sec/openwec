@@ -34,7 +34,7 @@ Each output is composed of two elements: a **driver** and a **format**.
 Drivers answer the question "*what should openwec do with collected events*".
 
 Currently there are several supported drivers:
-* `Files`: Events are stored in files. You must specify a path that can contain variables such as the IP of the client or its Kerberos principal.
+* `Files`: Events are stored in files. You must specify a path that can contain variables such as the IP of the client or its identifier.
 * `TCP`: Events are sent to a TCP server. You must specify a host and port.
 * `Kafka`: Events are sent in a Kafka topic. You need to specify the name of the Kafka topic and the usual Kafka settings such as *bootstrap servers*.
 * `UnixDatagram`: Events are sent in a Unix domain socket.
@@ -44,8 +44,8 @@ Currently there are several supported drivers:
 
 The OpenWEC server can parse each event and format it. There are several formatters available:
 * `Raw`: as its name suggests, it does nothing to the events. It just writes raw XML data. *Warning: each event may contain EOL characters which are neither filtered nor transformed*.
-* `Json`: format events in Json. Json schema is documented [there](formats.md). When using the `Json` formatter, OpenWEC parses XML events and is able to add useful data such as the Kerberos principal or the IP address that sent the event.
-* `RawJson`: encapsulates the raw XML data in a json document. OpenWEC does not parse the XML event, but can still add useful metadata such as the Kerberos principal or the IP address that sent the event.
+* `Json`: format events in Json. Json schema is documented [there](formats.md). When using the `Json` formatter, OpenWEC parses XML events and is able to add useful data such as the identifier or the IP address of the client that sent the event.
+* `RawJson`: encapsulates the raw XML data in a json document. OpenWEC does not parse the XML event, but can still add useful metadata such as the identifier or the IP address of the client that sent the event.
 * `Nxlog`: format events in Json which mimics the output of the `im_msvistalog` module of Nxlog. 
 
 ## Bookmarks

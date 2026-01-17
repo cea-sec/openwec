@@ -122,7 +122,7 @@ async fn handle_enumerate(
         "Received Enumerate request from {}:{} ({}) with URI {}",
         request_data.remote_addr.ip(),
         request_data.remote_addr.port(),
-        request_data.principal(),
+        request_data.client(),
         uri
     );
 
@@ -179,14 +179,16 @@ async fn handle_enumerate(
             _ => (),
         }
 
-        // Skip subscriptions that filter out this principal
-        if !subscription_data.is_active_for(request_data.principal()) {
+        // Skip subscriptions that filter out this client
+        let machine_id = message.header().machine_id().map(|m| m.as_str());
+        if !subscription_data.is_active_for(request_data.client(), machine_id) {
             debug!(
-                "Skip subscription \"{}\" ({}) which principals filter {:?} rejects {}",
+                "Skip subscription \"{}\" ({}) which client filter {:?} rejects {} ({})",
                 subscription_data.name(),
                 subscription_data.uuid(),
-                subscription_data.princs_filter(),
-                request_data.principal()
+                subscription_data.client_filter(),
+                request_data.client(),
+                machine_id.unwrap_or("unknown MachineID"),
             );
             continue;
         }
@@ -237,7 +239,7 @@ async fn handle_enumerate(
         );
 
         let mut bookmark: Option<String> = db
-            .get_bookmark(request_data.principal(), &subscription_data.uuid_string())
+            .get_bookmark(request_data.client(), &subscription_data.uuid_string())
             .await
             .context("Failed to retrieve current bookmark from database")?;
 
@@ -248,7 +250,7 @@ async fn handle_enumerate(
 
         debug!(
             "Load bookmark of {} for subscription {}: {:?}",
-            request_data.principal(),
+            request_data.client(),
             subscription_data.uuid(),
             bookmark
         );
@@ -298,7 +300,7 @@ async fn handle_heartbeat(
                     "Received Heartbeat from {}:{} ({}) for unknown subscription {}",
                     request_data.remote_addr().ip(),
                     request_data.remote_addr().port(),
-                    request_data.principal(),
+                    request_data.client(),
                     subscription_uuid
                 );
                 return Ok(Response::err(StatusCode::NOT_FOUND));
@@ -306,12 +308,17 @@ async fn handle_heartbeat(
         }
     };
 
-    if !subscription.data().is_active_for(request_data.principal()) {
+    let machine_id = message.header().machine_id().map(|m| m.as_str());
+    if !subscription
+        .data()
+        .is_active_for(request_data.client(), machine_id)
+    {
         debug!(
-            "Received Heartbeat from {}:{} ({}) for subscription {} ({}) but the principal is not allowed to use the subscription.",
+            "Received Heartbeat from {}:{} ({}, {}) for subscription {} ({}) but the client is not allowed to use the subscription.",
             request_data.remote_addr().ip(),
             request_data.remote_addr().port(),
-            request_data.principal(),
+            request_data.client(),
+            machine_id.unwrap_or("unknown MachineID"),
             subscription.data().name(),
             subscription.uuid_string()
         );
@@ -322,14 +329,14 @@ async fn handle_heartbeat(
         "Received Heartbeat from {}:{} ({:?}) for subscription {} ({})",
         request_data.remote_addr().ip(),
         request_data.remote_addr().port(),
-        request_data.principal(),
+        request_data.client(),
         subscription.data().name(),
         subscription.uuid_string(),
     );
 
     store_heartbeat(
         heartbeat_tx,
-        request_data.principal(),
+        request_data.client(),
         request_data.remote_addr().ip().to_string(),
         &subscription.uuid_string(),
         false,
@@ -436,12 +443,17 @@ async fn handle_events(
             }
         };
 
-        if !subscription.data().is_active_for(request_data.principal()) {
+        let machine_id = message.header().machine_id().map(|m| m.as_str());
+        if !subscription
+            .data()
+            .is_active_for(request_data.client(), machine_id)
+        {
             debug!(
-                "Received Events from {}:{} ({}) for subscription {} ({}) but the principal is not allowed to use this subscription.",
+                "Received Events from {}:{} ({}, {}) for subscription {} ({}) but the client is not allowed to use this subscription.",
                 request_data.remote_addr().ip(),
                 request_data.remote_addr().port(),
-                request_data.principal(),
+                request_data.client(),
+                machine_id.unwrap_or("unknown MachineID"),
                 subscription.data().name(),
                 subscription.uuid_string(),
             );
@@ -461,7 +473,7 @@ async fn handle_events(
             events.len(),
             request_data.remote_addr().ip(),
             request_data.remote_addr().port(),
-            request_data.principal(),
+            request_data.client(),
             subscription.data().name(),
             subscription.uuid_string()
         );
@@ -473,7 +485,7 @@ async fn handle_events(
                 counter!(INPUT_EVENTS_COUNTER,
                     SUBSCRIPTION_NAME => subscription.data().name().to_owned(),
                     SUBSCRIPTION_UUID => subscription.uuid_string(),
-                    MACHINE => request_data.principal().to_string())
+                    MACHINE => request_data.client().to_string())
             }
             _ => {
                 counter!(INPUT_EVENTS_COUNTER,
@@ -488,7 +500,7 @@ async fn handle_events(
                 counter!(INPUT_EVENT_BYTES_COUNTER,
                     SUBSCRIPTION_NAME => subscription.data().name().to_owned(),
                     SUBSCRIPTION_UUID => subscription.uuid_string(),
-                    MACHINE => request_data.principal().to_string())
+                    MACHINE => request_data.client().to_string())
             }
             _ => {
                 counter!(INPUT_EVENT_BYTES_COUNTER,
@@ -505,7 +517,7 @@ async fn handle_events(
 
         let metadata = Arc::new(EventMetadata::new(
             request_data.remote_addr(),
-            request_data.principal(),
+            request_data.client(),
             server.node_name().cloned(),
             &subscription,
             public_version.clone(),
@@ -610,26 +622,22 @@ async fn handle_events(
             .bookmarks()
             .ok_or_else(|| anyhow!("Missing bookmarks in request payload"))?;
         // Store bookmarks and heartbeats
-        db.store_bookmark(
-            request_data.principal(),
-            &subscription.uuid_string(),
-            bookmark,
-        )
-        .await
-        .context("Failed to store bookmarks")?;
+        db.store_bookmark(request_data.client(), &subscription.uuid_string(), bookmark)
+            .await
+            .context("Failed to store bookmarks")?;
 
         debug!(
             "Store bookmark from {}:{} ({}) for subscription {} ({}): {}",
             request_data.remote_addr().ip(),
             request_data.remote_addr().port(),
-            request_data.principal(),
+            request_data.client(),
             subscription.data().name(),
             subscription.uuid_string(),
             bookmark
         );
         store_heartbeat(
             heartbeat_tx,
-            request_data.principal(),
+            request_data.client(),
             request_data.remote_addr().ip().to_string(),
             &subscription.uuid_string(),
             true,

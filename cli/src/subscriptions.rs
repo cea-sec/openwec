@@ -3,10 +3,9 @@ use common::{
     encoding::decode_utf16le,
     settings::Settings,
     subscription::{
-        ContentFormat, FilesConfiguration, KafkaConfiguration, PrincsFilterOperation,
-        RedisConfiguration, SubscriptionData, SubscriptionMachineState, SubscriptionOutput,
-        SubscriptionOutputDriver, SubscriptionOutputFormat, TcpConfiguration,
-        UnixDatagramConfiguration,
+        ContentFormat, FilesConfiguration, KafkaConfiguration, RedisConfiguration,
+        SubscriptionData, SubscriptionMachineState, SubscriptionOutput, SubscriptionOutputDriver,
+        SubscriptionOutputFormat, TcpConfiguration, UnixDatagramConfiguration,
     },
 };
 use roxmltree::{Document, Node};
@@ -20,7 +19,7 @@ use std::{
 };
 use uuid::Uuid;
 
-use anyhow::{anyhow, bail, ensure, Context, Result};
+use anyhow::{anyhow, bail, ensure, Context, Ok, Result};
 use clap::ArgMatches;
 use log::{debug, info, warn};
 use std::io::Write;
@@ -233,9 +232,6 @@ async fn edit(db: &Db, matches: &ArgMatches) -> Result<()> {
     let mut subscription = find_subscription(db, matches).await?;
     if let Some(("outputs", matches)) = matches.subcommand() {
         outputs(&mut subscription, matches).await?;
-    }
-    if let Some(("filter", matches)) = matches.subcommand() {
-        edit_filter(&mut subscription, matches).await?;
     }
     if let Some(query) = matches.get_one::<String>("query") {
         let mut file = File::open(query)?;
@@ -594,69 +590,6 @@ async fn delete(db: &Db, matches: &ArgMatches) -> Result<()> {
     db.delete_subscription(&subscription.uuid_string()).await
 }
 
-async fn edit_filter(subscription: &mut SubscriptionData, matches: &ArgMatches) -> Result<()> {
-    let mut filter = subscription.princs_filter().clone();
-    match matches.subcommand() {
-        Some(("set", matches)) => {
-            let op_str = matches
-                .get_one::<String>("operation")
-                .ok_or_else(|| anyhow!("Missing operation argument"))?;
-
-            let op_opt = PrincsFilterOperation::opt_from_str(op_str)?;
-            filter.set_operation(op_opt.clone());
-
-            if let Some(op) = op_opt {
-                let mut princs = HashSet::new();
-                if let Some(identifiers) = matches.get_many::<String>("principals") {
-                    for identifier in identifiers {
-                        princs.insert(identifier.clone());
-                    }
-                }
-                if op == PrincsFilterOperation::Only && princs.is_empty() {
-                    warn!("'{}' filter has been set without principals making this subscription apply to nothing.", op)
-                }
-                filter.set_princs(princs)?;
-            }
-        }
-        Some(("princs", matches)) => match matches.subcommand() {
-            Some(("add", matches)) => {
-                filter.add_princ(
-                    matches
-                        .get_one::<String>("principal")
-                        .ok_or_else(|| anyhow!("Missing principal"))?,
-                )?;
-            }
-            Some(("delete", matches)) => {
-                filter.delete_princ(
-                    matches
-                        .get_one::<String>("principal")
-                        .ok_or_else(|| anyhow!("Missing principal"))?,
-                )?;
-            }
-            Some(("set", matches)) => match matches.get_many::<String>("principals") {
-                Some(identifiers) => {
-                    let mut princs = HashSet::new();
-                    for identifier in identifiers {
-                        princs.insert(identifier.clone());
-                    }
-                    filter.set_princs(princs)?;
-                }
-                None => {
-                    bail!("No principals to set")
-                }
-            },
-            _ => {
-                bail!("Nothing to do");
-            }
-        },
-        _ => {
-            bail!("Nothing to do");
-        }
-    }
-    subscription.set_princs_filter(filter);
-
-    Ok(())
-}
 async fn outputs(subscription: &mut SubscriptionData, matches: &ArgMatches) -> Result<()> {
     info!(
         "Loading subscription {} ({})",

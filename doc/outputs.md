@@ -32,7 +32,7 @@ Available variables are:
 |:----:|-----------------|
 | `ip` | The Windows client IP address |
 | `ip:<n>` | The Windows client IP address until the `<n>`-th separator where `<n>` is an integer between 1 and 4.<br/>- `ip:2` would transform `127.0.0.1` into `127.0`<br/>- `ip:3` would transform `192.168.2.1` into `192.168.2`<br/>- `ip:4` would transform `2001:0:130F:0:0:9C0:876A:130B` into `2001:0:130F:0`.
-| `principal` | The Kerberos principal of the Windows client. Because this principal is used to build a path, all the characters that do not match `[a-zA-Z0-9.\-_@]` are deleted. |
+| `client` | The identifier of the Windows client. Depending on authentication method used, it can be either its Kerberos Principal or its TLS subject name. Because this identifier is used to build a path, all the characters that do not match `[a-zA-Z0-9.\-_@]` are deleted. |
 | `node` | The OpenWEC node's name which is configured in OpenWEC setting `server.node_name`. If the node does not have a name, the string `{node}` is left unchanged and a warning is generated. |
 
 The `Files` driver uses a unique thread (even if there are multiple instances of the driver) to write files. This thread maintains a hash table which contains every opened file descriptors. A garbage collector is run regularly (see `outputs.garbage_collect_interval` setting) to close the file descriptors that have not been used in a while (see `outputs.files.file_descriptors_close_timeout`).
@@ -46,10 +46,10 @@ You may want to tell OpenWEC to close all its file descriptors and to open them 
 | **Path** | **Description** |
 |----------|-----------------|
 | `/var/events/forwarded.log` | Store events in `/var/events/forwarded.log`
-| `/var/events/{ip}/{principal}/messages` | Store events in `/var/events/<ip>/<principal>/messages`
-| `/var/events/{ip:3}/{ip}/{principal}/messages` | With `<ip> = A.B.C.D`, store events in `/var/events/A.B.C/A.B.C.D/<principal>/messages`
-| `/var/events/{ip:2}/{ip:3}/{ip}/{principal}/my-events` | With `<ip> = A.B.C.D`, store events in `/var/events/A.B/A.B.C/A.B.C.D/<principal>/my-events`
-| `/var/events/{ip:1}/{ip:2}/{ip:3}/{ip}/{principal}/{node}/my-events` | With `<ip> = A.B.C.D`, store events in `/var/events/A/A.B/A.B.C/A.B.C.D/<principal>/<node_name>/my-events`
+| `/var/events/{ip}/{client}/messages` | Store events in `/var/events/<ip>/<client>/messages`
+| `/var/events/{ip:3}/{ip}/{client}/messages` | With `<ip> = A.B.C.D`, store events in `/var/events/A.B.C/A.B.C.D/<client>/messages`
+| `/var/events/{ip:2}/{ip:3}/{ip}/{client}/my-events` | With `<ip> = A.B.C.D`, store events in `/var/events/A.B/A.B.C/A.B.C.D/<client>/my-events`
+| `/var/events/{ip:1}/{ip:2}/{ip:3}/{ip}/{client}/{node}/my-events` | With `<ip> = A.B.C.D`, store events in `/var/events/A/A.B/A.B.C/A.B.C.D/<client>/<node_name>/my-events`
 
 #### Configuration
 
@@ -211,7 +211,7 @@ This command prints the current outputs of the subscription.
 
 ```
 $ openwec subscriptions edit my-subscription outputs
-0: Enabled: true, Format: Json, Driver: Files(FilesConfiguration { path: "/var/events/{ip}/{principal}/messages" })
+0: Enabled: true, Format: Json, Driver: Files(FilesConfiguration { path: "/var/events/{ip}/{client}/messages" })
 1: Enabled: true, Format: Json, Driver: Tcp(dc.windomain.local:12000)
 ```
 

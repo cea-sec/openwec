@@ -14,6 +14,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Optionally wrap TCP stream in a TLS session in TCP driver (#203)
 - Support for SPNEGO authentication (#307)
 
+## Changed
+
+- Rework subscription filters (#186) (**Warning: this require a databatase migration**)
+- In formats `Json`, `Nxlog` and `RawJson`, `OpenWEC.Principal` is replaced by `OpenWEC.Client` (#186)
+- In `Files` driver, `{principal}` is replaced by `{client}` in `path` config (#186)
+- In access log pattern, `{X(principal)}` is replaced by `{X(client)}` (#186)
+
+## Removed
+
+- Subscription filters can no longer be created nor edited using the cli (#186)
+
 ## [v0.3.0]
 
 ### Added

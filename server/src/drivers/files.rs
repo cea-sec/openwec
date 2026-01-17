@@ -254,8 +254,8 @@ impl leon::Values for PathValues {
     fn get_value(&self, key: &str) -> Option<Cow<'_, str>> {
         if key == "ip" {
             Some(Cow::from(self.metadata.addr().ip().to_string()))
-        } else if key == "principal" {
-            Some(sanitize_name(self.metadata.principal()).into())
+        } else if key == "principal" || key == "client" {
+            Some(sanitize_name(self.metadata.client()).into())
         } else if key == "node" {
             if let Some(node_name) = self.metadata.node_name() {
                 Some(node_name.as_str().into())
@@ -437,6 +437,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_build_path() -> Result<()> {
+        // {principal} is kept for compatibility
         let config = FilesConfiguration::new("/base/{ip}/{principal}/messages".to_string());
 
         let ip: IpAddr = "127.0.0.1".parse()?;
@@ -471,8 +472,7 @@ mod tests {
             PathBuf::from_str("/base/127/127.0/127.0.0/127.0.0.1/node/messages")?
         );
 
-        let config =
-            FilesConfiguration::new("/base/{ip:2}/{ip:3}/{ip}/{principal}/other".to_string());
+        let config = FilesConfiguration::new("/base/{ip:2}/{ip:3}/{ip}/{client}/other".to_string());
         let output_file = OutputFiles::new(&config, &context)?;
 
         assert_eq!(
@@ -488,7 +488,7 @@ mod tests {
             PathBuf::from_str("/base/127.0.0/127.0.0.1/messages")?
         );
 
-        let config = FilesConfiguration::new("/base/{ip:4}/{principal}/messages".to_string());
+        let config = FilesConfiguration::new("/base/{ip:4}/{client}/messages".to_string());
         let output_file = OutputFiles::new(&config, &context)?;
 
         assert_eq!(
@@ -529,7 +529,7 @@ mod tests {
         );
 
         let event_metadata_without_node = create_event_metadata(ip, "COMPUTER$@REALM", None);
-        let config = FilesConfiguration::new("/base/{principal}/messages".to_string());
+        let config = FilesConfiguration::new("/base/{client}/messages".to_string());
         let output_file = OutputFiles::new(&config, &context)?;
         assert_eq!(
             output_file.build_path(&event_metadata_without_node)?,

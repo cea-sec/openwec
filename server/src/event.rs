@@ -499,7 +499,7 @@ impl RenderingInfo {
 pub struct EventMetadata {
     // TODO : add authentication method (TLS or Kerberos)
     addr: SocketAddr,
-    principal: String,
+    client: String,
     node_name: Option<String>,
     time_received: DateTime<Utc>,
     subscription_uuid: String,
@@ -513,7 +513,7 @@ pub struct EventMetadata {
 impl EventMetadata {
     pub fn new(
         addr: &SocketAddr,
-        principal: &str,
+        client: &str,
         node_name: Option<String>,
         subscription: &Subscription,
         public_version: String,
@@ -521,7 +521,7 @@ impl EventMetadata {
     ) -> Self {
         EventMetadata {
             addr: *addr,
-            principal: principal.to_owned(),
+            client: client.to_owned(),
             node_name,
             time_received: Utc::now(),
             subscription_uuid: subscription.data().uuid_string(),
@@ -543,8 +543,8 @@ impl EventMetadata {
         self.addr
     }
 
-    pub fn principal(&self) -> &str {
-        self.principal.as_ref()
+    pub fn client(&self) -> &str {
+        self.client.as_ref()
     }
 
     pub fn node_name(&self) -> Option<&String> {

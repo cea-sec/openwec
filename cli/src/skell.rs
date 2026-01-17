@@ -121,17 +121,28 @@ fn get_filter() -> String {
     r#"
 # Subscription filter (optional)
 #
-# Filters enables you to choose which clients can read the subscription
-# There are two operations available :
-# - "Only": only the listed principals will be able to read the subscription
-# - "Except": everyone but the listed principals will be able to read the subscription
-#
 # By default, everyone can read the subscription.
 #
-# Example to only authorize "courgette@REALM" and "radis@REALM" to read the subscription.
+# Filters enables you to choose which clients can read the subscription
+# There are two operations available:
+# - "Only": only the listed clients will be able to read the subscription
+# - "Except": everyone but the listed clients will be able to read the subscription
+#
+# You can filter based on the following types:
+# - Client: defines clients based on their identifier (from authentication)
+# - MachineID: defines clients based on their System.Computer
+# The default value is "Client"
+#
+# Multiple flags can be combined using the bitwise OR operator "|":
+# - GlobPattern: targets are interpreted as glob patterns (e.g. "radis*@REALM")
+# - CaseInsensitive: targets are compared in a case-insensitive way (off by default)
+#
+# Example to only authorize clients matching the "courgette@REALM" and "radis*@REALM" patterns to read the subscription.
 # [filter]
 # operation = "Only"
-# princs = ["courgette@REALM", "radis@REALM"]
+# type = "Client"
+# flags = "GlobPattern | CaseInsensitive"
+# targets = ["courgette@REALM", "radis*@REALM"]
 
 "#
     .to_string()
@@ -155,7 +166,7 @@ fn get_outputs() -> String {
 # Files driver has the following parameters:
 # - path (required): the path in which files will be written. It can be parameterized
 #       with variables using the syntax {variable} (see available variables in documentation)
-# config = { path = "/var/log/openwec/{ip:2}/{ip:3}/{ip}/{principal}/messages" }
+# config = { path = "/var/log/openwec/{ip:2}/{ip:3}/{ip}/{client}/messages" }
 
 
 # Configure a Kafka output
@@ -224,7 +235,7 @@ pub fn get_minimal_skell_content(uuid: Uuid, name: &str, now: DateTime<Local>) -
 [[outputs]]
 driver = "Files"
 format = "Raw"
-config = { path = "/var/log/openwec/{ip:2}/{ip:3}/{ip}/{principal}/messages" }
+config = { path = "/var/log/openwec/{ip:2}/{ip:3}/{ip}/{client}/messages" }
 "#,
     );
     content
