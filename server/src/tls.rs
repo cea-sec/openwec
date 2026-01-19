@@ -192,6 +192,24 @@ pub fn issuer_from_cert(cert: &[u8]) -> Result<String> {
     bail!("CommonName not found")
 }
 
+pub fn find_matching_ca(
+    peer_certs: &[CertificateDer],
+    ca_thumbprints: &HashMap<String, String>,
+) -> Result<String> {
+    peer_certs
+        .iter()
+        .find_map(|cert| {
+            let issuer = issuer_from_cert(cert.as_ref()).ok()?;
+            debug!("Checking issuer '{}'", &issuer);
+
+            ca_thumbprints.get(&issuer).map(|ca_entry| {
+                debug!("Found matching CA for issuer '{}'", &issuer);
+                ca_entry.clone()
+            })
+        })
+        .context("No trusted CA found in certificate chain")
+}
+
 /// Read and decode request payload
 pub async fn get_request_payload(
     parts: hyper::http::request::Parts,
