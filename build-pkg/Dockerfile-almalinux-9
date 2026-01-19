@@ -11,7 +11,8 @@ RUN set -eux; \
     clang \
     make \
     openssl-devel \
-    krb5-devel ; \
+    krb5-devel \
+    cyrus-sasl-devel ; \
     dnf clean all ; \
     curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path ; \
     cargo install cargo-generate-rpm ;
