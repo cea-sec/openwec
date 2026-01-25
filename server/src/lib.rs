@@ -70,7 +70,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::logging::ACCESS_LOGGER;
 use crate::proxy_protocol::read_proxy_header;
-use crate::tls::{make_config, subject_from_cert};
+use crate::tls::{find_matching_ca, issuer_from_cert, make_config, subject_from_cert};
 
 pub enum RequestCategory {
     Enumerate(String),
@@ -957,7 +957,8 @@ fn create_tls_server(
             let svc_monitoring_settings = monitoring_settings.clone();
             let subscriptions = collector_subscriptions.clone();
             let collector_heartbeat_tx = collector_heartbeat_tx.clone();
-            let thumbprint = tls_config.thumbprint.clone();
+            let ca_thumbprints = tls_config.thumbprints.clone();
+
             let tls_acceptor = tls_acceptor.clone();
 
             // Create a "rx" channel end for the task
@@ -998,21 +999,37 @@ fn create_tls_server(
                     }
                 };
 
-                // get peer certificate
-                let cert = stream
+                // get peer certificates (full chain)
+                let certificate_chain = stream
                     .get_ref()
                     .1
                     .peer_certificates()
-                    .expect("Peer certificate should exist") // client auth has to happen, so this should not fail
+                    .expect("Peer certificate should exist"); // client auth has to happen, so this should not fail
+                let cert = certificate_chain
                     .first()
                     .expect("Peer certificate should not be empty") // client cert cannot be empty if authentication succeeded
                     .clone();
 
                 let subject =
                     subject_from_cert(cert.as_ref()).expect("Could not parse client certificate");
+                debug!("Incoming TLS connection from subject '{}'", &subject);
+
+                let issuer = issuer_from_cert(cert.as_ref())
+                    .expect("Could not parse issuer from client certificate");
+                debug!("Client certificate issued by '{}'", &issuer);
+                debug!("Known CAs: {:?}", ca_thumbprints);
+
+                // Try to find a trusted CA in the certificate chain
+                let matching_ca_entry = match find_matching_ca(certificate_chain, &ca_thumbprints) {
+                    Ok(entry) => entry,
+                    Err(e) => {
+                        warn!( "No trusted CA found in certificate chain for connection from '{}' (subject: '{}'): {:?}", real_client_addr, subject, e);
+                        return;
+                    }
+                };
 
                 // Initialize Authentication context once for each TCP connection
-                let auth_ctx = AuthenticationContext::Tls(subject, thumbprint);
+                let auth_ctx = AuthenticationContext::Tls(subject.clone(), matching_ca_entry);
 
                 // Hyper needs a wrapper for the stream
                 let io = TokioIo::new(stream);
