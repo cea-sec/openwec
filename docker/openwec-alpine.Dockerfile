@@ -38,6 +38,7 @@ ENV APP_USER=openwec
 
 RUN apk upgrade --no-cache && apk add --no-cache \
     libgcc \
+    libsasl \
     libssl3 libcrypto3 \
     krb5-libs \
     && addgroup $APP_USER \
