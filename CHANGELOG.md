@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add an optional Prometheus endpoint that exposes metrics (#190)
 - Optionally wrap TCP stream in a TLS session in TCP driver (#203)
 - Support for SPNEGO authentication (#307)
+- Add OTLP output driver that sends events as OpenTelemetry logs over gRPC, with optional `gzip`/`zstd` compression and a configurable export timeout. The Windows event `Level` and `TimeCreated` are mapped to the log record severity and timestamp.
 
 ## Changed
 

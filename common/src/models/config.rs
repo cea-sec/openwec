@@ -127,6 +127,27 @@ impl From<UnixDatagramConfiguration> for crate::subscription::UnixDatagramConfig
 }
 
 #[derive(Debug, Clone, Deserialize, Eq, PartialEq)]
+#[serde(deny_unknown_fields)]
+struct OtlpConfiguration {
+    pub endpoint: String,
+    pub timeout: Option<u64>,
+    pub compression: Option<String>,
+}
+
+impl TryFrom<OtlpConfiguration> for crate::subscription::OtlpConfiguration {
+    type Error = anyhow::Error;
+
+    fn try_from(value: OtlpConfiguration) -> std::result::Result<Self, Self::Error> {
+        crate::subscription::OtlpConfiguration::new(
+            value.endpoint.clone(),
+            value.timeout,
+            value.compression.clone(),
+        )
+        .with_context(|| format!("Loading {:?}", value))
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, Eq, PartialEq)]
 #[serde(tag = "driver", content = "config")]
 enum SubscriptionOutputDriver {
     Files(FilesConfiguration),
@@ -134,6 +155,7 @@ enum SubscriptionOutputDriver {
     Tcp(TcpConfiguration),
     Redis(RedisConfiguration),
     UnixDatagram(UnixDatagramConfiguration),
+    Otlp(OtlpConfiguration),
 }
 
 impl TryFrom<SubscriptionOutputDriver> for crate::subscription::SubscriptionOutputDriver {
@@ -155,6 +177,9 @@ impl TryFrom<SubscriptionOutputDriver> for crate::subscription::SubscriptionOutp
             }
             SubscriptionOutputDriver::UnixDatagram(config) => {
                 crate::subscription::SubscriptionOutputDriver::UnixDatagram(config.into())
+            }
+            SubscriptionOutputDriver::Otlp(config) => {
+                crate::subscription::SubscriptionOutputDriver::Otlp(config.try_into()?)
             }
         })
     }

@@ -11,6 +11,7 @@ use crate::{
     drivers::{
         files::{OutputFiles, OutputFilesContext},
         kafka::{OutputKafka, OutputKafkaContext},
+        otlp::OutputOtlp,
         redis::OutputRedis,
         tcp::OutputTcp,
         unix::OutputUnixDatagram,
@@ -122,6 +123,7 @@ impl Output {
             SubscriptionOutputDriver::UnixDatagram(config) => {
                 Arc::new(OutputUnixDatagram::new(config)?)
             }
+            SubscriptionOutputDriver::Otlp(config) => Arc::new(OutputOtlp::new(config)?),
         };
 
         Ok(Self {

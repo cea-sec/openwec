@@ -494,6 +494,9 @@ pub mod v2 {
                 crate::subscription::SubscriptionOutputDriver::UnixDatagram(config) => {
                     SubscriptionOutputDriver::UnixDatagram(config.into())
                 }
+                crate::subscription::SubscriptionOutputDriver::Otlp(_) => {
+                    unimplemented!("OTLP output driver is not yet supported for subscription export/import")
+                }
             }
         }
     }
@@ -880,12 +883,44 @@ pub mod v3 {
     }
 
     #[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize)]
+    pub(super) struct OtlpConfiguration {
+        pub endpoint: String,
+        #[serde(default)]
+        pub timeout: Option<u64>,
+        #[serde(default)]
+        pub compression: Option<String>,
+    }
+
+    impl TryFrom<OtlpConfiguration> for crate::subscription::OtlpConfiguration {
+        type Error = anyhow::Error;
+
+        fn try_from(value: OtlpConfiguration) -> Result<Self, Self::Error> {
+            crate::subscription::OtlpConfiguration::new(
+                value.endpoint,
+                value.timeout,
+                value.compression,
+            )
+        }
+    }
+
+    impl From<crate::subscription::OtlpConfiguration> for OtlpConfiguration {
+        fn from(value: crate::subscription::OtlpConfiguration) -> Self {
+            Self {
+                endpoint: value.endpoint().to_string(),
+                timeout: value.timeout(),
+                compression: value.compression().map(|s| s.to_string()),
+            }
+        }
+    }
+
+    #[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize)]
     pub(super) enum SubscriptionOutputDriver {
         Files(FilesConfiguration),
         Kafka(KafkaConfiguration),
         Tcp(TcpConfiguration),
         Redis(RedisConfiguration),
         UnixDatagram(UnixDatagramConfiguration),
+        Otlp(OtlpConfiguration),
     }
 
     impl TryFrom<SubscriptionOutputDriver> for crate::subscription::SubscriptionOutputDriver {
@@ -908,6 +943,9 @@ pub mod v3 {
                 SubscriptionOutputDriver::UnixDatagram(config) => {
                     crate::subscription::SubscriptionOutputDriver::UnixDatagram(config.into())
                 }
+                SubscriptionOutputDriver::Otlp(config) => {
+                    crate::subscription::SubscriptionOutputDriver::Otlp(config.try_into()?)
+                }
             })
         }
     }
@@ -929,6 +967,9 @@ pub mod v3 {
                 }
                 crate::subscription::SubscriptionOutputDriver::UnixDatagram(config) => {
                     SubscriptionOutputDriver::UnixDatagram(config.into())
+                }
+                crate::subscription::SubscriptionOutputDriver::Otlp(config) => {
+                    SubscriptionOutputDriver::Otlp(config.into())
                 }
             }
         }

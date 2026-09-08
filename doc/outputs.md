@@ -196,6 +196,63 @@ $ openwec subscriptions edit <subscription> outputs add --format <format> unixda
 $ openwec subscriptions edit <subscription> outputs add --format <format> redis <redis server> <list>
 ```
 
+### OTLP
+
+The OTLP driver sends events as [OpenTelemetry logs](https://opentelemetry.io/docs/specs/otel/logs/) to an OTLP endpoint over gRPC (using `tonic`).
+
+There is one exporter per output using the OTLP driver. Each batch of events is exported inline: if the export fails (for example if the endpoint is unreachable or rejects the request), the events are not acknowledged to the client and will be sent again later.
+
+Each received event is mapped to one OTLP log record:
+- the **body** is the formatted event (according to the output's format);
+- the **severity** is derived from the Windows event `Level`;
+- the record **timestamp** is derived from the Windows event `TimeCreated`, while the **observed timestamp** is set to the time openwec received the event;
+- the following **attributes** are added:
+
+| **Attribute** | **Description** |
+|---------------|-----------------|
+| `subscription.name` | Name of the subscription |
+| `subscription.uuid` | UUID of the subscription |
+| `client` | Identifier of the Windows client (Kerberos principal or TLS subject) |
+| `client.address` | Source IP address and port of the Windows client |
+| `node` | OpenWEC node name (`server.node_name`), if configured |
+
+The severity is mapped from the Windows event `Level` as follows:
+
+| **Windows `Level`** | **OTLP severity** |
+|:-------------------:|:-----------------:|
+| 1 (Critical) | `FATAL` |
+| 2 (Error) | `ERROR` |
+| 3 (Warning) | `WARN` |
+| 4 (Information) | `INFO` |
+| 5 (Verbose) | `DEBUG` |
+| other / absent | `INFO` |
+
+> [!NOTE]
+> The `Level` and `TimeCreated` values are extracted from the **raw Windows event XML** contained in the event. They are therefore only available when the output format keeps that XML, i.e. `Raw` and `RawJson`. With other formats (`Json`, `Nxlog`), the severity falls back to `INFO` and the record timestamp falls back to the time openwec received the event.
+
+You must provide the OTLP/gRPC `endpoint` to connect to (e.g. `http://collector:4317`). You may optionally configure `compression` and `timeout`.
+
+| **Option** | **Required** | **Description** |
+|------------|:------------:|-----------------|
+| `endpoint` | yes | OTLP/gRPC endpoint URL (e.g. `http://collector:4317`) |
+| `compression` | no | Compression algorithm, either `gzip` or `zstd`. Defaults to no compression. |
+| `timeout` | no | Export timeout in seconds, between 1 and 300. Defaults to the exporter's default. |
+
+> [!NOTE]
+> Only the OTLP **logs** signal over **gRPC** is supported. HTTP transport, authentication, custom headers and TLS (server verification and mutual TLS) are **not supported yet** and are planned for a future version. In the meantime, the underlying OpenTelemetry exporter also honors the standard `OTEL_EXPORTER_OTLP_*` environment variables (such as `OTEL_EXPORTER_OTLP_HEADERS`), which can be used as an interim mechanism to set authentication headers.
+
+#### Configuration
+
+```toml
+[[outputs]]
+driver = "Otlp"
+format = "<format>" # To replace. Use "Raw" or "RawJson" to enable severity/timestamp mapping (see formats.md)
+# - endpoint (required): OTLP/gRPC endpoint to send events to (e.g. "http://collector:4317")
+# - compression (optional, defaults to none): "gzip" or "zstd"
+# - timeout (optional, defaults to the exporter default): export timeout in seconds (1-300)
+config = { endpoint = "<endpoint>" } # To replace
+```
+
 ## Commands (deprecated)
 
 > [!WARNING]

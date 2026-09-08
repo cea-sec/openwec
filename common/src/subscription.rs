@@ -176,6 +176,77 @@ impl UnixDatagramConfiguration {
     }
 }
 
+/// Allowed compression algorithms for the OTLP output driver.
+pub const OTLP_VALID_COMPRESSIONS: [&str; 2] = ["gzip", "zstd"];
+/// Minimum export timeout (in seconds) accepted for the OTLP output driver.
+pub const OTLP_TIMEOUT_MIN_SECS: u64 = 1;
+/// Maximum export timeout (in seconds) accepted for the OTLP output driver.
+pub const OTLP_TIMEOUT_MAX_SECS: u64 = 300;
+
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
+pub struct OtlpConfiguration {
+    endpoint: String,
+    #[serde(default)]
+    timeout: Option<u64>,
+    #[serde(default)]
+    compression: Option<String>,
+}
+
+impl OtlpConfiguration {
+    pub fn new(
+        endpoint: String,
+        timeout: Option<u64>,
+        compression: Option<String>,
+    ) -> Result<Self> {
+        if let Some(timeout) = timeout {
+            if !(OTLP_TIMEOUT_MIN_SECS..=OTLP_TIMEOUT_MAX_SECS).contains(&timeout) {
+                bail!(
+                    "OTLP timeout must be between {} and {} seconds, found {}",
+                    OTLP_TIMEOUT_MIN_SECS,
+                    OTLP_TIMEOUT_MAX_SECS,
+                    timeout
+                );
+            }
+        }
+
+        // Normalize and validate the compression algorithm (if any).
+        let compression = match compression {
+            Some(value) => {
+                let normalized = value.to_lowercase();
+                if !OTLP_VALID_COMPRESSIONS.contains(&normalized.as_str()) {
+                    bail!(
+                        "Invalid OTLP compression '{}' (expected one of: {})",
+                        value,
+                        OTLP_VALID_COMPRESSIONS.join(", ")
+                    );
+                }
+                Some(normalized)
+            }
+            None => None,
+        };
+
+        Ok(Self {
+            endpoint,
+            timeout,
+            compression,
+        })
+    }
+
+    pub fn endpoint(&self) -> &str {
+        self.endpoint.as_ref()
+    }
+
+    /// Export timeout in seconds, if configured.
+    pub fn timeout(&self) -> Option<u64> {
+        self.timeout
+    }
+
+    /// Compression algorithm ("gzip" or "zstd"), if configured.
+    pub fn compression(&self) -> Option<&str> {
+        self.compression.as_deref()
+    }
+}
+
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize, AsRefStr)]
 #[strum(serialize_all = "lowercase")]
 pub enum SubscriptionOutputDriver {
@@ -184,6 +255,7 @@ pub enum SubscriptionOutputDriver {
     Tcp(TcpConfiguration),
     Redis(RedisConfiguration),
     UnixDatagram(UnixDatagramConfiguration),
+    Otlp(OtlpConfiguration),
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
