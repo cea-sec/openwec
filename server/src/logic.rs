@@ -149,7 +149,7 @@ async fn handle_enumerate(
     let current_subscriptions = {
         let subscriptions_unlocked = subscriptions.read().unwrap();
         let mut current = Vec::with_capacity(subscriptions_unlocked.len());
-        for (_, subscription) in subscriptions.read().unwrap().iter() {
+        for subscription in subscriptions.read().unwrap().values() {
             current.push(subscription.clone());
         }
         current

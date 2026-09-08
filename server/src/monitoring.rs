@@ -172,7 +172,7 @@ async fn refresh_machines_task(
                 let subscriptions_data = {
                     let subscriptions_unlocked = subscriptions.read().unwrap();
                     let mut subscriptions_data = Vec::with_capacity(subscriptions_unlocked.len());
-                    for (_, subscription) in subscriptions.read().unwrap().iter() {
+                    for subscription in subscriptions.read().unwrap().values() {
                         subscriptions_data.push((subscription.uuid_string(), subscription.data().name().to_string(), subscription.data().heartbeat_interval()));
                     }
                     subscriptions_data

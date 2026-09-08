@@ -32,7 +32,7 @@ pub fn read_multipart_body<S: Read>(
     // Read the headers (which should end in 2 line terminators, but do not
     // for unknown reasons). But there are only headers in this part so this
     // is fine :)
-    buf.truncate(0); // start fresh
+    buf.clear(); // start fresh
     let (_, found) = reader.stream_until_token(middle_boundary.as_bytes(), &mut buf)?;
     if !found {
         bail!("EofInPartHeaders");
@@ -78,7 +78,7 @@ pub fn read_multipart_body<S: Read>(
     }
 
     // Read Content-Type header
-    buf.truncate(0); // start fresh
+    buf.clear(); // start fresh
     let (_, found) = reader.stream_until_token(&lt, &mut buf)?;
     if !found {
         bail!("No cr lf after headers");
@@ -108,7 +108,7 @@ pub fn read_multipart_body<S: Read>(
     }
 
     // Read interesting data
-    buf.truncate(0); // start fresh
+    buf.clear(); // start fresh
     let (size, found) = reader.stream_until_token(end_boundary.as_bytes(), &mut buf)?;
     if !found {
         log::error!(

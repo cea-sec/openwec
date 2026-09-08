@@ -1012,11 +1012,11 @@ fn create_tls_server(
 
                 let subject =
                     subject_from_cert(cert.as_ref()).expect("Could not parse client certificate");
-                debug!("Incoming TLS connection from subject '{}'", &subject);
+                debug!("Incoming TLS connection from subject '{}'", subject);
 
                 let issuer = issuer_from_cert(cert.as_ref())
                     .expect("Could not parse issuer from client certificate");
-                debug!("Client certificate issued by '{}'", &issuer);
+                debug!("Client certificate issued by '{}'", issuer);
                 debug!("Known CAs: {:?}", ca_thumbprints);
 
                 // Try to find a trusted CA in the certificate chain

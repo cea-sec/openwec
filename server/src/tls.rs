@@ -76,18 +76,18 @@ pub fn make_config(args: &common::settings::Tls) -> Result<TlsConfig> {
     for root in ca_certs {
         let subject = subject_from_cert(root.as_ref())?;
         let thumbprint = compute_thumbprint(root.as_ref());
-        debug!("CA Thumbprint from certificate: {}", &thumbprint);
+        debug!("CA Thumbprint from certificate: {}", thumbprint);
         if let Some(existing) = ca_thumbprints.get(&subject) {
             if existing != &thumbprint {
                 bail!(
                     "Duplicate CA subject with different thumbprints: {}",
-                    &subject
+                    subject
                 );
             }
             // already present, skip, but warn
             warn!(
                 "Duplicate CA certificate found for subject: {}, thumbprint: {}",
-                &subject, &thumbprint
+                subject, thumbprint
             );
             continue;
         }
@@ -204,10 +204,10 @@ pub fn find_matching_ca(
         .iter()
         .find_map(|cert| {
             let issuer = issuer_from_cert(cert.as_ref()).ok()?;
-            debug!("Checking issuer '{}'", &issuer);
+            debug!("Checking issuer '{}'", issuer);
 
             ca_thumbprints.get(&issuer).map(|ca_entry| {
-                debug!("Found matching CA for issuer '{}'", &issuer);
+                debug!("Found matching CA for issuer '{}'", issuer);
                 ca_entry.clone()
             })
         })
