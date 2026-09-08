@@ -142,7 +142,7 @@ impl Serializable for SubscriptionBody {
                             .write_inner_content(|writer| {
                                 writer.create_element("w:Heartbeats").write_text_content(
                                     BytesText::new(
-                                        format!("PT{}.000S", &self.heartbeat_interval).as_str(),
+                                        format!("PT{}.000S", self.heartbeat_interval).as_str(),
                                     ),
                                 )?;
                                 writer.create_element("e:NotifyTo").write_inner_content(
