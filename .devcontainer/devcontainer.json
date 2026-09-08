@@ -1,0 +1,29 @@
+{
+	"name": "openwec",
+	"build": {
+		"dockerfile": "./Dockerfile"
+	},
+	"features": {
+		"ghcr.io/devcontainers/features/docker-in-docker:4.0.0": {
+			"moby": false
+		},
+		"ghcr.io/devcontainers/features/github-cli:1": {}
+	},
+	"customizations": {
+		"vscode": {
+			"settings": {
+				"editor.formatOnSave": true,
+				"files.insertFinalNewline": true,
+				"files.trimFinalNewlines": true,
+				"files.autoSave": "afterDelay",
+				"files.autoSaveDelay": 1000
+			},
+			"extensions": [
+				"rust-lang.rust-analyzer",
+				"ms-azuretools.vscode-docker", //For checking status of Docker
+				"github.vscode-github-actions"
+			]
+		}
+	},
+	"mounts": []
+}
